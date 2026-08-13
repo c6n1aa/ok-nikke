@@ -71,6 +71,6 @@ jobs:
             ###  更新日志
               请查看提交记录。
             ### 下载包说明
-              * [ok-nikke-win32-China-setup.exe](https://github.com/c6n1aa/ok-nikke/releases/download/${{ github.ref_name }}/ok-nikke-win32-China-setup.exe) 完整安装包.
-              * [ok-nikke-win32-Global-setup.exe](https://github.com/c6n1aa/ok-nikke/releases/download/${{ github.ref_name }}/ok-nikke-win32-Global-setup.exe) full package with dependencies.
+              * [ok-nikke-daily-win32-China-setup.exe](https://github.com/c6n1aa/ok-nikke-daily/releases/download/${{ github.ref_name }}/ok-nikke-daily-win32-China-setup.exe) 完整安装包.
+              * [ok-nikke-daily-win32-Global-setup.exe](https://github.com/c6n1aa/ok-nikke-daily/releases/download/${{ github.ref_name }}/ok-nikke-daily-win32-Global-setup.exe) full package with dependencies.
           files: pyappify_dist/*

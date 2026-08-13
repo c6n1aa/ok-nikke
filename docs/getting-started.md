@@ -2,11 +2,11 @@
 
 ## 1. 获取源码
 
-项目仓库位于 [github.com/c6n1aa/ok-nikke](https://github.com/c6n1aa/ok-nikke)：
+项目仓库位于 [github.com/c6n1aa/ok-nikke-daily](https://github.com/c6n1aa/ok-nikke-daily)：
 
 ```bash
-git clone https://github.com/c6n1aa/ok-nikke.git
-cd ok-nikke
+git clone https://github.com/c6n1aa/ok-nikke-daily.git
+cd ok-nikke-daily
 ```
 
 ## 2. 安装 Python 3.12

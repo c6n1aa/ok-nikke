@@ -1,6 +1,6 @@
 # AGENTS.md
 
-ok-nikke is a Python GUI automation app for the NIKKE Windows game client, built on the PyPI `ok-script` library (ok-script-app template). Chinese copy of this file: `AGENTS.zh-CN.md`.
+ok-nikke-daily is a Python GUI automation app for the NIKKE Windows game client, built on the PyPI `ok-script` library (ok-script-app template). Chinese copy of this file: `AGENTS.zh-CN.md`.
 
 ## Environment & commands
 

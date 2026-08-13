@@ -1,6 +1,6 @@
 # AGENTS.md（中文说明）
 
-ok-nikke 是基于 PyPI `ok-script` 库（ok-script-app 模板）构建的《NIKKE：胜利女神》Windows 客户端 Python GUI 自动化应用。本文是面向 AI 编码助手的项目说明与约束，英文副本见 `AGENTS.md`。
+ok-nikke-daily 是基于 PyPI `ok-script` 库（ok-script-app 模板）构建的《NIKKE：胜利女神》Windows 客户端 Python GUI 自动化应用。本文是面向 AI 编码助手的项目说明与约束，英文副本见 `AGENTS.md`。
 
 ## 环境与命令
 

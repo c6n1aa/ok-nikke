@@ -4,7 +4,7 @@
 
 在 `src/config.py` 中至少检查：
 
-- `gui_title`：应用窗口名称，当前为 `ok-nikke`。
+- `gui_title`：应用窗口名称，当前为 `ok-nikke-daily`。
 - `gui_icon`：GUI 图标路径。
 - `supported_resolution`：支持的画面比例和最低分辨率。
 - `links`：项目主页、反馈渠道和社区链接。
@@ -51,5 +51,5 @@
 修改 `pyappify.yml` 中应用名称、profile 名称和 `git_url`：
 
 - 正式发布建议使用独立的轻量更新仓库。
-- 前期测试直接使用源码仓库 `https://github.com/c6n1aa/ok-nikke.git`。
+- 前期测试直接使用源码仓库 `https://github.com/c6n1aa/ok-nikke-daily.git`。
 - 使用独立更新仓库时，同步修改 `.github/workflows/build.yml` 中的同步目标和 Secrets。

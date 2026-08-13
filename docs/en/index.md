@@ -1,8 +1,8 @@
-# ok-nikke
+# ok-nikke-daily
 
 [中文](../index.md)
 
-ok-nikke is a Python automation project built on [ok-script](https://github.com/ok-oldking/ok-script), providing a GUI automation app for the Windows client of Goddess of Victory: NIKKE.
+ok-nikke-daily is a Python automation project built on [ok-script](https://github.com/ok-oldking/ok-script), providing a GUI automation app for the Windows client of Goddess of Victory: NIKKE.
 
 This repository is not the ok-script template itself. It includes a runnable GUI, task and configuration-widget examples, OCR, template matching, tests, i18n, EXE packaging, and update/release configuration.
 
