@@ -3,6 +3,8 @@ import os
 import numpy as np
 from ok import ConfigOption
 
+import src.start_game  # noqa: F401  启动器相关补丁，必须在 ok.OK(config) 构造前导入
+
 version = "dev"
 #不需要修改version, Github Action打包会自动修改
 
@@ -115,6 +117,8 @@ config = {
     'my_app': ['src.globals', 'Globals'], #可选. 全局单例对象, 可以存放加载的模型, 使用og.my_app调用
     'onetime_tasks': [  # 用户点击触发的任务
         ["src.tasks.MyOneTimeTask", "MyOneTimeTask"],
+        ["src.tasks.DailyTask", "DailyTask"],
+        ["src.tasks.SweepDungeonTask", "SweepDungeonTask"],
         ["ok", "DiagnosisTask"],
     ],
 }
