@@ -4,7 +4,7 @@
 
 在 `src/config.py` 中至少检查：
 
-- `gui_title`：应用窗口名称。
+- `gui_title`：应用窗口名称，当前为 `ok-nikke`。
 - `gui_icon`：GUI 图标路径。
 - `supported_resolution`：支持的画面比例和最低分辨率。
 - `links`：项目主页、反馈渠道和社区链接。
@@ -12,7 +12,7 @@
 
 ## 运行目标
 
-`windows`、`adb`、`browser` 必须至少配置一种，也可以同时配置多种。
+本项目的运行目标是 Windows 原生游戏（《NIKKE：胜利女神》Windows 客户端）。`windows`、`adb`、`browser` 必须至少配置一种。
 
 ### Windows 原生游戏
 
@@ -26,11 +26,11 @@
 
 ### Android 模拟器或设备
 
-在 `adb.packages` 中填写游戏包名。MuMu 模拟器可使用原生截图和输入；其他模拟器或设备通常通过 ADB 工作。
+本项目暂未启用 Android 目标。如需支持，在 `adb.packages` 中填写游戏包名。MuMu 模拟器可使用原生截图和输入；其他模拟器或设备通常通过 ADB 工作。
 
 ### 浏览器游戏
 
-取消 `browser` 示例配置的注释，并设置：
+本项目暂未启用浏览器目标。如需支持，取消 `browser` 示例配置的注释，并设置：
 
 ```python
 'browser': {
@@ -51,7 +51,5 @@
 修改 `pyappify.yml` 中应用名称、profile 名称和 `git_url`：
 
 - 正式发布建议使用独立的轻量更新仓库。
-- 前期测试可以直接使用源码仓库。
+- 前期测试直接使用源码仓库 `https://github.com/c6n1aa/ok-nikke.git`。
 - 使用独立更新仓库时，同步修改 `.github/workflows/build.yml` 中的同步目标和 Secrets。
-
-初始化后，搜索并替换模板遗留的 `ok-script-app`、`ok-oldking`、仓库 URL、安装包名称和社区链接。

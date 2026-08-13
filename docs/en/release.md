@@ -2,10 +2,9 @@
 
 ## Release Files
 
-- `.github/workflows/build.yml`: watches `v*` tags, tests, syncs updates, packages, and creates a GitHub Release.
+- `.github/workflows/build.yml`: watches `v*` tags, tests, packages, and creates a GitHub Release.
 - `pyappify.yml`: defines the app name, entry point, icon, Python version, and update repositories.
-- `deploy.txt`: lists files copied to a dedicated update repository.
-- `.github/workflows/mirrorchyan_*.yml`: optional MirrorChyan upload and release-note workflows.
+- `deploy.txt`: lists files copied to a dedicated update repository (not used yet; the source repository is the update source).
 
 ## Adapt the Build Workflow
 
@@ -15,22 +14,8 @@ Before the first release, update `.github/workflows/build.yml`:
 - Replace source and update repository URLs.
 - Replace installer names and Release download links.
 - Configure required GitHub Actions secrets.
-- Remove unused CNB, file-hosting, or other template-specific content.
 
-## MirrorChyan
-
-### With MirrorChyan
-
-Keep and update:
-
-- `.github/workflows/mirrorchyan_uploading.yml`
-- `.github/workflows/mirrorchyan_release_note.yml`
-
-Replace `owner`, `repo`, `mirrorchyan_rid`, and installer filenames. Keep the dispatch step in `build.yml` and configure `MirrorChyanUploadToken`.
-
-### Without MirrorChyan
-
-Delete both MirrorChyan workflow files and remove the `Trigger MirrorChyanUploading` step from `build.yml`.
+This project does not integrate MirrorChyan, CNB, or file-hosting channels. Refer to the sections below if you want to add them.
 
 ## Push a Version Tag
 

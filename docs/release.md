@@ -2,10 +2,9 @@
 
 ## 发布相关文件
 
-- `.github/workflows/build.yml`：监听 `v*` tag，运行测试、同步更新文件、打包并创建 GitHub Release。
+- `.github/workflows/build.yml`：监听 `v*` tag，运行测试、打包并创建 GitHub Release。
 - `pyappify.yml`：定义应用名称、入口、图标、Python 版本和更新仓库。
-- `deploy.txt`：定义同步到独立更新仓库的文件。
-- `.github/workflows/mirrorchyan_*.yml`：可选的 Mirror酱上传和更新日志工作流。
+- `deploy.txt`：定义同步到独立更新仓库的文件（当前使用源码仓库更新，未启用）。
 
 ## 修改构建工作流
 
@@ -15,22 +14,8 @@
 - 更新源码库和更新库地址。
 - 更新安装包名称和 Release 下载链接。
 - 配置工作流需要的 GitHub Actions Secrets。
-- 删除不使用的 CNB、网盘或其他模板专用内容。
 
-## Mirror酱
-
-### 接入 Mirror酱
-
-保留并修改：
-
-- `.github/workflows/mirrorchyan_uploading.yml`
-- `.github/workflows/mirrorchyan_release_note.yml`
-
-更新其中的 `owner`、`repo`、`mirrorchyan_rid` 和安装包文件名，保留 `build.yml` 中触发这两个工作流的步骤，并配置 `MirrorChyanUploadToken`。
-
-### 不接入 Mirror酱
-
-删除两个 MirrorChyan workflow 文件，并删除 `build.yml` 中的 `Trigger MirrorChyanUploading` 步骤。
+本项目未集成 Mirror酱、CNB 或网盘渠道，如需接入请参考本文相应小节。
 
 ## 推送版本 tag
 

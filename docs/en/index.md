@@ -1,10 +1,10 @@
-# ok-script-app
+# ok-nikke
 
 [中文](../index.md)
 
-ok-script-app is a Python automation project template built on [ok-script](https://github.com/ok-oldking/ok-script), for native Windows games, Android emulators, and browser games.
+ok-nikke is a Python automation project built on [ok-script](https://github.com/ok-oldking/ok-script), providing a GUI automation app for the Windows client of Goddess of Victory: NIKKE.
 
-It is not a finished automation tool for a specific game. The template includes a runnable GUI, task and configuration-widget examples, OCR, template matching, tests, i18n, EXE packaging, and update/release configuration.
+This repository is not the ok-script template itself. It includes a runnable GUI, task and configuration-widget examples, OCR, template matching, tests, i18n, EXE packaging, and update/release configuration.
 
 ## Start Here
 

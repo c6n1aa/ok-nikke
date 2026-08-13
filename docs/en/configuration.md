@@ -4,7 +4,7 @@
 
 Review at least these settings in `src/config.py`:
 
-- `gui_title`: application window title.
+- `gui_title`: application window title, currently `ok-nikke`.
 - `gui_icon`: GUI icon path.
 - `supported_resolution`: supported aspect ratio and minimum resolution.
 - `links`: project, support, and community links.
@@ -12,7 +12,7 @@ Review at least these settings in `src/config.py`:
 
 ## Runtime Targets
 
-Configure at least one of `windows`, `adb`, or `browser`. A project may support multiple target types.
+This project targets the native Windows client of Goddess of Victory: NIKKE. Configure at least one of `windows`, `adb`, or `browser`.
 
 ### Native Windows Game
 
@@ -26,11 +26,11 @@ Configure these `windows` values:
 
 ### Android Emulator or Device
 
-Add package names to `adb.packages`. MuMu can use native capture and input; other emulators and devices generally use ADB.
+The Android target is not enabled in this project yet. To enable it, add package names to `adb.packages`. MuMu can use native capture and input; other emulators and devices generally use ADB.
 
 ### Browser Game
 
-Uncomment the `browser` example and set:
+The browser target is not enabled in this project yet. To enable it, uncomment the `browser` example and set:
 
 ```python
 'browser': {
@@ -51,7 +51,5 @@ Replace `icons/icon.png` and `icons/icon.ico`. Keeping the filenames avoids extr
 Edit the app name, profile names, and `git_url` values in `pyappify.yml`:
 
 - Use a separate lightweight update repository for production.
-- The source repository can be used during early testing.
+- For early testing the source repository `https://github.com/c6n1aa/ok-nikke.git` is used.
 - With a separate update repository, update the sync targets and secrets in `.github/workflows/build.yml`.
-
-After initialization, search for stale `ok-script-app`, `ok-oldking`, repository URLs, installer names, and community links inherited from the template.

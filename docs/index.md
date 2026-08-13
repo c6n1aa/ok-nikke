@@ -1,10 +1,10 @@
-# ok-script-app
+# ok-nikke
 
 [English](en/index.md)
 
-ok-script-app 是一个基于 [ok-script](https://github.com/ok-oldking/ok-script) 的 Python 自动化项目模板，适用于 Windows 原生游戏、Android 模拟器和浏览器游戏。
+ok-nikke 是一个基于 [ok-script](https://github.com/ok-oldking/ok-script) 的 Python 自动化项目，为《NIKKE：胜利女神》（Goddess of Victory: NIKKE）Windows 客户端提供带 GUI 的自动化应用。
 
-这个仓库不是某个具体游戏的自动化成品。它提供可直接运行的 GUI、任务与配置控件示例、OCR、模板匹配、测试、i18n、EXE 打包和更新发布配置。
+这个仓库不是 ok-script 模板本身。它提供可直接运行的 GUI、任务与配置控件示例、OCR、模板匹配、测试、i18n、EXE 打包和更新发布配置。
 
 ## 从这里开始
 

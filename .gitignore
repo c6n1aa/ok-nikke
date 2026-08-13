@@ -1,4 +1,5 @@
 my_key.txt
+.vscode/
 ok_templates/
 updates/
 working/
@@ -67,3 +68,4 @@ pip-log.txt
 pip-delete-this-directory.txt
 autohelper
 working_images/
+cache/

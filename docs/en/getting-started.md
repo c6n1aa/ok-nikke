@@ -1,18 +1,13 @@
 # Quick Start
 
-## 1. Create a Repository From the Template
+## 1. Get the Source
 
-Click [Use this template](https://github.com/ok-oldking/ok-script-app/generate) on GitHub, create your repository, and clone it:
+The project repository is at [github.com/c6n1aa/ok-nikke](https://github.com/c6n1aa/ok-nikke):
 
 ```bash
-git clone https://github.com/<your-github-name>/<your-repository>.git
-cd <your-repository>
+git clone https://github.com/c6n1aa/ok-nikke.git
+cd ok-nikke
 ```
-
-Choose either initialization path:
-
-- **Use an AI coding tool (recommended):** In Codex, enter `Use $initialize-ok-script-app to initialize this repository.` With another tool, ask it to read `.agents/skills/initialize-ok-script-app/SKILL.md` first. The initializer gathers the game, runtime targets, repositories, icons, and first-task requirements before editing files.
-- **Initialize manually:** Continue with this page and the linked guides.
 
 ## 2. Install Python 3.12
 
