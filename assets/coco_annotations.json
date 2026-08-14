@@ -3,8 +3,8 @@
         {
             "id": 1,
             "file_name": "images/0.png",
-            "width": 3840,
-            "height": 2160
+            "width": 1920,
+            "height": 1080
         }
     ],
     "annotations": [
@@ -13,19 +13,181 @@
             "image_id": 1,
             "category_id": 1,
             "bbox": [
-                127,
-                66,
-                58,
-                45
+                17,
+                338,
+                52,
+                51
             ],
-            "area": 2610,
+            "area": 2652,
+            "iscrowd": 0
+        },
+        {
+            "id": 2,
+            "image_id": 1,
+            "category_id": 2,
+            "bbox": [
+                1851,
+                243,
+                34,
+                33
+            ],
+            "area": 1122,
+            "iscrowd": 0
+        },
+        {
+            "id": 3,
+            "image_id": 1,
+            "category_id": 3,
+            "bbox": [
+                1826,
+                27,
+                28,
+                22
+            ],
+            "area": 616,
+            "iscrowd": 0
+        },
+        {
+            "id": 4,
+            "image_id": 1,
+            "category_id": 4,
+            "bbox": [
+                1648,
+                86,
+                45,
+                44
+            ],
+            "area": 1980,
+            "iscrowd": 0
+        },
+        {
+            "id": 5,
+            "image_id": 1,
+            "category_id": 5,
+            "bbox": [
+                1689,
+                167,
+                32,
+                33
+            ],
+            "area": 1056,
+            "iscrowd": 0
+        },
+        {
+            "id": 6,
+            "image_id": 1,
+            "category_id": 6,
+            "bbox": [
+                475,
+                716,
+                73,
+                62
+            ],
+            "area": 4526,
+            "iscrowd": 0
+        },
+        {
+            "id": 7,
+            "image_id": 1,
+            "category_id": 7,
+            "bbox": [
+                491,
+                659,
+                33,
+                40
+            ],
+            "area": 1320,
+            "iscrowd": 0
+        },
+        {
+            "id": 8,
+            "image_id": 1,
+            "category_id": 8,
+            "bbox": [
+                10,
+                167,
+                148,
+                412
+            ],
+            "area": 60976,
+            "iscrowd": 0
+        },
+        {
+            "id": 9,
+            "image_id": 1,
+            "category_id": 9,
+            "bbox": [
+                1268,
+                691,
+                70,
+                71
+            ],
+            "area": 4970,
+            "iscrowd": 0
+        },
+        {
+            "id": 10,
+            "image_id": 1,
+            "category_id": 10,
+            "bbox": [
+                451,
+                803,
+                231,
+                55
+            ],
+            "area": 12705,
             "iscrowd": 0
         }
     ],
     "categories": [
         {
             "id": 1,
-            "name": "this_is_a_place_holder",
+            "name": "coop",
+            "supercategory": ""
+        },
+        {
+            "id": 2,
+            "name": "friend",
+            "supercategory": ""
+        },
+        {
+            "id": 3,
+            "name": "mail",
+            "supercategory": ""
+        },
+        {
+            "id": 4,
+            "name": "mission",
+            "supercategory": ""
+        },
+        {
+            "id": 5,
+            "name": "pass_switch",
+            "supercategory": ""
+        },
+        {
+            "id": 6,
+            "name": "shop",
+            "supercategory": ""
+        },
+        {
+            "id": 7,
+            "name": "cash_shop",
+            "supercategory": ""
+        },
+        {
+            "id": 8,
+            "name": "left_side_panel",
+            "supercategory": ""
+        },
+        {
+            "id": 9,
+            "name": "ark",
+            "supercategory": ""
+        },
+        {
+            "id": 10,
+            "name": "outpost",
             "supercategory": ""
         }
     ]

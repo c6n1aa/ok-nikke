@@ -7,7 +7,7 @@ ok-nikke-daily 是基于 PyPI `ok-script` 库（ok-script-app 模板）构建的
 - 仅支持 Python 3.12。始终使用仓库本地虚拟环境，不要激活或使用全局 Python：`.\.venv\Scripts\python.exe`。
 - 安装依赖必须加 `--no-deps`：`.\.venv\Scripts\python.exe -m pip install --no-deps -r requirements.txt --upgrade`。因为 `pyside6-fluent-widgets` 声明了完整的 PySide6 元包，而本项目只需要 `pyside6-essentials`。`requirements.in` 是 pip-compile 的源文件；每次 `pip-compile` 后都要再次删掉生成的 `pyside6`、`pyside6-addons` 条目。
 - 运行 GUI：`python main_debug.py`（调试模式）或 `python main.py`。必须在仓库根目录运行。
-- 运行测试（在仓库根目录）：`python -m unittest tests.TestMain` 或 `.\.venv\Scripts\python.exe -m unittest tests.TestMain`。CI 会运行 `tests/` 下每个 `*.py` 文件，新增测试请放到 `tests/` 下。OCR 相关测试需要 onnxocr 模型（首次运行会自动下载）。
+- 运行测试（在仓库根目录）：`python -m unittest tests.TestMain` 或 `.\.venv\Scripts\python.exe -m unittest tests.TestMain`，或通过 `run_tests.ps1` 运行全部测试。CI 会运行 `tests/` 下每个 `*.py` 文件，新增测试请放到 `tests/` 下。OCR 相关测试需要 onnxocr 模型（首次运行会自动下载）。标准测试写法见下文「测试」一节。
 - 文档网站：`python -m pip install -r requirements-docs.txt`，然后 `python -m mkdocs serve` 或 `python -m mkdocs build --strict`。CI 要求 `--strict`。文档为中英双语（`docs/` 中文 + `docs/en/` 英文），必须保持结构对齐。
 
 ## 架构
@@ -24,6 +24,13 @@ ok-nikke-daily 是基于 PyPI `ok-script` 库（ok-script-app 模板）构建的
 - 任务 UI 字符串（`name`、`description`、`default_config` 键与值、`config_description`、`config_type` 选项）目前直接写简体中文，不做 i18n 文本处理。GUI 会对每个显示的字符串调用 `og.app.tr()`，目录中查不到时原样返回，因此中文可直接显示。`i18n/<locale>/LC_MESSAGES/ok.{po,mo}` 目录保留（目前只有 `zh_CN`、`en_US`，模板示例 `MyOneTimeTask` 仍依赖它）；以后若恢复国际化，用 `$ok-script-i18n` 技能同步目录并重新编译 `.mo`。
 - 使用 `.agents/skills/` 下的内置技能：任务类用 `ok-script-tasks`；`run()` 自动化逻辑用 `ok-script-codegen`（其输出要求每行代码都带中文行内注释）；翻译目录用 `ok-script-i18n`；运行 Python 命令用 `use-local-venv`。
 - 提交信息语言与最近一次非 merge 提交的标题保持一致。
+
+## 测试
+
+- 任务测试用 `unittest` 编写，继承 `ok.test.TaskTestCase`，并设置 `task_class` 指向被测任务（例如 `from src.tasks.MyTask import MyTask`）。标准参考见 `docs/after_quick_start/README.md`（§3 自动化测试）。
+- 核心技术：`self.set_image(<路径>)` 把屏幕输入固定为一张静态图片，从而创造稳定、可复现的运行环境，用于断言识别、点击、OCR 等行为。
+- 复现用户报告的问题：把用户上传的截图作为测试图（如 `self.set_image('tests/user_screenshots/user_bug_report_01.png')`），调用出错的精确方法，并断言修复后的行为符合预期。
+- 运行测试：`run_tests.ps1` 运行 `tests/` 下全部测试；单个文件或方法可在 PyCharm 中右键运行。在 PyCharm 中，运行/调试配置的「工作目录」必须设为仓库根目录，否则 `tests/images/` 等相对路径无法解析。
 
 ## 发布
 

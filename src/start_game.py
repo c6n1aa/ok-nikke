@@ -12,7 +12,7 @@ from ok.device.capture_methods.bitblt_utils import clean_up_bitblt, capture_by_b
 from ok.gui.Communicate import communicate
 import ok.util.GlobalConfig as _global_config_module
 from ok.util.process import execute, is_admin
-from ok.util.window import find_hwnd, get_window_bounds
+from ok.util.window import find_hwnd, get_window_bounds, resize_window, show_title_bar
 
 logger = Logger.get_logger(__name__)
 
@@ -20,6 +20,22 @@ logger = Logger.get_logger(__name__)
 LAUNCHER_PATH_KEY = '启动器路径'
 LAUNCHER_BUTTON_TEXT = '启动'
 LAUNCHER_BUTTON_REGION = (0.05, 0.83, 0.30, 0.93)
+
+# 游戏窗口最小尺寸(客户端区域)，低于此尺寸会自动调整为该尺寸，保证后续识别正常
+MIN_GAME_WINDOW_SIZE = (1280, 720)
+
+# 后台触发任务轮询间隔(毫秒)，调高可降低系统资源占用
+TRIGGER_INTERVAL_KEY = 'Trigger Interval'
+TRIGGER_INTERVAL_MS = 100
+
+# 与本项目无关、需要从基础设置中移除的选项
+_BASIC_OPTIONS_REMOVE_KEYS = [
+    'Mute Game while in Background',
+    'Auto Resize Game Window',
+    'Use DirectML',
+    _global_config_module.KILL_LAUNCHER_AFTER_START,
+    'Launch with DX11',
+]
 
 _basic_options_extra_default = {
     LAUNCHER_PATH_KEY: '',
@@ -35,6 +51,7 @@ _basic_options_extra_type = {
 }
 _basic_options_extra_description = {
     LAUNCHER_PATH_KEY: 'NIKKE 启动器文件路径(nikke_launcher.exe)。选择桌面快捷方式(.lnk)时会自动解析其指向的执行文件。',
+    TRIGGER_INTERVAL_KEY: '后台触发任务每轮检测之间的额外延时(毫秒)。调大可降低系统资源占用，但会让后台响应变慢。',
 }
 
 
@@ -87,6 +104,14 @@ def _patch_create_basic_options():
 
     def _create_basic_options(enable_blur=False):
         options = original(enable_blur=enable_blur)
+        # 调高后台触发任务轮询间隔的默认值，避免过快地空转占用系统资源
+        options.default_config[TRIGGER_INTERVAL_KEY] = TRIGGER_INTERVAL_MS
+        # 移除与本项目无关的设置项
+        for key in _BASIC_OPTIONS_REMOVE_KEYS:
+            options.default_config.pop(key, None)
+            options.config_description.pop(key, None)
+            if options.config_type:
+                options.config_type.pop(key, None)
         for key, value in _basic_options_extra_default.items():
             options.default_config.setdefault(key, value)
         options.config_description.update(_basic_options_extra_description)
@@ -143,8 +168,38 @@ class NikkeStartController(start_controller_module.StartController):
                     return False
         if not self._wait_until_device_ready(refresh_first=not initial_refresh_done):
             return False
+        self._ensure_min_game_window_size()
         communicate.starting_emulator.emit(True, None, 0)
         return True
+
+    def check_resolution(self):
+        # 窗口尺寸由 _ensure_min_game_window_size 在挂载后显式调整，
+        # 启动等待阶段不在这里做硬性分辨率检查，避免自动缩放与最小尺寸调整逻辑冲突
+        return None
+
+    def _ensure_min_game_window_size(self):
+        # 检测游戏主进程窗口尺寸，若小于 1280x720(客户端区域) 则自动调整为 1280x720
+        try:
+            capture_method = getattr(og.device_manager, 'capture_method', None)
+            hwnd_window = getattr(capture_method, 'hwnd_window', None)
+            if hwnd_window is None or not hwnd_window.hwnd:
+                logger.warning('game window not attached, skip resize')
+                return
+            target_width, target_height = MIN_GAME_WINDOW_SIZE
+            if hwnd_window.width >= target_width and hwnd_window.height >= target_height:
+                logger.info(
+                    f'game window {hwnd_window.width}x{hwnd_window.height} already >= {target_width}x{target_height}, skip resize')
+                return
+            show_title_bar(hwnd_window.hwnd)
+            _, _, window_width, window_height, client_width, client_height, _ = get_window_bounds(hwnd_window.hwnd)
+            title_height = max(0, window_height - client_height)
+            border = max(0, window_width - client_width)
+            resize_window(hwnd_window.hwnd, target_width + border, target_height + title_height)
+            hwnd_window.do_update_window_size()
+            logger.info(
+                f'game window resized to {target_width}x{target_height}, now {hwnd_window.width}x{hwnd_window.height}')
+        except Exception as e:
+            logger.error(f'ensure min game window size error', e)
 
     def _start_device_via_launcher(self, device, launcher_path):
         exe = self._resolve_launcher_exe(launcher_path)

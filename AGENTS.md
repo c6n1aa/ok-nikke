@@ -7,7 +7,7 @@ ok-nikke-daily is a Python GUI automation app for the NIKKE Windows game client,
 - Python 3.12 only. Always use the repo-local venv, never activate/global python: `.\.venv\Scripts\python.exe`.
 - Install deps with `--no-deps`: `.\.venv\Scripts\python.exe -m pip install --no-deps -r requirements.txt --upgrade`. This is required — `pyside6-fluent-widgets` declares the full PySide6 metapackage and only `pyside6-essentials` is wanted. `requirements.in` is the pip-compile source; after `pip-compile`, re-remove the generated `pyside6`/`pyside6-addons` entries.
 - Run GUI: `python main_debug.py` (debug) or `python main.py`. Must be run from the repo root.
-- Tests (run from repo root): `python -m unittest tests.TestMain` or `.\.venv\Scripts\python.exe -m unittest tests.TestMain`. CI runs every `tests/*.py` file; put new test files under `tests/`. OCR tests need the onnxocr model (first run downloads it).
+- Tests (run from repo root): `python -m unittest tests.TestMain` or `.\.venv\Scripts\python.exe -m unittest tests.TestMain`, or run all test files via `run_tests.ps1`. CI runs every `tests/*.py` file; put new test files under `tests/`. OCR tests need the onnxocr model (first run downloads it). See the [Testing](#testing) section for the standard test-writing conventions.
 - Docs site: `python -m pip install -r requirements-docs.txt`, then `python -m mkdocs serve` or `python -m mkdocs build --strict`. `--strict` is required by CI. Docs are bilingual (`docs/` zh + `docs/en/`) and must stay structurally aligned.
 
 ## Architecture
@@ -24,6 +24,13 @@ ok-nikke-daily is a Python GUI automation app for the NIKKE Windows game client,
 - Task UI strings (`name`, `description`, `default_config` keys/values, `config_description`, `config_type` options) are written directly in Simplified Chinese for now — no i18n text pass. The GUI calls `og.app.tr()` on every displayed string, which returns the string unchanged when the catalog has no entry, so Chinese works as-is. Keep the gettext catalogs in `i18n/<locale>/LC_MESSAGES/ok.{po,mo}` (currently template demo `MyOneTimeTask` still relies on them); if i18n is re-enabled later, sync catalogs via the `$ok-script-i18n` skill (`zh_CN`, `en_US` only) and recompile `.mo`.
 - Use the bundled skills in `.agents/skills/`: `ok-script-tasks` for task classes, `ok-script-codegen` for `run()` automation logic (its output requires a per-line Chinese inline comment on every code line), `ok-script-i18n` for catalogs, `use-local-venv` for python commands.
 - Commit messages follow the language of the most recent non-merge commit subject.
+
+## Testing
+
+- Write task tests as `unittest` subclasses of `ok.test.TaskTestCase`; set `task_class` to the task under test (e.g. `from src.tasks.MyTask import MyTask`). A standard reference is `docs/after_quick_start/README.md` (§3 自动化测试).
+- Core technique: `self.set_image(<path>)` pins the screen input to a static image, creating a stable, reproducible environment for asserting task behavior (recognize, click, OCR, etc.).
+- To reproduce a user-reported bug, use the user's uploaded screenshot as the test image (e.g. `self.set_image('tests/user_screenshots/user_bug_report_01.png')`), call the exact method that failed, and assert the fixed behavior.
+- Running tests: all of `tests/` via `run_tests.ps1`; a single file/method can be run in PyCharm by right-clicking it. In PyCharm the run/debug configuration's Working directory MUST be the repo root, otherwise relative paths like `tests/images/` will not resolve.
 
 ## Release
 

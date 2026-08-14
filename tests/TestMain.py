@@ -54,7 +54,6 @@ class TestMyOneTimeTask(TaskTestCase):
             config_type["Drop Down Options Config"]["options_available"],
         )
         self.assertEqual("multi_selection", config_type["Multi Selection Config"]["type"])
-        self.assertEqual("global", config_type["Game Hotkey Config"]["type"])
         self.assertEqual("button", config_type["Button Config"]["type"])
         self.assertEqual("button", config_type["Button Options Config"]["type"])
         self.assertEqual(
@@ -203,12 +202,7 @@ class TestMyOneTimeTask(TaskTestCase):
         self.task.run()
 
         for key, value in self.task.config.items():
-            if key != "Game Hotkey Config":
-                self.assertEqual(self.task.translate_config_value(value), self.task.info_get(key))
-        self.assertEqual(
-            dict(self.task.get_global_config("Game Hotkey Config")),
-            self.task.info_get("Game Hotkey Config"),
-        )
+            self.assertEqual(self.task.translate_config_value(value), self.task.info_get(key))
         self.assertEqual("下拉框值 1", self.task.info_get("Drop Down Config"))
         self.assertEqual("bool值 True", self.task.info_get("Boolean Config"))
         self.assertEqual("字符串值", self.task.info_get("String Config"))
@@ -226,13 +220,13 @@ class TestMyOneTimeTask(TaskTestCase):
         # Create a BattleReport object
         self.set_image('tests/images/main.png')
         text = self.task.find_some_text_on_bottom_right()
-        self.assertEqual(text[0].name, '商城')
+        self.assertEqual(text[0].name, '商店')
 
     def test_ocr2(self):
         # Create a BattleReport object
         self.set_image('tests/images/main.png')
         text = self.task.find_some_text_with_relative_box()
-        self.assertEqual(text[0].name, '招募')
+        self.assertEqual(text[0].name, '队员招募')
 
     def test_feature1(self):
         # Create a BattleReport object
