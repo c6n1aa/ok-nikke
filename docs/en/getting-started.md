@@ -2,11 +2,11 @@
 
 ## 1. Get the Source
 
-The project repository is at [github.com/c6n1aa/ok-nikke-daily](https://github.com/c6n1aa/ok-nikke-daily):
+The project repository is at [github.com/c6n1aa/ok-nikke-maid](https://github.com/c6n1aa/ok-nikke-maid):
 
 ```bash
-git clone https://github.com/c6n1aa/ok-nikke-daily.git
-cd ok-nikke-daily
+git clone https://github.com/c6n1aa/ok-nikke-maid.git
+cd ok-nikke-maid
 ```
 
 ## 2. Install Python 3.12

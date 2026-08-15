@@ -70,3 +70,4 @@ pip-delete-this-directory.txt
 autohelper
 working_images/
 cache/
+dev_tools/

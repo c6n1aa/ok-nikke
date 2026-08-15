@@ -1,9 +1,14 @@
 # AGENTS.md
 
-ok-nikke-daily is a Python GUI automation app for the NIKKE Windows game client, built on the PyPI `ok-script` library (ok-script-app template). Chinese copy of this file: `AGENTS.zh-CN.md`.
+ok-nikke-maid is a Python GUI automation app for the NIKKE Windows game client, built on the PyPI `ok-script` library (ok-script-app template). Chinese copy of this file: `AGENTS.zh-CN.md`.
 
 ## Environment & commands
 
+- On Windows, run every terminal command with PowerShell 7 (`pwsh`). Do not switch to cmd or any other shell unless explicitly requested to.
+- How commands actually run here: the opencode global config (`~/.config/opencode/opencode.jsonc`) sets `"shell": "pwsh"` (short name — do NOT use `C:\Users\<user>\AppData\Local\Microsoft\WindowsApps\pwsh.exe`, that app-execution-alias reparse point makes opencode's startup `statSync` fail with `EACCES`; use `pwsh` so opencode resolves the real install path via `which("pwsh")`, no `.cmd` wrapper, no `cmd.exe` layer). opencode runs each command via Node `spawn(cmd, [], {shell})`, which on Windows constructs `pwsh.exe -c "<command>"` (no `-NoProfile`), so the full command string reaches pwsh intact and is parsed by PowerShell only. Consequences:
+  - `|` inside **double-quoted** strings is safe (pwsh sees the literal command, e.g. `Select-String -Pattern "test_|FAIL|OK|Ran|Error"` works). The old cmd.exe-based restriction no longer applies.
+  - Still prefer **single quotes** for `|` inside strings when you want zero-interpolation and maximum clarity (`-Pattern 'test_|FAIL'`) — it is equally safe and avoids pwsh string-interpolation surprises.
+  - Output is UTF-8 end to end: `PYTHONUTF8=1` and `PYTHONIOENCODING=utf-8` are set at the Windows **User** level (also ensure `chcp`/console pages are irrelevant for piped output). If you ever see Chinese mojibake, check that those two env vars survive and that the shell config wasn't reverted to a `.cmd` file.
 - Python 3.12 only. Always use the repo-local venv, never activate/global python: `.\.venv\Scripts\python.exe`.
 - Install deps with `--no-deps`: `.\.venv\Scripts\python.exe -m pip install --no-deps -r requirements.txt --upgrade`. This is required — `pyside6-fluent-widgets` declares the full PySide6 metapackage and only `pyside6-essentials` is wanted. `requirements.in` is the pip-compile source; after `pip-compile`, re-remove the generated `pyside6`/`pyside6-addons` entries.
 - Run GUI: `python main_debug.py` (debug) or `python main.py`. Must be run from the repo root.
@@ -16,13 +21,16 @@ ok-nikke-daily is a Python GUI automation app for the NIKKE Windows game client,
 - `version = "dev"` in `src/config.py` is overwritten by CI on tag builds — do not edit it.
 - `src/tasks/MyBaseTask.py` is the project base class; new tasks should subclass it rather than raw `BaseTask`. `MyOneTimeTask` (one-shot), `MyTriggerTask` (TriggerTask, repeated background checks). Custom GUI tabs live in `src/ui/MyTab.py`.
 - `src/start_game.py` (imported at the top of `src/config.py`, so it runs before `ok.OK(config)` is constructed) monkey-patches the venv ok-script without editing it: it wraps `ok.register_basic_options` to add launcher settings to `Basic Options`, and replaces `ok.gui.StartController.StartController` with `NikkeStartController`, whose `start_device` does an admin check, checks whether the `nikke.exe` game process is already running (if so it skips the launcher), otherwise launches the configured launcher (`nikke_launcher.exe` or `.lnk`, auto-resolved), OCR-finds and clicks the start button in a configurable region, then waits for the game. There is no direct-launch fallback: if no launcher is configured and the game is not running, the user is prompted to configure one or start the game manually. The launcher file selector defaults to the Desktop folder so desktop shortcuts are visible.
-- Gitignored runtime dirs (do not commit): `configs/` (generated config JSON), `ok_tasks/`, `ok_templates/` (template matching assets), `screenshots/`, `logs/`, `cache/`, `site/`.
+- Gitignored runtime dirs (do not commit): `configs/` (generated config JSON), `ok_tasks/`, `ok_templates/` (template matching assets), `screenshots/`, `logs/`, `cache/`, `site/`, `dev_tools/` (scratch scripts & generated dev artifacts).
+- One-off dev scripts and the files they generate (e.g. OCR batch reports, rename maps, XAL→coco conversion intermediates, backups) live in `dev_tools/` at the repo root — never in the OS temp dir. Save new ad-hoc scripts and their outputs under `dev_tools/`, use paths relative to the repo root, and keep it gitignored.
 - Template matching coco file is tracked at `assets/coco_annotations.json` (referenced in `src/config.py` `template_matching`).
+- Template matching: templates annotated in the coco file are auto-scaled to the current game resolution by `FeatureSet` (coordinates and image). For manually cut small templates in `assets/template/` that can't be annotated (unknown position), always call the `find_scaled_template(feature_name, template_path, ref_width, ref_height)` helper on `MyBaseTask` — it scales the template proportionally to the current game resolution (source default 2560x1440, cached by path+scale) and runs `find_one(template=...)`. Never pass raw unscaled templates directly to `find_one`/`find_feature`, or matching breaks on non-2560x1440 resolutions.
 
 ## Conventions (differ from defaults)
 
 - Task UI strings (`name`, `description`, `default_config` keys/values, `config_description`, `config_type` options) are written directly in Simplified Chinese for now — no i18n text pass. The GUI calls `og.app.tr()` on every displayed string, which returns the string unchanged when the catalog has no entry, so Chinese works as-is. Keep the gettext catalogs in `i18n/<locale>/LC_MESSAGES/ok.{po,mo}` (currently template demo `MyOneTimeTask` still relies on them); if i18n is re-enabled later, sync catalogs via the `$ok-script-i18n` skill (`zh_CN`, `en_US` only) and recompile `.mo`.
 - Use the bundled skills in `.agents/skills/`: `ok-script-tasks` for task classes, `ok-script-codegen` for `run()` automation logic (its output requires a per-line Chinese inline comment on every code line), `ok-script-i18n` for catalogs, `use-local-venv` for python commands.
+- When pacing clicks, always use the built-in `after_sleep` parameter of `wait_click_feature`/`click_box`/`click` (fixed wait after a click). Do NOT add manual `time.sleep`/`sleep` calls between steps or override `click_box` — the parameter already covers the wait.
 - Commit messages follow the language of the most recent non-merge commit subject.
 
 ## Testing

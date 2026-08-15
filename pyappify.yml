@@ -1,9 +1,9 @@
-name: "ok-nikke-daily"
+name: "ok-nikke-maid"
 uac: true
 icon: "icons/icon.png"
 profiles:
   - name: "China"
-    git_url: "https://github.com/c6n1aa/ok-nikke-daily.git"
+    git_url: "https://github.com/c6n1aa/ok-nikke-maid.git"
     admin: true
     main_script: "main.py"
     requires_python: "3.12"
@@ -14,7 +14,7 @@ profiles:
     # PYTHONPATH: "your/default/path" # Optional, will be "" if missing
 
   - name: "Global"
-    git_url: "https://github.com/c6n1aa/ok-nikke-daily.git"
+    git_url: "https://github.com/c6n1aa/ok-nikke-maid.git"
     main_script: "main.py"
     requirements: "requirements.txt"
     pip_args: "--no-deps"
