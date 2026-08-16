@@ -1,8 +1,9 @@
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 from qfluentwidgets import ExpandSettingCard, FluentIcon, SwitchButton
 
 from ok import Logger, og
-from ok.gui.tasks.ConfigItemFactory import config_widget
+from ok.gui.tasks.ConfigCard import ConfigContentMixin
 from ok.gui.widget.CustomTab import CustomTab
 from ok.gui.widget.ExpandCardLayout import ExpandCardLayout
 from ok.gui.widget.Tab import Tab
@@ -10,14 +11,38 @@ from ok.gui.widget.Tab import Tab
 from src.tasks.DailyTask import DailyTask
 from src.tasks.HarvestTask import HarvestTask
 from src.tasks.OutpostDefenseTask import OutpostDefenseTask
+from src.tasks.ShopTask import ShopTask
 
 
-class SubTaskCard(ExpandSettingCard):
-    """带开关的可展开卡片，覆盖高度逻辑，避免展开后收起残留空白。
+class SubTaskCard(ConfigContentMixin, ExpandSettingCard):
+    """带开关的可展开卡片，配置区复用 ConfigContentMixin 以支持 sub_configs 联动显隐。
 
-    基类用滚动条动画缩放高度，动画被打断时高度复原不完整；这里改为直接设置
-    收起=头部高度、展开=头部+内容高度，与任务列表 ConfigCard 的修复方式一致。
+    覆盖高度逻辑，避免展开后收起残留空白。基类用滚动条动画缩放高度，动画被打断时
+    高度复原不完整；这里改为直接设置收起=头部高度、展开=头部+内容高度，与任务列表
+    ConfigCard 的修复方式一致。
     """
+
+    def __init__(self, icon, title, content, task, config, default_config,
+                 config_description, config_type, parent=None):
+        super().__init__(icon, title, content, parent)
+        # 复用 ConfigCard 的配置渲染：解析 sub_configs、连接开关联动、按开关值显隐子配置。
+        self._init_config_content(task, config, default_config, config_description, config_type)
+
+    def add_buttons(self):
+        # 子任务卡片不显示 Reset Config / 快捷方式等操作行。
+        pass
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self.isExpand:
+            # 首次显示时布局才就绪，延迟一帧重新计算高度，避免展开不完整（同 ConfigCard）。
+            QTimer.singleShot(0, self._adjustViewSize)
+
+    def _adjust_config_content_size(self):
+        # 开关联动时 __sync_sub_config_order 刚移除/重插过布局行；_visible_content_height
+        # 内部会临时撑开容器保证几何准确，这里同步调整高度即可，避免行重排与高度调整
+        # 跨帧导致内容闪烁。
+        self._adjustViewSize()
 
     def setExpand(self, isExpand: bool):
         if self.isExpand == isExpand:
@@ -53,7 +78,12 @@ class SubTaskCard(ExpandSettingCard):
             self.setFixedHeight(self.viewportMargins().top() + self._visible_content_height())
 
     def _visible_content_height(self):
+        # __sync_sub_config_order 移除/重插行后，若容器高度仍是旧值，QVBoxLayout 会把全部
+        # 行压缩重叠（几何不可信）。先临时撑开卡片高度让行按真实尺寸布局，取完几何再恢复，
+        # 保证返回的高度准确、与任务列表 ConfigCard 一致且不残留空白。
         margins = self.viewLayout.contentsMargins()
+        fixed_height = self.height()
+        self.setFixedHeight(fixed_height + 100000)
         self.viewLayout.activate()
         bottom = margins.top()
         for index in range(self.viewLayout.count()):
@@ -62,7 +92,9 @@ class SubTaskCard(ExpandSettingCard):
             if widget is not None and widget.isHidden():
                 continue
             bottom = max(bottom, item.geometry().bottom() + 1)
-        return bottom + margins.bottom()
+        result = bottom + margins.bottom()
+        self.setFixedHeight(fixed_height)
+        return result
 
 
 class DailyTab(CustomTab):
@@ -70,6 +102,7 @@ class DailyTab(CustomTab):
     SUB_TASKS = [
         (HarvestTask, "收获"),
         (OutpostDefenseTask, "歼灭"),
+        (ShopTask, "商店"),
     ]
 
     def __init__(self):
@@ -80,7 +113,7 @@ class DailyTab(CustomTab):
         self.logger.info(f'DailyTab init {self.__class__.__name__}')
         self.icon = FluentIcon.CALENDAR
         self.daily_task = self._get_task(DailyTask)
-        # 每个子任务卡片 (父开关, 开关控件, [(配置键, 配置行控件), ...])，供显示时刷新同步。
+        # 每个子任务卡片 (父开关, 开关控件, 卡片)，供显示时刷新同步。
         self._cards = []
         self._build_ui()
 
@@ -95,36 +128,25 @@ class DailyTab(CustomTab):
         return None
 
     def _build_sub_task_card(self, task, daily_key):
-        card = SubTaskCard(task.icon or FluentIcon.INFO, task.name, task.description, self)
+        card = SubTaskCard(task.icon or FluentIcon.INFO, task.name, task.description,
+                           task, task.config, task.default_config,
+                           task.config_description, task.config_type, self)
         switch = SwitchButton(parent=card)
         switch.setOnText("启用")
         switch.setOffText("关闭")
         switch.setChecked(bool(self.daily_task.config.get(daily_key, False)))
         switch.checkedChanged.connect(lambda checked, k=daily_key: self._set_daily_switch(k, checked))
         card.addWidget(switch)
-        card.viewLayout.setContentsMargins(6, 4, 6, 8)
-        card.viewLayout.setSpacing(0)
-        rows = []
-        for key in task.default_config:
-            if key.startswith('_'):
-                continue
-            row = config_widget(task.config_type, task.config_description, task.config,
-                                key, task.config.get(key), task)
-            card.viewLayout.addWidget(row)
-            rows.append((key, row))
-        self._cards.append((daily_key, switch, rows))
+        self._cards.append((daily_key, switch, card))
         return card
 
     def _refresh_ui(self):
         # 切到本 tab 时把控件同步为当前 config，覆盖在任务 tab 修改后与本 tab 的差异。
-        for daily_key, switch, rows in self._cards:
+        for daily_key, switch, card in self._cards:
             value = bool(self.daily_task.config.get(daily_key, False))  # 读取父任务开关当前值。
             if switch.isChecked() != value:  # 值不同才 setChecked，避免冗余信号。
                 switch.setChecked(value)  # 同步父任务开关。
-            for key, widget in rows:  # 逐个同步子任务配置行。
-                update = getattr(widget, "update_value", None)  # 各配置控件都提供 update_value。
-                if update is not None:  # 有刷新方法才调用。
-                    update()  # 从 config 重新读取并设置控件值。
+            card.update_config()  # 刷新子任务全部配置控件 + 应用 sub_configs 可见性。
 
     def showEvent(self, event):
         super().showEvent(event)  # 先走基类事件。

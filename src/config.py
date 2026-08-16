@@ -114,6 +114,7 @@ config = {
         ["src.tasks.DailyTask", "DailyTask"],
         ["src.tasks.HarvestTask", "HarvestTask"],
         ["src.tasks.OutpostDefenseTask", "OutpostDefenseTask"],
+        ["src.tasks.ShopTask", "ShopTask"],
         ["ok", "DiagnosisTask"],
     ],
     'trigger_tasks': [  # 后台任务，可随时开启/关闭

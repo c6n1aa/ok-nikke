@@ -3,6 +3,7 @@ from ok import og
 from src.tasks.HarvestTask import HarvestTask  # 导入收获子任务。
 from src.tasks.MyBaseTask import MyBaseTask  # 导入项目基类，所有任务统一继承它。
 from src.tasks.OutpostDefenseTask import OutpostDefenseTask  # 导入歼灭子任务。
+from src.tasks.ShopTask import ShopTask  # 导入商店子任务。
 
 
 class DailyTask(MyBaseTask):  # 定义清日常总编排的父任务类。
@@ -16,10 +17,12 @@ class DailyTask(MyBaseTask):  # 定义清日常总编排的父任务类。
         self.default_config.update({  # 父任务配置：为每个子流程放一个常驻开关。
             "收获": True,  # 收获子流程的开关。
             "歼灭": True,  # 歼灭子流程的开关。
+            "商店": True,  # 商店子流程的开关。
         })
         self.config_description.update({  # 每个配置项的帮助文本。
             "收获": "是否执行收获（友情点、邮箱）。",
             "歼灭": "是否执行前哨基地歼灭。",
+            "商店": "是否执行商店购买（普通/竞技场/废铁）。",
         })
         self.config_type.update({  # 任务列表的日常卡片展开后只显示这一个按钮行。
             self.DAILY_SETTINGS_BUTTON_KEY: {
@@ -49,5 +52,7 @@ class DailyTask(MyBaseTask):  # 定义清日常总编排的父任务类。
             self.run_task_by_class(HarvestTask)  # 运行收获子任务，子任务读取自己的配置。
         if self.config.get("歼灭"):  # 只有开关开启时才执行歼灭。
             self.run_task_by_class(OutpostDefenseTask)  # 运行歼灭子任务，子任务读取自己的配置。
+        if self.config.get("商店"):  # 只有开关开启时才执行商店。
+            self.run_task_by_class(ShopTask)  # 运行商店子任务，子任务读取自己的配置。
         # 后续新增子流程时，在此追加相同的开关判断和 run_task_by_class 调用即可。
         self.log_info("日常完成。")  # 记录父任务执行完成。
