@@ -10,140 +10,19 @@ import ok.gui.StartController as start_controller_module
 from ok import Logger, og
 from ok.device.capture_methods.bitblt_utils import clean_up_bitblt, capture_by_bitblt
 from ok.gui.Communicate import communicate
-import ok.util.GlobalConfig as _global_config_module
 from ok.util.process import execute, is_admin
 from ok.util.window import find_hwnd, get_window_bounds, resize_window, show_title_bar
 
+from src.patches.basic_options import LAUNCHER_PATH_KEY
+
 logger = Logger.get_logger(__name__)
 
-# 基础设置中新增的启动器相关选项
-LAUNCHER_PATH_KEY = '启动器路径'
+# 启动器启动按钮的 OCR 关键字与搜索区域
 LAUNCHER_BUTTON_TEXT = '启动'
 LAUNCHER_BUTTON_REGION = (0.05, 0.83, 0.30, 0.93)
 
 # 游戏窗口最小尺寸(客户端区域)，低于此尺寸会自动调整为该尺寸，保证后续识别正常
 MIN_GAME_WINDOW_SIZE = (1280, 720)
-
-# 后台触发任务轮询间隔(毫秒)，调高可降低系统资源占用
-TRIGGER_INTERVAL_KEY = 'Trigger Interval'
-TRIGGER_INTERVAL_MS = 100
-
-# 与本项目无关、需要从基础设置中移除的选项
-_BASIC_OPTIONS_REMOVE_KEYS = [
-    'Mute Game while in Background',
-    'Auto Resize Game Window',
-    'Use DirectML',
-    _global_config_module.KILL_LAUNCHER_AFTER_START,
-    'Launch with DX11',
-]
-
-_basic_options_extra_default = {
-    LAUNCHER_PATH_KEY: '',
-}
-_basic_options_extra_type = {
-    LAUNCHER_PATH_KEY: {
-        'type': 'file_selector',
-        'selector_type': 'file',
-        'dialog_title': '选择 NIKKE 启动器文件',
-        'filter': '所有文件 (*)',
-        'initial_directory': 'desktop',
-    },
-}
-_basic_options_extra_description = {
-    LAUNCHER_PATH_KEY: 'NIKKE 启动器文件路径(nikke_launcher.exe)。选择桌面快捷方式(.lnk)时会自动解析其指向的执行文件。',
-    TRIGGER_INTERVAL_KEY: '后台触发任务每轮检测之间的额外延时(毫秒)。调大可降低系统资源占用，但会让后台响应变慢。',
-}
-
-
-def _launcher_path_first(conf_dict):
-    # 让启动器路径选项排在基础设置最上面
-    new = {}
-    if LAUNCHER_PATH_KEY in conf_dict:
-        new[LAUNCHER_PATH_KEY] = conf_dict[LAUNCHER_PATH_KEY]
-    for key, value in conf_dict.items():
-        if key != LAUNCHER_PATH_KEY:
-            new[key] = value
-    return new
-
-
-def _get_desktop_path():
-    # 获取当前用户的桌面目录(CSIDL_DESKTOPDIRECTORY = 0x10)
-    try:
-        import ctypes
-        buf = ctypes.create_unicode_buffer(260)
-        ctypes.windll.shell32.SHGetFolderPathW(None, 0x10, None, 0, buf)
-        if buf.value and os.path.isdir(buf.value):
-            return buf.value
-    except Exception as e:
-        logger.error(f'get desktop path error', e)
-    return None
-
-
-def _patch_file_selector_initial_directory():
-    # 让启动器路径选择框默认打开到桌面目录，方便直接看到桌面快捷方式
-    from ok.gui.tasks.LabelAndFileSelector import LabelAndFileSelector
-
-    original = LabelAndFileSelector._initial_directory
-
-    def _initial_directory(self, current_value):
-        initial = self.config_type.get('initial_directory')
-        if initial == 'desktop':
-            desktop = _get_desktop_path()
-            if desktop:
-                return desktop
-        return original(self, current_value)
-
-    LabelAndFileSelector._initial_directory = _initial_directory
-
-
-def _patch_create_basic_options():
-    # 把启动器相关选项注入 create_basic_options 返回的默认配置中。
-    # 这样 Config 从磁盘加载时会把这些键当作已知默认项，已保存的启动器路径
-    # 才不会被 Config.verify_config 当作未知键丢弃。
-    original = _global_config_module.create_basic_options
-
-    def _create_basic_options(enable_blur=False):
-        options = original(enable_blur=enable_blur)
-        # 调高后台触发任务轮询间隔的默认值，避免过快地空转占用系统资源
-        options.default_config[TRIGGER_INTERVAL_KEY] = TRIGGER_INTERVAL_MS
-        # 移除与本项目无关的设置项
-        for key in _BASIC_OPTIONS_REMOVE_KEYS:
-            options.default_config.pop(key, None)
-            options.config_description.pop(key, None)
-            if options.config_type:
-                options.config_type.pop(key, None)
-        for key, value in _basic_options_extra_default.items():
-            options.default_config.setdefault(key, value)
-        options.config_description.update(_basic_options_extra_description)
-        if options.config_type is None:
-            options.config_type = {}
-        options.config_type.update(_basic_options_extra_type)
-        options.default_config = _launcher_path_first(options.default_config)
-        return options
-
-    _global_config_module.create_basic_options = _create_basic_options
-
-
-def _patch_openvino_telemetry():
-    # 禁用 OpenVINO 遥测上报，避免无网络时阻塞进程退出。
-    # backend_ga4 在 Windows 上直接用 urlopen()（无超时）在非 daemon 线程池里发请求，
-    # 断网时 socket 永久挂起，解释器退出时 join 该线程导致进程无法结束。
-    # backend_ga 同样用无超时的 urlopen。这里把两个后端的实际发送替换为直接返回。
-    try:
-        from openvino_telemetry.backend import backend_ga4, backend_ga
-
-        def _noop_send(request_data):
-            pass
-
-        backend_ga4._send_func = _noop_send
-
-        def _ga_send_noop(self, message):
-            pass
-
-        backend_ga.GABackend.send = _ga_send_noop
-        logger.info('openvino telemetry disabled to avoid network hang on exit')
-    except Exception as e:
-        logger.warning(f'disable openvino telemetry failed: {e}')
 
 
 class _CaptureContext:
@@ -481,85 +360,6 @@ class NikkeStartController(start_controller_module.StartController):
             return False
 
 
-_FOREGROUND_LAST_ATTEMPT = 0.0  # 上次尝试把游戏窗口置前的时间戳（节流用）
-_FOREGROUND_INTERVAL = 1.0  # 两次置前尝试的最小间隔（秒），避免高频系统调用
-
-
-def _ensure_game_foreground():
-    # 游戏窗口不在前台时强制切到前台，保证 pynput 交互与捕获可用。
-    # 节流：1 秒内只尝试一次，避免任务运行中每帧都触发系统调用。
-    global _FOREGROUND_LAST_ATTEMPT
-    now = time.monotonic()
-    if now - _FOREGROUND_LAST_ATTEMPT < _FOREGROUND_INTERVAL:
-        return
-    _FOREGROUND_LAST_ATTEMPT = now
-    try:
-        from ok import og
-        hwnd_obj = getattr(og.executor.device_manager, 'hwnd_window', None)
-        hwnd = getattr(hwnd_obj, 'hwnd', 0)
-        if not hwnd:
-            return
-        import win32api
-        import win32con
-        import win32gui
-        import win32process
-        if win32gui.GetForegroundWindow() == hwnd:
-            return
-        game_thread, _ = win32process.GetWindowThreadProcessId(hwnd)
-        cur_thread = win32api.GetCurrentThreadId()
-        attached = False
-        if game_thread != cur_thread:
-            try:
-                win32process.AttachThreadInput(cur_thread, game_thread, True)
-                attached = True
-            except Exception:
-                attached = False
-        try:
-            if win32gui.IsIconic(hwnd):
-                win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-            win32gui.BringWindowToTop(hwnd)
-            win32gui.SetForegroundWindow(hwnd)
-        except Exception as e:
-            logger.warning(f'ensure game foreground error: {e}')
-        finally:
-            if attached:
-                try:
-                    win32process.AttachThreadInput(cur_thread, game_thread, False)
-                except Exception:
-                    pass
-    except Exception as e:
-        logger.warning(f'ensure game foreground failed: {e}')
-
-
-def _patch_executor_foreground():
-    # 包装 TaskExecutor.next_frame：一次性任务在取帧/等待场景时先确保游戏窗口在前台。
-    # 窗口后台时 ok 的 can_capture 返回 False（pynput 依赖前台），导致 executor 在
-    # 任务启动前（execute 的 next_frame）和任务运行中都拿不到帧而卡住/超时。
-    # 后台轮询型 TriggerTask 不抢前台，避免干扰用户做其他事。
-    from ok.task.TaskExecutor import TaskExecutor
-    from ok.task.task import TriggerTask
-
-    original_next_frame = TaskExecutor.next_frame
-
-    def next_frame(self, time_out=6):
-        try:
-            if self.current_task is not None and not isinstance(self.current_task, TriggerTask):
-                _ensure_game_foreground()
-        except Exception:
-            pass
-        return original_next_frame(self, time_out=time_out)
-
-    TaskExecutor.next_frame = next_frame
-    logger.info('patched TaskExecutor.next_frame to keep game window in foreground')
-
-
-# 通过包装 create_basic_options 注入自定义基础设置项（在 Config 加载磁盘配置之前生效）
-_patch_create_basic_options()
-# 禁用 OpenVINO 遥测，避免无网络时挂死进程退出
-_patch_openvino_telemetry()
-# App.__init__ 中 `from ok.gui.StartController import StartController` 会取到子类
-start_controller_module.StartController = NikkeStartController
-# 启动器路径选择框默认打开桌面目录
-_patch_file_selector_initial_directory()
-# 一次性任务执行期间把游戏窗口保持在前台，避免后台时 pynput 捕获/点击失效
-_patch_executor_foreground()
+def apply():
+    # App.__init__ 中 `from ok.gui.StartController import StartController` 会取到子类
+    start_controller_module.StartController = NikkeStartController

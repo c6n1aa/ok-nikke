@@ -2,7 +2,9 @@ import os
 
 import numpy as np
 
-import src.start_game  # noqa: F401  启动器相关补丁，必须在 ok.OK(config) 构造前导入
+from src.patches import apply_all  # 受控补丁唯一入口
+
+apply_all()  # 启动器/运行时/任务列表等补丁，必须在 ok.OK(config) 构造前应用
 
 version = "dev"
 #不需要修改version, Github Action打包会自动修改

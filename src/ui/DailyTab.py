@@ -80,6 +80,8 @@ class DailyTab(CustomTab):
         self.logger.info(f'DailyTab init {self.__class__.__name__}')
         self.icon = FluentIcon.CALENDAR
         self.daily_task = self._get_task(DailyTask)
+        # 每个子任务卡片 (父开关, 开关控件, [(配置键, 配置行控件), ...])，供显示时刷新同步。
+        self._cards = []
         self._build_ui()
 
     @property
@@ -102,13 +104,31 @@ class DailyTab(CustomTab):
         card.addWidget(switch)
         card.viewLayout.setContentsMargins(6, 4, 6, 8)
         card.viewLayout.setSpacing(0)
+        rows = []
         for key in task.default_config:
             if key.startswith('_'):
                 continue
             row = config_widget(task.config_type, task.config_description, task.config,
                                 key, task.config.get(key), task)
             card.viewLayout.addWidget(row)
+            rows.append((key, row))
+        self._cards.append((daily_key, switch, rows))
         return card
+
+    def _refresh_ui(self):
+        # 切到本 tab 时把控件同步为当前 config，覆盖在任务 tab 修改后与本 tab 的差异。
+        for daily_key, switch, rows in self._cards:
+            value = bool(self.daily_task.config.get(daily_key, False))  # 读取父任务开关当前值。
+            if switch.isChecked() != value:  # 值不同才 setChecked，避免冗余信号。
+                switch.setChecked(value)  # 同步父任务开关。
+            for key, widget in rows:  # 逐个同步子任务配置行。
+                update = getattr(widget, "update_value", None)  # 各配置控件都提供 update_value。
+                if update is not None:  # 有刷新方法才调用。
+                    update()  # 从 config 重新读取并设置控件值。
+
+    def showEvent(self, event):
+        super().showEvent(event)  # 先走基类事件。
+        self._refresh_ui()  # 显示时刷新一次控件状态。
 
     def _set_daily_switch(self, key, checked):
         self.daily_task.config[key] = checked

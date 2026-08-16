@@ -1,9 +1,13 @@
+from ok import og
+
 from src.tasks.HarvestTask import HarvestTask  # 导入收获子任务。
 from src.tasks.MyBaseTask import MyBaseTask  # 导入项目基类，所有任务统一继承它。
 from src.tasks.OutpostDefenseTask import OutpostDefenseTask  # 导入歼灭子任务。
 
 
 class DailyTask(MyBaseTask):  # 定义清日常总编排的父任务类。
+
+    DAILY_SETTINGS_BUTTON_KEY = "点击前往日常任务设置"  # 任务列表卡片里跳转日常设置 tab 的按钮配置键。
 
     def __init__(self, *args, **kwargs):  # 初始化任务元数据与配置。
         super().__init__(*args, **kwargs)  # 必须先调用父类初始化。
@@ -17,6 +21,24 @@ class DailyTask(MyBaseTask):  # 定义清日常总编排的父任务类。
             "收获": "是否执行收获（友情点、邮箱）。",
             "歼灭": "是否执行前哨基地歼灭。",
         })
+        self.config_type.update({  # 任务列表的日常卡片展开后只显示这一个按钮行。
+            self.DAILY_SETTINGS_BUTTON_KEY: {
+                "type": "button",  # 复用标准按钮配置行，样式与其他任务设置保持一致。
+                "text": "前往日常设置",  # 按钮文字。
+                "callback": self.open_daily_settings,  # 点击后跳转到日常设置 tab。
+            },
+        })
+
+    def open_daily_settings(self):  # 按钮点击回调：切换到「日常设置」tab。
+        from src.ui.DailyTab import DailyTab  # 延迟导入，避免与 DailyTab 模块互相循环导入。
+        mw = getattr(og, 'main_window', None)  # 主窗口在 show_main_window 后才挂到 og 上。
+        if mw is None:  # 主窗口未就绪时不处理。
+            return
+        for index in range(mw.stackedWidget.count()):  # 遍历主窗口的页面栈。
+            tab = mw.stackedWidget.widget(index)  # 逐个取出页面。
+            if isinstance(tab, DailyTab):  # 找到日常设置 tab 实例。
+                mw.switchTo(tab)  # 切换到该 tab。
+                return
 
     def run(self):  # 父任务执行入口，按顺序编排子流程。
         self.log_info("日常开始。")  # 记录父任务开始。
