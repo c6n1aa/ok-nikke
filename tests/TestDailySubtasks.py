@@ -49,6 +49,7 @@ class TestHarvestTask(_DebugOffTestCase):
 
     def test_runs_sub_flows_when_not_done(self):
         with patch.object(self.task, "wait_for_lobby"), \
+                patch.object(self.task, "dismiss_all_popups"), \
                 patch.object(self.task, "_collect_friend") as friend_mock, \
                 patch.object(self.task, "_collect_mailbox") as mailbox_mock:
             self.task.run()
@@ -70,6 +71,7 @@ class TestHarvestTask(_DebugOffTestCase):
     def test_friend_flow_failure_recovered_and_skipped(self):
         from ok.task.exceptions import WaitFailedException
         with patch.object(self.task, "wait_for_lobby"), \
+                patch.object(self.task, "dismiss_all_popups"), \
                 patch.object(self.task, "_recover_to_lobby", return_value=True), \
                 patch.object(self.task, "save_failure_screenshot"), \
                 patch.object(self.task, "sleep"), \
@@ -116,6 +118,7 @@ class TestOutpostDefenseTask(_DebugOffTestCase):
     def test_free_wipe_out_when_zero_times(self):
         self.task.config["使用珠宝歼灭次数"] = 0
         with patch.object(self.task, "wait_for_lobby"), \
+                patch.object(self.task, "dismiss_all_popups"), \
                 patch.object(self.task, "_click_outpost_defense"), \
                 patch.object(self.task, "_wipe_out_free") as free_mock, \
                 patch.object(self.task, "_wipe_out_with_gem") as gem_mock, \
@@ -128,6 +131,7 @@ class TestOutpostDefenseTask(_DebugOffTestCase):
     def test_gem_wipe_out_loop_when_times_set(self):
         self.task.config["使用珠宝歼灭次数"] = 3
         with patch.object(self.task, "wait_for_lobby"), \
+                patch.object(self.task, "dismiss_all_popups"), \
                 patch.object(self.task, "_click_outpost_defense"), \
                 patch.object(self.task, "_wipe_out_free") as free_mock, \
                 patch.object(self.task, "_wipe_out_with_gem") as gem_mock, \

@@ -27,7 +27,7 @@ class MyBaseTask(BaseTask):
         # 界面识别注册表：界面名 -> 判定描述（features 为 coco 模板特征，keywords 为 OCR 关键词）。
         self.screens = {}
         # 默认注册大厅界面：以方舟按钮(ark)特征判定已进入游戏大厅。
-        self.register_screen("lobby", features=["ark"])
+        self.register_screen("lobby", features=["ark", "shop"])
 
     def _now_bj(self) -> datetime.datetime:
         """当前北京时间（带时区）。"""
@@ -209,10 +209,10 @@ class MyBaseTask(BaseTask):
             self.next_frame()  # 刷新一帧，避免使用旧帧。
             if self.is_screen("lobby"):  # 当前帧已进入大厅（可能在弹窗遮挡下提前出现）。
                 self.sleep(1)  # 等待大厅界面完全加载，避免漏关延迟弹出的弹窗。
-                self._close_notice_popup()  # 关闭进入游戏后可能残留的公告/活动弹窗。
+                self.dismiss_all_popups(clear_condition=lambda: self.is_screen("lobby"), time_out=10)  # 统一清理进入游戏后可能残留的公告/活动弹窗。
                 self.log_info("已进入游戏大厅。")  # 记录到达大厅。
                 return True
-            self._close_notice_popup()  # 关闭 loading 阶段可能弹出的公告弹窗。
+            self.dismiss_all_popups(wait_for_popup=False, time_out=10)  # 统一清理 loading 阶段可能弹出的公告/活动弹窗与领取奖励遮罩，无弹窗时立即返回。
             self._click_enter_game()  # 识别并点击 TOUCH TO CONTINUE 进入游戏。
             self.sleep(1)  # 等待界面变化后进入下一轮。
         self.save_failure_screenshot("wait_until_lobby_after_start")  # 超时保存现场截图便于排查。
@@ -233,6 +233,8 @@ class MyBaseTask(BaseTask):
             Box | None。
         """
         scale = min(self.width / ref_width, self.height / ref_height)  # 等比例缩放，取小者避免超出
+        if scale <= 0:  # 分辨率无效（如测试环境无窗口/无帧）时无法缩放，视为未命中。
+            return None
         cache_key = (os.path.abspath(template_path), round(scale, 6))
         template = self._scaled_template_cache.get(cache_key)
         if template is None:
@@ -289,6 +291,75 @@ class MyBaseTask(BaseTask):
                 raise WaitFailedException(f"未找到遮罩按钮 {keywords}，未能关闭弹窗。")  # 抛出等待失败异常，便于上层 try_step 捕获重试。
             self.log_info("未出现遮罩，跳过。")  # 记录超时未出现。
         return clicked  # 超时或点满次数后返回当前状态。
+
+    def _try_close_one_popup(self, after_sleep=1):
+        """尝试关闭当前帧上的一个弹窗：先公告/活动横幅，再领取奖励遮罩。返回是否成功关掉一个。
+
+        每次只关一个，由 dismiss_all_popups 循环调用，避免一次点击后界面动画未完成导致误判。
+        """
+        if self._close_notice_popup():  # 公告/活动横幅（右上角铃铛+关闭按钮）。
+            return True  # 已关闭横幅弹窗。
+        try:  # 遮罩 OCR 异常不应中断统一清理。
+            boxes = self.ocr(x=1 / 3, y=0.6, to_x=2 / 3, to_y=1, match=["点击领取奖励"])  # 中下部区域查找领取奖励遮罩按钮。
+        except Exception as e:  # OCR 失败。
+            self.log_warning(f"遮罩 OCR 失败: {e}")  # 记录失败原因。
+            return False  # 本帧无遮罩可关。
+        if boxes:  # 存在遮罩按钮。
+            self.click_box(boxes[0], after_sleep=after_sleep)  # 点击关闭遮罩。
+            self.log_info("点击遮罩按钮关闭弹窗。")  # 记录关闭动作。
+            return True  # 已关闭一个遮罩。
+        return False  # 本帧没有可关闭的弹窗。
+
+    def dismiss_all_popups(self, clear_condition=None, time_out=10, after_sleep=1, max_passes=6,
+                           wait_for_popup=True):
+        """统一弹窗清理入口：循环关闭公告/活动横幅与领取奖励遮罩等弹窗。
+
+        语义与 close_overlay 一致：点击后弹窗可能延迟出现，因此当前帧无弹窗时
+        默认不会立即返回，而是继续等待（wait_for_popup=True，适用于"点击领取后"等
+        必出弹窗的场景）；纯入口清理等"可能有弹窗也可能没有"的场景应传
+        wait_for_popup=False，无弹窗时立即返回。也可传 clear_condition 等待目标界面。
+
+        Args:
+            clear_condition: 可选完成条件（返回 True 表示清理完成/已回到目标界面）；
+                优先于其它判断，条件满足即返回。
+            time_out: 清理的总超时（秒）。
+            after_sleep: 每次点击后的固定等待（秒）。
+            max_passes: 最大清理轮数上限，防止异常画面下死循环。
+            wait_for_popup: True 时无弹窗也继续等待直到超时（处理延迟弹窗）；
+                False 时当前帧无弹窗且未关过任何弹窗则立即返回 True。
+        Returns:
+            True 清理完成；False 超时且仍有弹窗未能关闭。
+        """
+        start = time.time()  # 记录开始时间。
+        passes = 0  # 统计清理轮数。
+        closed_any = False  # 是否至少关闭过一个弹窗。
+        while time.time() - start < time_out:  # 循环直到超时。
+            passes += 1  # 轮数加一。
+            if passes > max_passes:  # 超过轮次上限。
+                self.log_warning(f"清理弹窗达到轮次上限（{max_passes}），停止。")  # 记录异常并停止。
+                return False  # 返回失败。
+            if clear_condition is not None and clear_condition():  # 完成条件已满足。
+                return True  # 清理完成。
+            if self._try_close_one_popup(after_sleep=after_sleep):  # 关掉了一个弹窗。
+                closed_any = True  # 标记已关闭过弹窗。
+                try:  # 刷新帧后再继续，避免基于旧帧重复匹配。
+                    self.next_frame()  # 获取最新屏幕帧。
+                except Exception:  # 无可用帧时忽略。
+                    pass  # 继续下一轮。
+                continue  # 继续清理剩余弹窗。
+            if clear_condition is not None:  # 有完成条件但尚未满足。
+                self.sleep(1)  # 等待界面变化后重试。
+                continue  # 继续等待。
+            if closed_any:  # 关闭过弹窗且当前无弹窗可关。
+                return True  # 清理完成。
+            if not wait_for_popup:  # 快速清理场景：从未出现过弹窗。
+                return True  # 无需清理，立即返回。
+            self.sleep(1)  # 弹窗可能尚未出现（点击后延迟），等待出现。
+        if closed_any:  # 超时但关闭过弹窗，仍有弹窗残留。
+            self.log_warning(f"清理弹窗超时（{time_out}秒）。")  # 记录超时。
+            return False  # 返回失败。
+        self.log_info("未发现弹窗，无需清理。")  # 超时未出现任何弹窗。
+        return True  # 视为清理完成。
 
     def register_screen(self, name: str, features=(), keywords=(), ocr_box=None):
         """注册一个界面及判定条件。
@@ -370,9 +441,9 @@ class MyBaseTask(BaseTask):
         except Exception as e:  # 无可用帧时忽略。
             self.log_warning(f"recover next_frame failed: {e}")  # 记录帧刷新失败。
         try:
-            self.close_overlay(time_out=3, require_click=False)  # 先关闭可能遮挡后续操作的弹窗，容错：没有遮罩可关也继续恢复。
-        except Exception as e:  # 关遮罩异常不中断恢复。
-            self.log_warning(f"recover close_overlay failed: {e}")  # 记录关遮罩失败。
+            self.dismiss_all_popups(clear_condition=lambda: self.is_screen("lobby"), time_out=10)  # 先统一清理可能遮挡后续操作的弹窗，容错：没有弹窗也继续恢复。
+        except Exception as e:  # 清理弹窗异常不中断恢复。
+            self.log_warning(f"recover dismiss_all_popups failed: {e}")  # 记录清理弹窗失败。
         if self.is_screen("lobby"):  # 已在大厅则无需额外操作。
             return True  # 恢复成功。
         try:

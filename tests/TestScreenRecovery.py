@@ -128,7 +128,7 @@ class TestScreenRecovery(TaskTestCase):
     def test_recover_to_lobby_clicks_home_feature(self):
         fake_home = Box(100, 100, 50, 50, confidence=1, name="common_home")
         with patch.object(self.task, "next_frame"), \
-                patch.object(self.task, "close_overlay", return_value=False), \
+                patch.object(self.task, "dismiss_all_popups", return_value=False), \
                 patch.object(self.task, "is_screen", return_value=False), \
                 patch.object(self.task, "feature_exists", return_value=True), \
                 patch.object(self.task, "find_one", return_value=fake_home) as find_mock, \
@@ -142,7 +142,7 @@ class TestScreenRecovery(TaskTestCase):
 
     def test_recover_to_lobby_skips_when_already_lobby(self):
         with patch.object(self.task, "next_frame"), \
-                patch.object(self.task, "close_overlay", return_value=False), \
+                patch.object(self.task, "dismiss_all_popups", return_value=False), \
                 patch.object(self.task, "is_screen", return_value=True), \
                 patch.object(self.task, "feature_exists") as fe_mock, \
                 patch.object(self.task, "wait_for_lobby") as lobby_mock:
@@ -174,6 +174,47 @@ class TestScreenRecovery(TaskTestCase):
         self.assertTrue(result)
         self.assertEqual(2, ocr_mock.call_count)  # 第一次命中并点击，第二次确认已关闭。
         self.assertEqual(1, click_mock.call_count)
+
+    def test_dismiss_all_popups_no_popup_returns_true(self):
+        # 没有弹窗可关且无完成条件时，等待直到超时后返回 True（与 close_overlay 语义一致）。
+        with patch.object(self.task, "_try_close_one_popup", return_value=False) as close_mock:
+            result = self.task.dismiss_all_popups(time_out=2)
+        self.assertTrue(result)
+        self.assertEqual(2, close_mock.call_count)  # 每轮检查一次，等满 time_out 秒。
+
+    def test_dismiss_all_popups_fast_mode_returns_immediately(self):
+        # wait_for_popup=False 时，当前帧无弹窗立即返回 True，不等待。
+        with patch.object(self.task, "_try_close_one_popup", return_value=False) as close_mock, \
+                patch.object(self.task, "sleep") as sleep_mock:
+            result = self.task.dismiss_all_popups(wait_for_popup=False, time_out=5)
+        self.assertTrue(result)
+        close_mock.assert_called_once()  # 只检查一帧。
+        sleep_mock.assert_not_called()  # 没有睡眠等待。
+
+    def test_dismiss_all_popups_closes_until_clean(self):
+        # 弹窗连续出现时逐个关闭，直到无弹窗返回 True。
+        with patch.object(self.task, "_try_close_one_popup", side_effect=[True, True, False]) as close_mock, \
+                patch.object(self.task, "next_frame"):
+            result = self.task.dismiss_all_popups(time_out=5)
+        self.assertTrue(result)
+        self.assertEqual(3, close_mock.call_count)  # 关了两个后，第三次确认无弹窗。
+
+    def test_dismiss_all_popups_max_passes(self):
+        # 弹窗一直关不掉时达到轮次上限返回 False。
+        with patch.object(self.task, "_try_close_one_popup", return_value=True), \
+                patch.object(self.task, "next_frame"), \
+                patch.object(self.task, "log_warning") as warn_mock:
+            result = self.task.dismiss_all_popups(time_out=5, max_passes=3)
+        self.assertFalse(result)
+        warn_mock.assert_called_once()  # 达轮次上限只记录一次并返回失败。
+
+    def test_dismiss_all_popups_clear_condition_stops_early(self):
+        # 指定完成条件时，无可关弹窗且条件满足即返回 True。
+        with patch.object(self.task, "_try_close_one_popup", return_value=False), \
+                patch.object(self.task, "sleep"):
+            result = self.task.dismiss_all_popups(
+                clear_condition=lambda: self.task.is_screen("lobby"), time_out=5)
+        self.assertTrue(result)
 
 
 if __name__ == '__main__':

@@ -56,6 +56,15 @@ class TestNoticePopupDetection(TaskTestCase):
         self._set_image('tests/images/huodong_02.png')  # 固定活动截图。
         self.assertTrue(self._close())  # 应成功关闭弹窗。
 
+    def test_try_close_one_popup_closes_notice(self):
+        """_try_close_one_popup 在公告横幅存在时返回 True，且不触发遮罩 OCR。"""
+        self._set_image('tests/images/gonggao_01.png')  # 固定公告截图。
+        with patch.object(self.task, 'ocr') as ocr_mock, \
+                patch.object(self.task, 'sleep'), \
+                patch.object(self.task, 'click_box'):
+            self.assertTrue(self.task._try_close_one_popup())  # 横幅被关闭。
+        ocr_mock.assert_not_called()  # 横幅命中后不走到遮罩 OCR。
+
     def test_click_position_within_bell_extended_region(self):
         """点击坐标应落在 notice_bell 右侧延伸出的搜索区域内（保证关闭按钮在横幅右侧）。"""
         from ok.feature.Box import Box  # 导入 Box 用于断言坐标。
