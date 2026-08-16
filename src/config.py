@@ -116,4 +116,7 @@ config = {
     ],
     'trigger_tasks': [  # 后台任务，可随时开启/关闭
     ],
+    'custom_tabs': [  # 自定义Tab
+        ["src.ui.DailyTab", "DailyTab"],
+    ],
 }
