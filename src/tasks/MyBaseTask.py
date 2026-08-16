@@ -5,6 +5,7 @@ import time
 import cv2
 
 from ok import BaseTask
+from ok.task.exceptions import WaitFailedException  # 界面断言/失败恢复使用的框架等待失败异常。
 
 _BEIJING_TZ = datetime.timezone(datetime.timedelta(hours=8))  # 北京时间 UTC+8，无夏令时
 
@@ -21,6 +22,10 @@ class MyBaseTask(BaseTask):
         self.default_config[self._execution_states_key] = {}
         # 按 (路径, 缩放比例) 缓存缩放后的模板，避免循环查找时反复读取/缩放。
         self._scaled_template_cache = {}
+        # 界面识别注册表：界面名 -> 判定描述（features 为 coco 模板特征，keywords 为 OCR 关键词）。
+        self.screens = {}
+        # 默认注册大厅界面：以方舟按钮(ark)特征判定已进入游戏大厅。
+        self.register_screen("lobby", features=["ark"])
 
     def _now_bj(self) -> datetime.datetime:
         """当前北京时间（带时区）。"""
@@ -203,3 +208,130 @@ class MyBaseTask(BaseTask):
         if not clicked:  # 全程未出现遮罩。
             self.log_info("未出现遮罩，跳过。")  # 记录超时未出现。
         return clicked  # 超时或点满次数后返回当前状态。
+
+    def register_screen(self, name: str, features=(), keywords=(), ocr_box=None):
+        """注册一个界面及判定条件。
+
+        Args:
+            name: 界面名（子任务用 is_screen/wait_screen/assert_screen 时传入的名称）。
+            features: coco 标注的模板特征名列表，全部命中才判定为该界面。
+            keywords: OCR 关键词列表，任一命中即判定为该界面（多用于无稳定模板的页面）。
+            ocr_box: 可选 OCR 区域相对坐标 [x, y, to_x, to_y]，避免全屏 OCR 的开销。
+        """
+        self.screens[name] = {  # 保存界面判定描述到注册表。
+            "features": list(features),  # 模板特征名列表。
+            "keywords": list(keywords),  # OCR 关键词列表。
+            "ocr_box": ocr_box,  # OCR 区域相对坐标。
+        }
+
+    def _screen_match(self, spec: dict) -> bool:
+        """按判定描述在当前帧检测是否处于该界面。"""
+        if spec.get("features"):  # 有模板特征则以特征判定为准。
+            for name in spec["features"]:  # 逐个检测特征。
+                if self.find_one(name) is None:  # 任一特征缺失则不在该界面。
+                    return False  # 返回未命中。
+            return True  # 全部命中才算处于该界面。
+        if spec.get("keywords"):  # 无模板特征时退化为 OCR 关键词判定。
+            box = spec.get("ocr_box")  # 读取可选 OCR 区域。
+            if box:  # 指定了区域则只在该区域 OCR。
+                boxes = self.ocr(*box, match=spec["keywords"])  # 区域内匹配关键词。
+            else:  # 未指定区域则全屏 OCR。
+                boxes = self.ocr(match=spec["keywords"])  # 全屏匹配关键词。
+            return bool(boxes)  # 命中任一关键词即判定为该界面。
+        self.log_warning(f"界面 {spec} 未配置判定条件")  # 记录空配置。
+        return False  # 空配置判定为不在该界面。
+
+    def current_screen(self) -> str | None:
+        """在当前帧识别所处界面，返回界面名；未命中返回 None（常用于失败日志）。"""
+        for name, spec in self.screens.items():  # 遍历所有已注册界面。
+            if self._screen_match(spec):  # 命中则返回该界面名。
+                return name  # 返回界面名。
+        return None  # 全部未命中返回 None。
+
+    def is_screen(self, name: str) -> bool:
+        """单帧检测当前是否处于指定界面。"""
+        spec = self.screens.get(name)  # 读取界面判定描述。
+        if spec is None:  # 界面未注册。
+            self.log_warning(f"未注册界面: {name}")  # 记录未注册。
+            return False  # 未注册判定为不在该界面。
+        return self._screen_match(spec)  # 按判定描述检测。
+
+    def wait_screen(self, name: str, time_out=10, raise_if_not_found=False):
+        """等待进入指定界面，复用 wait_until 的轮询与超时机制。"""
+        spec = self.screens.get(name)  # 读取界面判定描述。
+        if spec is None:  # 界面未注册。
+            raise ValueError(f"未注册界面: {name}")  # 未注册直接报错。
+        return self.wait_until(lambda: self._screen_match(spec),  # 轮询界面判定条件。
+                               time_out=time_out,  # 超时时间。
+                               raise_if_not_found=raise_if_not_found)  # 超时是否抛异常。
+
+    def assert_screen(self, name: str, time_out=10):
+        """断言处于指定界面，超时抛 WaitFailedException（由 try_step 捕获并恢复）。"""
+        if not self.wait_screen(name, time_out=time_out):  # 等待界面超时。
+            cur = self.current_screen()  # 识别当前实际界面用于日志。
+            self.log_warning(f"界面断言失败: 期望 {name}，当前 {cur}")  # 记录断言失败。
+            raise WaitFailedException(f"not on screen: {name} (current: {cur})")  # 抛等待失败异常。
+
+    def save_failure_screenshot(self, tag: str):
+        """保存失败现场截图到 screenshots/failure/，复用框架截图能力。"""
+        try:  # 截图失败不应影响主流程。
+            self.screenshot(name=f"failure/{tag}")  # 按失败步骤命名截图。
+        except Exception as e:  # 截图异常。
+            self.log_warning(f"save_failure_screenshot failed: {e}")  # 记录截图失败原因。
+
+    def _recover_to_lobby(self, time_out=30) -> bool:
+        """失败恢复协议：刷新帧 → 关遮罩 → 按 common_home 回大厅 → 等待大厅确认。
+
+        子任务可覆盖本方法追加自己的恢复动作。返回是否已回到大厅。
+        """
+        try:
+            self.next_frame()  # 刷新一帧后再判断，避免用到异常前的旧帧。
+        except Exception as e:  # 无可用帧时忽略。
+            self.log_warning(f"recover next_frame failed: {e}")  # 记录帧刷新失败。
+        try:
+            self.close_overlay(time_out=3)  # 先关闭可能遮挡后续操作的弹窗。
+        except Exception as e:  # 关遮罩异常不中断恢复。
+            self.log_warning(f"recover close_overlay failed: {e}")  # 记录关遮罩失败。
+        if self.is_screen("lobby"):  # 已在大厅则无需额外操作。
+            return True  # 恢复成功。
+        try:
+            if self.feature_exists("common_home"):  # 存在大厅按钮特征则点击回大厅。
+                home = self.find_one("common_home")  # 查找大厅按钮。
+                if home is not None:  # 找到才点击。
+                    self.click_box(home, after_sleep=1)  # 点击大厅按钮返回大厅。
+        except Exception as e:  # 回大厅操作异常不中断恢复。
+            self.log_warning(f"recover common_home failed: {e}")  # 记录回大厅失败。
+        return self.wait_for_lobby(time_out=time_out, raise_if_not_found=False)  # 等待确认回到大厅。
+
+    def try_step(self, step_fn, name: str = None, retries: int = 2, recover: bool = True,
+                 raise_on_fail: bool = True) -> bool:
+        """以恢复协议执行单步：失败截图存档 → 恢复回大厅 → 有限重试。
+
+        Args:
+            step_fn: 步骤函数，内部导航失败时以 raise_if_not_found=True 抛 WaitFailedException。
+            name: 步骤名，用于日志与截图文件名。
+            retries: 失败后的重试次数（默认 2，即总共尝试 3 次）。
+            recover: 每次失败后是否先恢复回大厅再重试。
+            raise_on_fail: 重试耗尽后是否抛异常；False 则记录并返回 False。
+        Returns:
+            True 成功；False 失败且 raise_on_fail=False。
+        """
+        tag = name or getattr(step_fn, "__name__", "step")  # 步骤标识，用于日志与截图。
+        for attempt in range(1, retries + 2):  # 首次执行加上重试次数。
+            try:
+                step_fn()  # 执行步骤。
+                return True  # 成功直接返回。
+            except WaitFailedException as e:  # 仅捕获等待失败类异常。
+                self.save_failure_screenshot(tag)  # 保存失败现场截图。
+                self.log_warning(f"步骤 {tag} 第 {attempt}/{retries + 1} 次失败: {e}")  # 记录本次失败。
+                if attempt > retries:  # 已用完全部尝试次数。
+                    break  # 结束重试循环。
+                if recover:  # 需要恢复后再重试。
+                    if not self._recover_to_lobby():  # 恢复回大厅失败。
+                        self.log_warning(f"步骤 {tag} 恢复回大厅失败，放弃重试。")  # 记录放弃原因。
+                        break  # 恢复失败则不再重试。
+                self.sleep(1)  # 刷新一帧后进入下次尝试。
+        if raise_on_fail:  # 配置为重试耗尽后抛异常。
+            raise WaitFailedException(f"步骤 {tag} 多次失败后放弃")  # 抛出失败异常。
+        self.log_warning(f"步骤 {tag} 失败，已跳过。")  # 记录跳过步骤。
+        return False  # 返回失败状态。
