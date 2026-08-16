@@ -42,6 +42,9 @@ class DailyTask(MyBaseTask):  # 定义清日常总编排的父任务类。
 
     def run(self):  # 父任务执行入口，按顺序编排子流程。
         self.log_info("日常开始。")  # 记录父任务开始。
+        if not self.wait_until_lobby_after_start():  # 启动后等待进入游戏大厅（处理公告弹窗与 TOUCH TO CONTINUE），失败则中止后续任务。
+            self.log_error("未能进入游戏大厅，中止日常任务。")  # 记录失败原因。
+            return  # 结束本次执行，不执行子流程。
         if self.config.get("收获"):  # 只有开关开启时才执行收获。
             self.run_task_by_class(HarvestTask)  # 运行收获子任务，子任务读取自己的配置。
         if self.config.get("歼灭"):  # 只有开关开启时才执行歼灭。

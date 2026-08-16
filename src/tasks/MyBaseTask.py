@@ -1,8 +1,10 @@
-import datetime
-import os
-import time
+import re  # 正则模块，用于 OCR 文字的部分匹配。
 
-import cv2
+import datetime  # 日期时间模块，处理北京时区与周期刷新。
+import os  # 操作系统路径模块，处理 assets/template/ 下模板文件的绝对路径。
+import time  # 时间模块，处理超时与等待。
+
+import cv2  # OpenCV，模板缩放匹配使用 cv2.resize / cv2.imread。
 
 from ok import BaseTask
 from ok.task.exceptions import WaitFailedException  # 界面断言/失败恢复使用的框架等待失败异常。
@@ -143,6 +145,79 @@ class MyBaseTask(BaseTask):
         """
         self.bring_game_to_front()  # 先把游戏窗口切到前台，确保 pynput 点击生效。
         return self.wait_feature("ark", time_out=time_out, raise_if_not_found=raise_if_not_found)
+
+    _NOTICE_BELL_TEMPLATES = (  # 公告弹窗铃铛模板列表：公告(notice_bell1)与活动(notice_bell2)弹窗图标样式略有差异，依次尝试任一命中即可。
+        os.path.join('assets', 'template', 'notice_bell1.png'),  # 活动弹窗铃铛模板，来自 2560x1440 截图。
+        os.path.join('assets', 'template', 'notice_bell2.png'),  # 公告弹窗铃铛模板，来自 2560x1440 截图。
+    )
+    _COMMON_CLOSE_TEMPLATE = os.path.join('assets', 'template', 'common_close.png')  # 通用关闭按钮模板，来自 2560x1440 截图。
+    _ENTER_GAME_TEXT = re.compile("TOUCH TO CONTINUE", re.IGNORECASE)  # 进入游戏提示文字，OCR 部分匹配并忽略大小写。
+
+    def _close_notice_popup(self):
+        """在屏幕中上部依次尝试多个公告铃铛模板，命中后向右延伸查找通用关闭按钮并点击，返回是否成功点击。"""
+        bell = None  # 初始化铃铛匹配结果。
+        for template_path in self._NOTICE_BELL_TEMPLATES:  # 依次尝试每个铃铛模板。
+            bell = self.find_scaled_template(  # 在屏幕中上部查找当前铃铛模板。
+                "notice_bell", template_path,  # 使用模板并命名匹配结果。
+                threshold=0.75,  # 铃铛图标在不同弹窗间样式有差异，阈值放宽到 0.75 提高命中率。
+                box=self.box_of_screen(0.258, 0.05, 0.75, 0.5),  # 限定 x 约25.8%-75%（2560x1440 下约 660-1920 像素）、y 5%-50% 的屏幕中上部区域。
+            )
+            if bell is not None:  # 当前模板命中铃铛。
+                break  # 停止尝试后续模板。
+        if bell is None:  # 所有模板均未命中，当前帧无公告横幅。
+            return False  # 返回未命中，让上层继续后续流程。
+        from ok.feature.Box import Box  # 局部导入，用于动态构造关闭按钮搜索区域。
+        close_region = Box(  # 从公告横幅右侧延伸到屏幕右边缘作为关闭按钮搜索区域。
+            bell.x + bell.width,  # 从铃铛右边缘开始。
+            max(0, bell.y - bell.height),  # 上扩一个铃铛高度，允许垂直方向轻微误差。
+            self.width - (bell.x + bell.width),  # 水平方向延伸到屏幕右边缘。
+            bell.height * 3,  # 垂直范围取铃铛高度的三倍，覆盖同高度附近的关闭按钮。
+            name="notice_close_region",  # 搜索区域名称，用于日志/调试。
+        )
+        close = self.find_scaled_template(  # 在公告横幅右侧查找通用关闭按钮。
+            "common_close", self._COMMON_CLOSE_TEMPLATE, box=close_region,  # 仅在右侧区域搜索。
+        )
+        if close is None:  # 找不到关闭按钮（可能不是公告弹窗）。
+            return False  # 返回未命中，跳过本轮关闭。
+        self.click_box(close, after_sleep=1)  # 点击关闭按钮并等待弹窗关闭动画完成。
+        self.log_info("已关闭公告/活动弹窗。")  # 记录关闭动作。
+        return True  # 返回成功，供上层继续检测大厅。
+
+    def _click_enter_game(self):
+        """在 coco 特征 bbox_enter_game 区域内 OCR 识别 TOUCH TO CONTINUE 并点击进入游戏，返回是否点击。"""
+        try:
+            enter_box = self.get_box_by_name("bbox_enter_game")  # 获取 coco 标注的进入游戏文字区域（已按当前分辨率缩放）。
+        except ValueError:  # coco 特征缺失等异常情况，视为未命中。
+            return False
+        if enter_box is None:  # 当前帧该区域不可用。
+            return False
+        matches = self.ocr(box=enter_box, match=self._ENTER_GAME_TEXT)  # 在区域内 OCR 匹配进入游戏文字（正则部分匹配）。
+        if not matches:  # 当前帧未识别到目标文字。
+            return False
+        self.click_box(matches[0], after_sleep=1)  # 点击进入游戏按钮（命中识别框中心）并等待响应。
+        self.log_info("已点击 TOUCH TO CONTINUE 进入游戏。")  # 记录点击动作。
+        return True  # 返回成功。
+
+    def wait_until_lobby_after_start(self, time_out=180):
+        """点击任务开始后确保进入游戏大厅：已在大厅直接返回 True；否则循环关闭公告/活动弹窗并点击 TOUCH TO CONTINUE，直到确认大厅或超时。"""
+        if self.is_screen("lobby"):  # 单帧检测当前是否已在大厅。
+            self.log_info("已在大厅，跳过游戏启动流程。")  # 记录无需等待。
+            return True
+        self.log_info("游戏尚未进入大厅，开始等待加载完成。")  # 记录开始等待。
+        deadline = time.time() + time_out  # 记录整体超时时刻。
+        while time.time() < deadline:  # 循环直到超时。
+            self.next_frame()  # 刷新一帧，避免使用旧帧。
+            if self.is_screen("lobby"):  # 当前帧已进入大厅（可能在弹窗遮挡下提前出现）。
+                self.sleep(1)  # 等待大厅界面完全加载，避免漏关延迟弹出的弹窗。
+                self._close_notice_popup()  # 关闭进入游戏后可能残留的公告/活动弹窗。
+                self.log_info("已进入游戏大厅。")  # 记录到达大厅。
+                return True
+            self._close_notice_popup()  # 关闭 loading 阶段可能弹出的公告弹窗。
+            self._click_enter_game()  # 识别并点击 TOUCH TO CONTINUE 进入游戏。
+            self.sleep(1)  # 等待界面变化后进入下一轮。
+        self.save_failure_screenshot("wait_until_lobby_after_start")  # 超时保存现场截图便于排查。
+        self.log_warning(f"等待进入游戏大厅超时（{time_out}秒）。")  # 记录超时原因。
+        return False  # 返回失败，由调用方决定是否中止后续流程。
 
     def find_scaled_template(self, feature_name: str, template_path: str, ref_width: int = 2560,
                              ref_height: int = 1440, **kwargs):
