@@ -171,10 +171,12 @@ class MyBaseTask(BaseTask):
             self._scaled_template_cache[cache_key] = template
         return self.find_one(feature_name, template=template, **kwargs)
 
-    def close_overlay(self, keywords=("点击领取奖励",), time_out=5, after_sleep=1, max_clicks=3):
+    def close_overlay(self, keywords=("点击领取奖励",), time_out=5, after_sleep=1, max_clicks=3,
+                      require_click=True):
         """点击遮罩窗按钮关闭弹窗，避免后续点击被遮罩拦截。
 
-        在屏幕中下部区域（按 5 竖线 2 横线网格的中间最下一格）做 OCR，
+        在屏幕中下部区域（x 1/3-2/3，y 0.6-1）做 OCR："点击领取奖励"文字
+        位于屏幕中央偏下（约 rel_y 0.64），因此 OCR 区域从 y=0.6 开始覆盖，
         每次只点第一个匹配框（同一弹窗的文字阴影会重复命中，不能连点），
         点完继续检测，弹窗连续出现时逐个关闭。遮罩未出现时会一直等到
         time_out 超时，方便处理点击后延迟弹出的遮罩。
@@ -184,14 +186,16 @@ class MyBaseTask(BaseTask):
             time_out: 等待遮罩出现/关闭的最长时间（秒）。
             after_sleep: 点击后的固定等待时间（秒）。
             max_clicks: 最多连续点击次数，防止异常时死循环。
+            require_click: True 时若超时仍未点到任何遮罩则抛 WaitFailedException；
+                恢复流程等容错场景应传 False，超时未出现则跳过不报错。
         Returns:
-            True 表示至少点击过一次；False 表示超时未出现遮罩。
+            True 表示至少点击过一次；require_click=False 且未点到时返回 False。
         """
         start = time.time()  # 记录开始时间，用于超时控制。
         clicked = False  # 标记是否至少成功点击过一次。
         clicks = 0  # 统计连续点击次数。
         while time.time() - start < time_out:  # 循环直到超时。
-            boxes = self.ocr(x=1 / 3, y=2 / 3, to_x=2 / 3, to_y=1, match=list(keywords))  # 在中下部区域 OCR 匹配关键词。
+            boxes = self.ocr(x=1 / 3, y=0.6, to_x=2 / 3, to_y=1, match=list(keywords))  # 在中下部区域 OCR 匹配关键词，覆盖位于 rel_y≈0.64 的“点击领取奖励”。
             if boxes:  # 当前仍有遮罩按钮。
                 if clicks >= max_clicks:  # 超过最大连续点击次数。
                     self.log_warning(f"遮罩点击 {max_clicks} 次仍存在，停止。")  # 记录异常并停止，避免死循环。
@@ -206,6 +210,8 @@ class MyBaseTask(BaseTask):
                 return True  # 关闭成功，立即返回。
             self.sleep(1)  # 遮罩尚未出现，等待 1 秒后重试直到超时。
         if not clicked:  # 全程未出现遮罩。
+            if require_click:  # 明确要求至少关闭一次但未点到。
+                raise WaitFailedException(f"未找到遮罩按钮 {keywords}，未能关闭弹窗。")  # 抛出等待失败异常，便于上层 try_step 捕获重试。
             self.log_info("未出现遮罩，跳过。")  # 记录超时未出现。
         return clicked  # 超时或点满次数后返回当前状态。
 
@@ -289,7 +295,7 @@ class MyBaseTask(BaseTask):
         except Exception as e:  # 无可用帧时忽略。
             self.log_warning(f"recover next_frame failed: {e}")  # 记录帧刷新失败。
         try:
-            self.close_overlay(time_out=3)  # 先关闭可能遮挡后续操作的弹窗。
+            self.close_overlay(time_out=3, require_click=False)  # 先关闭可能遮挡后续操作的弹窗，容错：没有遮罩可关也继续恢复。
         except Exception as e:  # 关遮罩异常不中断恢复。
             self.log_warning(f"recover close_overlay failed: {e}")  # 记录关遮罩失败。
         if self.is_screen("lobby"):  # 已在大厅则无需额外操作。

@@ -67,6 +67,20 @@ class TestHarvestTask(_DebugOffTestCase):
                 self.task.run()
         self.assertFalse(self.task.is_done("harvest", "day"))
 
+    def test_friend_flow_failure_recovered_and_skipped(self):
+        from ok.task.exceptions import WaitFailedException
+        with patch.object(self.task, "wait_for_lobby"), \
+                patch.object(self.task, "_recover_to_lobby", return_value=True), \
+                patch.object(self.task, "save_failure_screenshot"), \
+                patch.object(self.task, "sleep"), \
+                patch.object(self.task, "_collect_friend",
+                             side_effect=WaitFailedException("弹窗未完全关闭")) as friend_mock, \
+                patch.object(self.task, "_collect_mailbox") as mailbox_mock:
+            self.task.run()
+        self.assertGreaterEqual(friend_mock.call_count, 1)  # 失败后尝试过至少一次（含重试）。
+        mailbox_mock.assert_called_once()  # 友情点失败不阻塞邮箱流程。
+        self.assertTrue(self.task.is_done("harvest", "day"))  # 全部子流程收尾后仍标记完成。
+
     def test_debug_mode_skips_done_state(self):
         with patch.object(self.task, '_in_debug', return_value=True):
             self.task.mark_done("harvest", "day")

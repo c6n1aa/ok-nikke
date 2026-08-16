@@ -151,6 +151,30 @@ class TestScreenRecovery(TaskTestCase):
         fe_mock.assert_not_called()
         lobby_mock.assert_not_called()
 
+    def test_close_overlay_require_click_raises_when_no_overlay(self):
+        # 明确要求至少关闭一次遮罩，但 OCR 一直匹配不到时抛 WaitFailedException。
+        with patch.object(self.task, "ocr", return_value=[]), \
+                patch.object(self.task, "sleep"):
+            with self.assertRaises(WaitFailedException):
+                self.task.close_overlay(time_out=0)
+
+    def test_close_overlay_require_click_false_returns_false_when_no_overlay(self):
+        # 容错模式（恢复流程）：没有遮罩可关时返回 False 而不抛异常。
+        with patch.object(self.task, "ocr", return_value=[]), \
+                patch.object(self.task, "sleep"):
+            result = self.task.close_overlay(time_out=0, require_click=False)
+        self.assertFalse(result)
+
+    def test_close_overlay_clicks_and_returns_true(self):
+        # 找到遮罩点击一次后确认已关闭，返回 True。
+        fake_box = Box(500, 700, 100, 40, confidence=1, name="overlay")
+        with patch.object(self.task, "ocr", side_effect=[[fake_box], []]) as ocr_mock, \
+                patch.object(self.task, "click_box") as click_mock:
+            result = self.task.close_overlay(time_out=5)
+        self.assertTrue(result)
+        self.assertEqual(2, ocr_mock.call_count)  # 第一次命中并点击，第二次确认已关闭。
+        self.assertEqual(1, click_mock.call_count)
+
 
 if __name__ == '__main__':
     unittest.main()

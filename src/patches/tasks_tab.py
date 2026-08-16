@@ -106,7 +106,28 @@ def _patch_tasks_tab_daily_pin():
     logger.info('patched OneTimeTaskTab.refresh_ui to pin DailyTask card on top with a divider')
 
 
+def _patch_tasks_tab_sync_config_on_show():
+    # 任务列表切回本 tab 时把卡片控件同步为 task.config 当前值。
+    # 「日常设置」tab 直接写共享的 task.config 字典，任务列表卡片不会自动感知，
+    # 因此在显示时对每张卡片调用 update_config()（逐个 update_value + 刷新子配置可见性），
+    # 与 DailyTab._refresh_ui 的同步策略保持一致。
+    from ok.gui.tasks.OneTimeTaskTab import OneTimeTaskTab
+
+    original_show_event = OneTimeTaskTab.showEvent
+
+    def _show_event(self, event):
+        original_show_event(self, event)  # 先走基类事件处理（QWidget.showEvent）。
+        for card in getattr(self, 'card_widgets', []):  # 遍历本 tab 的所有任务卡片。
+            update_config = getattr(card, 'update_config', None)  # 卡片都提供 update_config。
+            if update_config is not None:  # 从共享 task.config 重新读取并同步控件值。
+                update_config()
+
+    OneTimeTaskTab.showEvent = _show_event
+    logger.info('patched OneTimeTaskTab.showEvent to sync task card config from task.config')
+
+
 def apply():
     # 任务列表：日常任务卡片置顶并插分割线，展开后只显示跳转日常设置按钮
     _patch_tasks_tab_daily_pin()
     _patch_tasks_tab_daily_card()
+    _patch_tasks_tab_sync_config_on_show()

@@ -12,7 +12,7 @@ class DailyTask(MyBaseTask):  # 定义清日常总编排的父任务类。
     def __init__(self, *args, **kwargs):  # 初始化任务元数据与配置。
         super().__init__(*args, **kwargs)  # 必须先调用父类初始化。
         self.name = "日常"  # 任务显示名称。
-        self.description = "按顺序执行勾选好的日常子流程。"  # 任务说明。
+        self.description = "按日常任务设置进行自动化操作。"  # 任务说明。
         self.default_config.update({  # 父任务配置：为每个子流程放一个常驻开关。
             "收获": True,  # 收获子流程的开关。
             "歼灭": True,  # 歼灭子流程的开关。

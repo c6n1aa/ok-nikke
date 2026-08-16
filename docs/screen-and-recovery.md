@@ -45,7 +45,7 @@ self.try_step(step_fn, name=None, retries=2, recover=True, raise_on_fail=True) -
 
 1. `save_failure_screenshot(tag)` 保存失败现场截图到 `screenshots/failure/`；
 2. 记录本次失败；
-3. `_recover_to_lobby()` 恢复：刷新帧 → `close_overlay()` 关闭弹窗 → 按 `common_home` 特征回大厅 → `wait_for_lobby()` 确认已回到大厅；
+3. `_recover_to_lobby()` 恢复：刷新帧 → `close_overlay()` 关闭弹窗（恢复场景传 `require_click=False`，无遮罩可关时不报错）→ 按 `common_home` 特征回大厅 → `wait_for_lobby()` 确认已回到大厅；
 4. 有限重试（`retries` 次，默认共尝试 3 次）；
 5. 恢复回大厅失败则提前放弃；重试耗尽后按 `raise_on_fail` 决定抛出异常，或返回 `False` 由调用方决定「跳过继续」。
 
@@ -91,9 +91,10 @@ self.assert_screen("方舟塔", time_out=10)
 - 不要绕过 `_recover_to_lobby` 自行硬编码「按坐标回大厅」等恢复动作。
 - 失败截图统一由 `save_failure_screenshot` 存到 `screenshots/failure/`，不要在别处另存。
 - 界面判定优先用 coco 模板特征；只有无稳定模板的页面才用 OCR 关键词，并尽量限定 `ocr_box`。
+- `close_overlay` 默认 `require_click=True`：显式调用它时必定要成功关闭（点击）至少一次遮罩，超时未点到抛 `WaitFailedException`（可被 `try_step` 捕获重试）。恢复流程等容错场景调用时必须传 `require_click=False`，避免"没有遮罩可关"阻断恢复。
 - 素材分辨率基准：调试截图、coco 标注、手动裁剪模板一律以 2560x1440 为基准（见上文「素材分辨率基准」一节），不要拿低分辨率截图调试或标注。
 - 调整恢复协议或新增判定方式时，同步更新 `tests/TestScreenRecovery.py`。
 
 ## 测试
 
-`tests/TestScreenRecovery.py` 覆盖界面识别（模板/OCR 判定、未命中）、`try_step`（成功、重试、跳过、恢复失败提前放弃）以及 `_recover_to_lobby`（已在大厅 / 按 `common_home` 回大厅）等行为。
+`tests/TestScreenRecovery.py` 覆盖界面识别（模板/OCR 判定、未命中）、`try_step`（成功、重试、跳过、恢复失败提前放弃）、`close_overlay`（命中点击关闭 / 未命中抛异常 / 容错返回 False）以及 `_recover_to_lobby`（已在大厅 / 按 `common_home` 回大厅）等行为。
