@@ -59,6 +59,16 @@ The right unit for `try_step` is the **entry method**: a sub-flow method that st
 - Do **not** wrap the method's internal navigation/operation steps individually: any `WaitFailedException` bubbles up to the outer wrapper, which recovers to the lobby and re-runs the whole entry method (its prerequisite chain restarts naturally).
 - If a step only needs in-place retry (e.g. transient OCR/template jitter), use `recover=False` to retry without the lobby round-trip.
 
+## Asset Resolution Baseline (2560x1440)
+
+All template-related assets in this project use **2560x1440 as the single baseline resolution**. Agents must follow this when debugging, screenshotting, or annotating:
+
+- **Debugging screenshots**: screenshots used to reproduce issues, debug OCR, or analyze failures (user/test shots) should preferably be captured from a 2560x1440 window. Low-resolution shots (e.g. 1280x720) carry less detail, so debugging templates/OCR against them in a 1440p environment yields results that diverge from the real one (scaling, thresholds, and OCR misreads all shift).
+- **coco annotations**: annotate boxes on 2560x1440 screenshots (`assets/coco_annotations.json`). `FeatureSet` auto-scales annotations to the current game resolution; the lower the source resolution, the blurrier the upscaled template and the more likely matching fails.
+- **Manually cropped templates**: small templates under `assets/template/` must be cropped from 2560x1440 screenshots, then passed to `find_scaled_template` (defaults `ref_width=2560, ref_height=1440`). 1440p is the ceiling of all supported resolutions (1920x1080/1600x900/1280x720); starting from it always downscales and never upscales, giving the most reliable matches.
+
+Exception: if only a non-1440p screenshot is available, it technically still works (coco scales by the source image's own dimensions; `find_scaled_template` accepts `ref_width`/`ref_height` overrides), but the asset's original resolution must be remembered and declared explicitly — never treat it as the default baseline.
+
 ## Usage Example
 
 ```python
@@ -81,6 +91,7 @@ self.assert_screen("方舟塔", time_out=10)
 - Do not bypass `_recover_to_lobby` with hard-coded "click home by coordinates" recovery.
 - Failure screenshots are always written by `save_failure_screenshot` to `screenshots/failure/`; do not save them elsewhere.
 - Prefer coco template features for screen detection; use OCR keywords only when no stable template exists, and bound the region with `ocr_box`.
+- Asset resolution baseline: debugging screenshots, coco annotations, and manually cropped templates all use 2560x1440 as the baseline (see "Asset Resolution Baseline" above); do not debug or annotate against low-resolution screenshots.
 - When changing the recovery protocol or adding detection methods, update `tests/TestScreenRecovery.py` accordingly.
 
 ## Tests

@@ -59,6 +59,16 @@ self.try_step(step_fn, name=None, retries=2, recover=True, raise_on_fail=True) -
 - 方法内部的导航/操作步骤**不单独包**：任一步抛 `WaitFailedException` 会冒泡到外层 `try_step`，回大厅后整个入口方法从头重跑，前置步骤链自然重来。
 - 若某个步骤只需原地重试（如瞬时 OCR/模板抖动），可用 `recover=False` 只重试、不恢复回大厅。
 
+## 素材分辨率基准（2560x1440）
+
+本项目所有模板相关素材都以 **2560x1440 作为唯一基准分辨率**。Agent 在做调试、截图、标注时务必遵守：
+
+- **调试截图**：用于复现问题、调试 OCR、失败分析的用户/测试截图，尽量截 2560x1440 的窗口。低分辨率截图（如 1280x720）细节少，用它在 1440p 环境下调试模板/OCR，会得出与真实环境不一致的结论（缩放、阈值、OCR 误识别都会偏移）。
+- **coco 标注**：在 2560x1440 截图上画框标注（`assets/coco_annotations.json`）。`FeatureSet` 会把标注自动缩放到当前游戏分辨率，源图分辨率越低，放大后的模板越模糊、越容易失配。
+- **手动裁剪模板**：`assets/template/` 下的小模板一律从 2560x1440 截图裁剪，再交给 `find_scaled_template`（`ref_width=2560, ref_height=1440` 默认值）。1440p 是所有受支持分辨率（1920x1080/1600x900/1280x720）的天花板，从此基准出发只会缩小、不会放大，匹配最稳。
+
+例外：如果确实只有非 1440p 截图，技术上仍可用（coco 按源图自身尺寸缩放；`find_scaled_template` 可传 `ref_width`/`ref_height` 覆盖），但必须记住该素材的原始分辨率并显式声明，不要把它当成默认基准。
+
 ## 使用示例
 
 ```python
@@ -81,6 +91,7 @@ self.assert_screen("方舟塔", time_out=10)
 - 不要绕过 `_recover_to_lobby` 自行硬编码「按坐标回大厅」等恢复动作。
 - 失败截图统一由 `save_failure_screenshot` 存到 `screenshots/failure/`，不要在别处另存。
 - 界面判定优先用 coco 模板特征；只有无稳定模板的页面才用 OCR 关键词，并尽量限定 `ocr_box`。
+- 素材分辨率基准：调试截图、coco 标注、手动裁剪模板一律以 2560x1440 为基准（见上文「素材分辨率基准」一节），不要拿低分辨率截图调试或标注。
 - 调整恢复协议或新增判定方式时，同步更新 `tests/TestScreenRecovery.py`。
 
 ## 测试
