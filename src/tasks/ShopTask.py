@@ -203,19 +203,23 @@ class ShopTask(MyBaseTask):  # 商店自动兑换任务，继承项目基类。
                     if not self._buy_cell(1, col, "shop_buy_confirm"):  # 购买，货币不足则停止。
                         return  # 货币不足，结束竞技场购买。
 
-    def _do_scrap_shop(self):  # 废铁商店：按固定列位购买骨架商品与货币商品。
+    def _do_scrap_shop(self):  # 废铁商店：按固定列位购买骨架商品与货币商品，两种货币独立判断。
+        # 货币分界：第一列第 1-3 格使用废铁骨架，其余格子使用破碎核心。
+        # 两种货币互相独立：骨架不足只停骨架轮次，核心商品仍继续购买；反之亦然。
         for item in self.config.get("废铁骨架优先购买列", []):  # 遍历骨架优先购买列表。
             col = _SCRAP_BONE_SLOT.get(item)  # 取固定列号。
             if col is None:  # 未知商品名则跳过。
                 continue  # 处理下一个。
             if not self._is_sold_out(1, col):  # 该格未售罄才购买。
-                if not self._buy_cell(1, col, "shop_buy_confirm"):  # 购买，货币不足则停止。
-                    return  # 货币不足，结束废铁购买。
+                if not self._buy_cell(1, col, "shop_buy_confirm"):  # 骨架货币不足则停止本轮。
+                    self.log_warning("废铁骨架不足，停止骨架商品购买，继续购买破碎核心商品。")  # 记录原因。
+                    break  # 只跳出骨架轮次，核心商品继续购买。
         for item in self.config.get("破碎核心货币购买列", []):  # 遍历货币购买列表。
             for row, col in _BROKEN_CORE_SLOT.get(item, []):  # 部分商品跨多格，逐格处理。
                 if not self._is_sold_out(row, col):  # 该格未售罄才购买。
-                    if not self._buy_cell(row, col, "shop_buy_confirm"):  # 购买，货币不足则停止。
-                        return  # 货币不足，结束废铁购买。
+                    if not self._buy_cell(row, col, "shop_buy_confirm"):  # 核心货币不足则停止本轮。
+                        self.log_warning("破碎核心不足，停止核心商品购买。")  # 记录原因。
+                        break  # 核心是最后一轮，跳出后函数自然结束。
 
     # ---- 入口 / 切换 / 退出 ----
 
@@ -245,48 +249,51 @@ class ShopTask(MyBaseTask):  # 商店自动兑换任务，继承项目基类。
             self.click_box(home, after_sleep=1)  # 点击大厅按钮并等待。
         self.wait_for_lobby(time_out=10, raise_if_not_found=False)  # 等待确认回到大厅，超时不报错由上层处理。
 
-    # ---- 子流程（re-entrant，由 try_step 包裹）----
+    # ---- 合并子流程（re-entrant，由 try_step 包裹）----
 
-    def _general_shop_step(self):  # 普通商店完整子流程：从大厅进入、购买、退出。
+    def _has_pending_shops(self):  # 是否存在开启且未完成的商店。
+        return any(  # 任一开启且未完成即返回 True。
+            self.config.get(name) and not self.is_done(key, period)  # 开关开启且本周期未完成。
+            for name, key, period in (  # 三家商店的 (配置键, 完成状态键, 周期)。
+                ("普通商店", "shop_general", "day"),  # 普通商店每日刷新。
+                ("竞技场商店", "shop_arena", "day"),  # 竞技场商店每日刷新。
+                ("废铁商店", "shop_scrap", "week"),  # 废铁商店每周刷新。
+            )
+        )
+
+    def _combined_shop_step(self):  # 合并子流程：一次进店，按 普通→竞技场→废铁 顺序连续处理开启的商店后统一退出。
         self._enter_general_shop()  # 进入普通商店。
-        self._do_general_shop()  # 执行购买。
-        self._exit_to_lobby()  # 退出回大厅。
-
-    def _arena_shop_step(self):  # 竞技场商店完整子流程：从大厅进入、切换、购买、退出。
-        self._enter_general_shop()  # 先进入普通商店。
-        self._switch_to_arena()  # 切换到竞技场商店。
-        self._do_arena_shop()  # 执行购买。
-        self._exit_to_lobby()  # 退出回大厅。
-
-    def _scrap_shop_step(self):  # 废铁商店完整子流程：从大厅进入、切换、购买、退出。
-        self._enter_general_shop()  # 先进入普通商店。
-        self._switch_to_scrap()  # 切换到废铁商店。
-        self._do_scrap_shop()  # 执行购买。
-        self._exit_to_lobby()  # 退出回大厅。
+        if self.config.get("普通商店") and not self.is_done("shop_general", "day"):  # 普通商店开启且本日未完成。
+            try:  # 单家失败不中断整体流程。
+                self._do_general_shop()  # 执行普通商店购买。
+                self.mark_done("shop_general", "day")  # 成功才标记本日已完成。
+            except WaitFailedException as e:  # 普通商店购买失败。
+                self.log_warning(f"普通商店失败，跳过：{e}")  # 记录失败并继续后续商店。
+        if self.config.get("竞技场商店") and not self.is_done("shop_arena", "day"):  # 竞技场商店开启且本日未完成。
+            try:  # 单家失败不中断整体流程。
+                self._switch_to_arena()  # 切换到竞技场商店。
+                self._do_arena_shop()  # 执行竞技场购买。
+                self.mark_done("shop_arena", "day")  # 成功才标记本日已完成。
+            except WaitFailedException as e:  # 竞技场购买失败。
+                self.log_warning(f"竞技场商店失败，跳过：{e}")  # 记录失败并继续后续商店。
+        if self.config.get("废铁商店") and not self.is_done("shop_scrap", "week"):  # 废铁商店开启且本周未完成。
+            try:  # 单家失败不中断整体流程。
+                self._switch_to_scrap()  # 切换到废铁商店。
+                self._do_scrap_shop()  # 执行废铁购买。
+                self.mark_done("shop_scrap", "week")  # 成功才标记本周已完成。
+            except WaitFailedException as e:  # 废铁购买失败。
+                self.log_warning(f"废铁商店失败，跳过：{e}")  # 记录失败并继续后续商店。
+        self._exit_to_lobby()  # 统一退出回大厅。
 
     # ---- run 入口 ----
 
-    def run(self):  # 任务执行入口，按配置顺序编排三家商店。
+    def run(self):  # 任务执行入口，一次进店连续处理开启的商店。
         self.log_info("商店任务开始。")  # 记录任务开始。
         if not self.wait_until_lobby_after_start():  # 启动后等待进入游戏大厅，失败则中止。
             self.log_error("未能进入游戏大厅，中止商店任务。")  # 记录失败原因。
             return  # 结束本次执行。
-        if self.config.get("普通商店"):  # 普通商店开关开启。
-            if not self.is_done("shop_general", "day"):  # 本日未完成才执行。
-                if self.try_step(self._general_shop_step, name="普通商店", raise_on_fail=False):  # 以恢复协议执行，失败跳过不中断。
-                    self.mark_done("shop_general", "day")  # 成功才标记本日已完成。
-            else:  # 本日已完成。
-                self.log_info("普通商店今日已完成，跳过。")  # 记录跳过。
-        if self.config.get("竞技场商店"):  # 竞技场商店开关开启。
-            if not self.is_done("shop_arena", "day"):  # 本日未完成才执行。
-                if self.try_step(self._arena_shop_step, name="竞技场商店", raise_on_fail=False):  # 以恢复协议执行，失败跳过不中断。
-                    self.mark_done("shop_arena", "day")  # 成功才标记本日已完成。
-            else:  # 本日已完成。
-                self.log_info("竞技场商店今日已完成，跳过。")  # 记录跳过。
-        if self.config.get("废铁商店"):  # 废铁商店开关开启。
-            if not self.is_done("shop_scrap", "week"):  # 本周未完成才执行。
-                if self.try_step(self._scrap_shop_step, name="废铁商店", raise_on_fail=False):  # 以恢复协议执行，失败跳过不中断。
-                    self.mark_done("shop_scrap", "week")  # 成功才标记本周已完成。
-            else:  # 本周已完成。
-                self.log_info("废铁商店本周已完成，跳过。")  # 记录跳过。
+        if not self._has_pending_shops():  # 没有开启且未完成的商店。
+            self.log_info("开启的商店均已完成，跳过。")  # 记录跳过。
+            return  # 结束本次执行。
+        self.try_step(self._combined_shop_step, name="商店", raise_on_fail=False)  # 合并子流程：进店→连续切换→统一退出，失败不中断。
         self.log_info("商店任务完成。")  # 记录任务完成。
