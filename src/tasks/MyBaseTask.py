@@ -137,6 +137,22 @@ class MyBaseTask(BaseTask):
         self.config[self._execution_states_key] = states
         self.config.save_file()  # 同上，手动保存确保删除立即生效
 
+    def is_completed(self) -> bool:
+        """判断任务是否整体已完成：所有完成状态项均已完成。
+
+        UI 据此展示完成图标。无 done_keys 的任务（如纯编排的 DailyTask）
+        视为未完成。子类可覆盖以自定义口径（如 ShopTask 只统计开启的子商店）。
+        """
+        keys = getattr(self, "done_keys", None)  # 子类定义的完成状态映射 {key: period}。
+        if not keys:  # 未定义完成状态的任务视为未完成。
+            return False  # 返回未完成。
+        return all(self.is_done(key, period) for key, period in keys.items())  # 全部完成才算完成。
+
+    def clear_done_all(self) -> None:
+        """清除任务所有完成状态记录，使各子流程可重新执行。"""
+        for key in getattr(self, "done_keys", {}):  # 遍历所有完成状态键。
+            self.clear_done(key)  # 逐个清除完成记录并落盘。
+
     def wait_for_lobby(self, time_out=120, raise_if_not_found=True):
         """等待游戏大厅出现，通过识别大厅中的方舟按钮(ark)判断是否已进入游戏大厅。
 

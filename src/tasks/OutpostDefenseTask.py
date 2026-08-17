@@ -7,6 +7,8 @@ from src.tasks.MyBaseTask import MyBaseTask  # 导入项目基类，所有任务
 
 class OutpostDefenseTask(MyBaseTask):  # 定义歼灭子任务类。
 
+    done_keys = {"outpost_defense": "day"}  # 完成状态：歼灭（日常刷新）。
+
     def __init__(self, *args, **kwargs):  # 初始化任务元数据与配置。
         super().__init__(*args, **kwargs)  # 必须先调用父类初始化。
         self.name = "歼灭"  # 任务显示名称。

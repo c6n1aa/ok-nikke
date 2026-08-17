@@ -32,6 +32,13 @@ class SubTaskCard(ConfigContentMixin, ExpandSettingCard):
         # 子任务卡片不显示 Reset Config / 快捷方式等操作行。
         pass
 
+    def refresh_status_icon(self):
+        """根据任务完成状态刷新头部图标：已完成用 FluentIcon.COMPLETED，未完成用回默认图标。"""
+        is_completed = getattr(self.task, "is_completed", None)  # 任务是否提供完成判断。
+        completed = bool(is_completed and is_completed())  # 计算当前是否已完成。
+        icon = FluentIcon.COMPLETED if completed else (self.task.icon or FluentIcon.INFO)  # 选择状态图标。
+        self.card.iconLabel.setIcon(icon)  # 更新头部图标。
+
     def showEvent(self, event):
         super().showEvent(event)
         if self.isExpand:
@@ -137,6 +144,7 @@ class DailyTab(CustomTab):
         switch.setChecked(bool(self.daily_task.config.get(daily_key, False)))
         switch.checkedChanged.connect(lambda checked, k=daily_key: self._set_daily_switch(k, checked))
         card.addWidget(switch)
+        card.refresh_status_icon()  # 初始设置完成状态图标（未完成=空心圆）。
         self._cards.append((daily_key, switch, card))
         return card
 
@@ -147,6 +155,7 @@ class DailyTab(CustomTab):
             if switch.isChecked() != value:  # 值不同才 setChecked，避免冗余信号。
                 switch.setChecked(value)  # 同步父任务开关。
             card.update_config()  # 刷新子任务全部配置控件 + 应用 sub_configs 可见性。
+            card.refresh_status_icon()  # 刷新完成状态图标。
 
     def showEvent(self, event):
         super().showEvent(event)  # 先走基类事件。

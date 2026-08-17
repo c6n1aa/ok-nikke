@@ -126,8 +126,66 @@ def _patch_tasks_tab_sync_config_on_show():
     logger.info('patched OneTimeTaskTab.showEvent to sync task card config from task.config')
 
 
+def _patch_tasks_tab_reset_done_button():
+    # 任务列表里收获/歼灭/商店卡片展开后的 Operation 行、Reset Config 前注入
+    # 「重置完成状态」按钮，便于用户改完配置后一键清除完成状态并重跑。
+    # 仅对有 done_keys 的 MyBaseTask 子任务显示；纯编排的 DailyTask 无 done_keys 不显示。
+    from PySide6.QtWidgets import QHBoxLayout
+    from qfluentwidgets import FluentIcon, InfoBar, PushButton
+
+    from ok.gui.tasks.ConfigCard import ConfigContentMixin
+    from src.tasks.MyBaseTask import MyBaseTask
+
+    original_add_buttons = ConfigContentMixin.add_buttons
+
+    def _add_buttons(self):
+        original_add_buttons(self)  # 先走原逻辑创建 Operation 行与 Reset Config。
+        if not self._has_done_state():  # 无完成状态的任务不加按钮。
+            return
+        buttons_layout = self._operation_buttons_layout()  # 定位 Operation 行的按钮布局。
+        if buttons_layout is None or self.reset_config is None:  # 找不到锚点则跳过。
+            return
+        reset_done = PushButton(FluentIcon.SYNC, "重置完成状态")  # 按钮固定文字。
+        buttons_layout.insertWidget(buttons_layout.indexOf(self.reset_config), reset_done)  # 插到 Reset Config 前。
+        reset_done.clicked.connect(self._reset_done_clicked)  # 连接重置回调。
+
+    def _has_done_state(self):
+        # 只有带完成状态（done_keys 非空）的 MyBaseTask 子任务才需要该按钮。
+        return isinstance(self.task, MyBaseTask) and bool(getattr(self.task, "done_keys", None))
+
+    def _operation_buttons_layout(self):
+        # Operation 行是 viewLayout 最后一个 LabelAndWidget；其主布局里嵌套的
+        # QHBoxLayout 承载 Reset Config 等按钮。从 reset_config 父控件定位该按钮布局。
+        if self.reset_config is None:  # 没有 Reset Config 按钮则无处插入。
+            return None
+        row = self.reset_config.parentWidget()  # 按钮的父控件即 Operation 行。
+        main_layout = getattr(row, "layout", None)  # Operation 行的主布局。
+        if main_layout is None:  # 主布局缺失则无法定位。
+            return None
+        for i in range(main_layout.count()):  # 遍历主布局中的子布局。
+            sub = main_layout.itemAt(i).layout()  # 取出子布局。
+            if isinstance(sub, QHBoxLayout):  # 按钮所在的 QHBoxLayout。
+                return sub
+        return None
+
+    def _reset_done_clicked(self):
+        self.task.clear_done_all()  # 清除任务所有完成状态并落盘。
+        InfoBar.success(  # 提示用户重置成功。
+            title="已重置完成状态",
+            content=f"{self.task.name} 的完成状态已清除，可重新执行。",
+            parent=self.window(),
+        )
+
+    ConfigContentMixin.add_buttons = _add_buttons
+    ConfigContentMixin._has_done_state = _has_done_state
+    ConfigContentMixin._operation_buttons_layout = _operation_buttons_layout
+    ConfigContentMixin._reset_done_clicked = _reset_done_clicked
+    logger.info('patched ConfigContentMixin.add_buttons to add reset-done-state button')
+
+
 def apply():
     # 任务列表：日常任务卡片置顶并插分割线，展开后只显示跳转日常设置按钮
     _patch_tasks_tab_daily_pin()
     _patch_tasks_tab_daily_card()
     _patch_tasks_tab_sync_config_on_show()
+    _patch_tasks_tab_reset_done_button()

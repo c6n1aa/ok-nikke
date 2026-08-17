@@ -3,6 +3,8 @@ from src.tasks.MyBaseTask import MyBaseTask  # 导入项目基类，所有任务
 
 class HarvestTask(MyBaseTask):  # 定义收获子任务类。
 
+    done_keys = {"harvest": "day"}  # 完成状态：收获（日常刷新）。
+
     def __init__(self, *args, **kwargs):  # 初始化任务元数据与配置。
         super().__init__(*args, **kwargs)  # 必须先调用父类初始化。
         self.name = "收获"  # 任务显示名称。

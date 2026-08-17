@@ -48,6 +48,22 @@ _BROKEN_CORE_SLOT = {
 
 class ShopTask(MyBaseTask):  # 商店自动兑换任务，继承项目基类。
 
+    done_keys = {  # 完成状态：普通/竞技场商店（日常刷新），废铁商店（周常刷新）。
+        "shop_general": "day",  # 普通商店日常完成状态。
+        "shop_arena": "day",  # 竞技场商店日常完成状态。
+        "shop_scrap": "week",  # 废铁商店周常完成状态。
+    }
+
+    def is_completed(self):  # 覆盖父类：只统计用户开启的子商店，开启的均已完成才算完成。
+        checks = []  # 收集各开启子商店的完成状态。
+        if self.config.get("普通商店"):  # 开启普通商店才纳入判断。
+            checks.append(self.is_done("shop_general", "day"))  # 普通商店日常完成状态。
+        if self.config.get("竞技场商店"):  # 开启竞技场商店才纳入判断。
+            checks.append(self.is_done("shop_arena", "day"))  # 竞技场商店日常完成状态。
+        if self.config.get("废铁商店"):  # 开启废铁商店才纳入判断。
+            checks.append(self.is_done("shop_scrap", "week"))  # 废铁商店周常完成状态。
+        return bool(checks) and all(checks)  # 至少开启一个且开启的全部完成才算完成。
+
     # 统一网格参数（源 2560x1440，运行时按当前分辨率等比缩放），取自联盟商店标定。
     GRID_ORIGIN = (155, 711)  # 第一格左上角 x, y（像素）。
     GRID_DX = 216  # 水平格子间距（像素）。
