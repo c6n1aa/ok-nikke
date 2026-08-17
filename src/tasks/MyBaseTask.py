@@ -27,7 +27,7 @@ class MyBaseTask(BaseTask):
         # 界面识别注册表：界面名 -> 判定描述（features 为 coco 模板特征，keywords 为 OCR 关键词）。
         self.screens = {}
         # 默认注册大厅界面：以方舟按钮(ark)特征判定已进入游戏大厅。
-        self.register_screen("lobby", features=["ark", "shop"])
+        self.register_screen("lobby", features=["ark", "lobby"])
 
     def _now_bj(self) -> datetime.datetime:
         """当前北京时间（带时区）。"""

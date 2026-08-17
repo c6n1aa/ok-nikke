@@ -41,8 +41,12 @@ class NikkeStartController(start_controller_module.StartController):
     LAUNCHER_START_TIMEOUT = 60
     LAUNCHER_BUTTON_SEARCH_TIMEOUT = 120
     LAUNCHER_POLL_INTERVAL = 1.0
-    LAUNCHER_SETTLE_SECONDS = 3
-    LAUNCHER_STABLE_SECONDS = 2
+    # 加载完成判定：窗口出现后最短等 1 秒，尺寸连续 1 秒内变化不超过容差即视为稳定。
+    # 要求"完全不变"会把边框阴影/DPI 缩放的 1-2px 抖动误判为不稳定，导致 OCR 迟迟不开始；
+    # 因此放宽为容差判定并缩短等待，OCR 循环本身有 120s 超时兜底，早点开始无风险。
+    LAUNCHER_SETTLE_SECONDS = 1
+    LAUNCHER_STABLE_SECONDS = 1
+    LAUNCHER_SIZE_TOLERANCE = 10  # 窗口尺寸稳定判定容差（像素）。
 
     def start_device(self, initial_refresh_done=False):
         device = og.device_manager.get_preferred_device()
@@ -201,6 +205,11 @@ class NikkeStartController(start_controller_module.StartController):
             time.sleep(self.LAUNCHER_POLL_INTERVAL)
         return None
 
+    @staticmethod
+    def _size_diff(a, b):
+        """窗口尺寸 (w, h) 两个元组的最大差值，用于容差稳定判定。"""
+        return max(abs(a[0] - b[0]), abs(a[1] - b[1]))
+
     def _wait_until_launcher_stable(self, launcher_hwnd):
         # 等待启动器加载完成：窗口尺寸稳定一段时间，且至少经过最小等待时间，期间持续置于前台
         deadline = time.monotonic() + self.LAUNCHER_START_TIMEOUT
@@ -218,7 +227,9 @@ class NikkeStartController(start_controller_module.StartController):
             if size[0] <= 0 or size[1] <= 0:
                 stable_size = None
                 stable_since = None
-            elif size != stable_size:
+            elif stable_size is None or self._size_diff(size, stable_size) > self.LAUNCHER_SIZE_TOLERANCE:
+                # 尺寸变化超过容差（含从异常值到正常值的跳变）才算"不稳定"并重新计时，
+                # 允许加载动画/边框的微小抖动，避免 OCR 迟迟不开始。
                 stable_size = size
                 stable_since = now
             elif now - stable_since >= self.LAUNCHER_STABLE_SECONDS and now - first_seen >= self.LAUNCHER_SETTLE_SECONDS:
@@ -246,10 +257,31 @@ class NikkeStartController(start_controller_module.StartController):
         region = self._launcher_button_region()
         context = _CaptureContext()
         deadline = time.monotonic() + self.LAUNCHER_BUTTON_SEARCH_TIMEOUT
+        missing_count = 0  # 连续找不到窗口的轮数，用于降频日志，避免刷屏。
         try:
             while not self.exit_event.is_set():
                 if self._game_window_found():
                     return True
+                if not win32gui.IsWindow(launcher_hwnd):
+                    # 启动器窗口句柄失效（可能已点启动、被关闭，或最小化/切换导致窗口重建），
+                    # 按 exe 名重新查找启动器窗口，找到了就继续置前 + OCR。
+                    _, new_hwnd, _, _, _, _, _, _ = find_hwnd(None, [exe_name], 1, 1)
+                    if new_hwnd and new_hwnd > 0 and new_hwnd != launcher_hwnd:
+                        logger.info(f'launcher window reacquired hwnd={new_hwnd}')
+                        launcher_hwnd = new_hwnd
+                    else:
+                        missing_count += 1
+                        if missing_count % 5 == 1:  # 约每 5 秒提示一次，避免刷屏。
+                            logger.info('launcher window not found, waiting for game window')
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0:
+                            communicate.starting_emulator.emit(True, '启动器已关闭但游戏未启动，请手动启动游戏!', 0)
+                            return False
+                        communicate.starting_emulator.emit(False, None, int(remaining))
+                        time.sleep(self.LAUNCHER_POLL_INTERVAL)
+                        continue
+                missing_count = 0
+                # 强制启动器窗口置于前台（恢复最小化 + 置顶），保证 OCR 能识别到启动按钮。
                 self._bring_window_forward(launcher_hwnd)
                 center = self._capture_and_find_button(context, launcher_hwnd, button_text, region)
                 if center is not None:
@@ -266,6 +298,8 @@ class NikkeStartController(start_controller_module.StartController):
         return False
 
     def _capture_and_find_button(self, context, launcher_hwnd, button_text, region):
+        if not win32gui.IsWindow(launcher_hwnd):  # 句柄已失效直接返回，避免后续调用报 1400。
+            return None
         try:
             _, _, _, _, client_w, client_h, _ = get_window_bounds(launcher_hwnd)
         except Exception as e:
@@ -337,8 +371,14 @@ class NikkeStartController(start_controller_module.StartController):
 
     def _bring_window_forward(self, hwnd):
         try:
-            if win32gui.IsIconic(hwnd):
+            if not win32gui.IsWindow(hwnd):  # 句柄已失效则不再操作，避免 1400 无效句柄。
+                return
+            if win32gui.IsIconic(hwnd):  # 最小化则先恢复。
                 win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+            # SetForegroundWindow 受 Windows 前台锁限制可能失败，组合置前更稳：
+            # 显示窗口 -> 置顶 -> 设前台，三者配合覆盖被遮挡/后台的情况。
+            win32gui.ShowWindow(hwnd, win32con.SW_SHOW)
+            win32gui.BringWindowToTop(hwnd)
             win32gui.SetForegroundWindow(hwnd)
         except Exception as e:
             logger.warning(f'bring launcher window forward failed: {e}')
