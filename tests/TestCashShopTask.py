@@ -47,6 +47,17 @@ class TestCashShopTask(_DebugOffTestCase):
         # 无任何用户配置项，仅保留基类的内部完成状态。
         self.assertEqual({"_execution_states"}, set(self.task.default_config.keys()))
 
+    def test_registers_cash_shop_screen(self):
+        # 标题区域 OCR 判定付费商店界面，供 assert_screen 复用。
+        self.assertEqual("box_sub_pages_title", self.task.screens["付费商店"]["ocr_box"])
+
+    def test_enter_cash_shop_asserts_screen(self):
+        with patch.object(self.task, "wait_click_feature") as click_mock, \
+                patch.object(self.task, "assert_screen") as assert_mock:
+            self.task._enter_cash_shop()
+        click_mock.assert_called_once()
+        assert_mock.assert_called_once_with("付费商店", time_out=10)
+
     def test_done_keys(self):
         self.assertEqual(
             {

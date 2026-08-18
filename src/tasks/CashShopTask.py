@@ -25,6 +25,7 @@ class CashShopTask(MyBaseTask):  # 付费商店免费礼包领取任务，继承
         super().__init__(*args, **kwargs)  # 必须先调用父类初始化。
         self.name = "付费商店"  # 任务显示名称。
         self.description = "自动领取付费商店中STEP UP/每日/每周/每月的免费礼包。"  # 任务说明。
+        self.register_screen("付费商店", keywords=["付费商店"], ocr_box="box_sub_pages_title")  # 注册付费商店界面：标题区域 OCR 确认。
 
     def _get_box(self, name):  # 获取标注区域框，特征缺失时抛等待失败异常。
         try:  # coco 特征可能缺失。
@@ -35,14 +36,9 @@ class CashShopTask(MyBaseTask):  # 付费商店免费礼包领取任务，继承
             raise WaitFailedException(f"特征区域缺失: {name}")  # 抛异常由 try_step 捕获恢复。
         return box  # 返回区域框。
 
-    def _assert_cash_shop_title(self):  # 在 cash_shop_title 区域 OCR 确认已进入付费商店。
-        title_box = self._get_box("cash_shop_title")  # 获取付费商店标题标注区域。
-        if self.wait_ocr(box=title_box, match=re.compile("付费商店"), time_out=10, raise_if_not_found=False) is None:  # OCR 部分匹配标题。
-            raise WaitFailedException("未确认进入付费商店")  # 抛异常由 try_step 捕获恢复。
-
     def _enter_cash_shop(self):  # 从大厅进入付费商店。
         self.wait_click_feature("cash_shop", time_out=10, raise_if_not_found=True, after_sleep=1)  # 点击大厅付费商店入口。
-        self._assert_cash_shop_title()  # OCR 确认已进入付费商店。
+        self.assert_screen("付费商店", time_out=10)  # 复用屏幕注册表确认已进入付费商店。
 
     def _switch_nav(self, feature_name):  # 在 box_cash_shop_nav_bar 区域内点击左侧导航项。
         nav_box = self._get_box("box_cash_shop_nav_bar")  # 获取导航栏标注区域。
@@ -56,7 +52,7 @@ class CashShopTask(MyBaseTask):  # 付费商店免费礼包领取任务，继承
         free_box = self.wait_ocr(box=self._get_box("box_cash_shop_free_stepup"), match=re.compile("免费"), time_out=3, raise_if_not_found=False)  # 等待在免费购买按钮区域 OCR 识别“免费”。
         if free_box:  # 识别到免费按钮。
             self.click_box(free_box[0], after_sleep=1)  # 点击免费按钮购买礼包。
-            self.dismiss_all_popups(wait_for_popup=True, time_out=10)  # 处理购买后出现的遮罩层。
+            self.dismiss_all_popups(time_out=10)  # 处理购买后出现的遮罩层（默认等待弹窗出现）。
             self.log_info("已领取 STEP UP 免费礼包。")  # 记录领取成功。
         else:  # 未识别到免费按钮（已领取或不可用）。
             self.log_info("STEP UP 免费礼包已领取，跳过。")  # 记录跳过原因。
@@ -77,7 +73,7 @@ class CashShopTask(MyBaseTask):  # 付费商店免费礼包领取任务，继承
             if sold_out is None:  # 未售罄，可购买。
                 buy_box = self._get_box("cash_shop_free_package_sold_out")  # 获取售罄标签标注区域作为购买按钮位置。
                 self.click_box(buy_box, after_sleep=1)  # 点击购买免费礼包。
-                self.dismiss_all_popups(wait_for_popup=True, time_out=10)  # 处理购买后出现的遮罩层。
+                self.dismiss_all_popups(time_out=10)  # 处理购买后出现的遮罩层（默认等待弹窗出现）。
                 self.log_info(f"已领取{keyword}免费礼包。")  # 记录领取成功。
             else:  # 已售罄。
                 self.log_info(f"{keyword}免费礼包已售罄，跳过。")  # 记录跳过原因。

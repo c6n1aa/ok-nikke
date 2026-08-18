@@ -20,7 +20,7 @@ self.register_screen(name, features=(), keywords=(), ocr_box=None)
 
 - `features`: list of coco-annotated template feature names; all must match for the screen to count. Prefer template features — matching is cheaper and more stable than OCR (e.g. `"ark"`, `"friend"`).
 - `keywords`: list of OCR keywords; any hit identifies the screen. Use only for pages without a stable template.
-- `ocr_box`: optional OCR region as relative coordinates `[x, y, to_x, to_y]` to keep OCR cost down.
+- `ocr_box`: optional OCR region to keep OCR cost down. Either relative coordinates `[x, y, to_x, to_y]`, or a coco-annotated region feature name (string) resolved to the current resolution at match time (e.g. `"box_sub_pages_title"`); falls back to full-screen OCR when the feature is missing.
 
 `MyBaseTask.__init__` registers the lobby by default: `register_screen("lobby", features=["ark"])` — "ark button visible = back in the lobby".
 

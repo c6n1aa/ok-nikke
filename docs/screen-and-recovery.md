@@ -20,7 +20,7 @@ self.register_screen(name, features=(), keywords=(), ocr_box=None)
 
 - `features`：coco 标注的模板特征名列表，全部命中才判定为该界面。优先使用模板特征——匹配比 OCR 便宜且稳定（如 `"ark"`、`"friend"`）。
 - `keywords`：OCR 关键词列表，任一命中即判定为该界面，用于没有稳定模板的页面。
-- `ocr_box`：可选 OCR 区域相对坐标 `[x, y, to_x, to_y]`，缩小 OCR 范围以降低开销。
+- `ocr_box`：可选 OCR 区域，缩小 OCR 范围以降低开销。可为相对坐标 `[x, y, to_x, to_y]`，也可为 coco 标注的区域特征名（字符串），匹配时按当前分辨率解析（如 `"box_sub_pages_title"`）；特征缺失时退化为全屏 OCR。
 
 `MyBaseTask.__init__` 默认注册了大厅界面：`register_screen("lobby", features=["ark"])`，即「识别到方舟按钮 = 已回到大厅」。
 

@@ -49,6 +49,23 @@ class TestScreenRecovery(TaskTestCase):
         self.task.register_screen("大厅ocr", keywords=["方舟"], ocr_box=[0.5, 0.5, 1, 1])
         self.assertTrue(self.task.is_screen("大厅ocr"))
 
+    def test_screen_ocr_keywords_with_named_box(self):
+        # ocr_box 传 coco 区域特征名时，按当前分辨率解析后以 box= 传入 ocr。
+        fake_box = Box(100, 100, 50, 50, confidence=1, name="cash_shop_title")
+        with patch.object(self.task, "get_box_by_name", return_value=fake_box), \
+                patch.object(self.task, "ocr", return_value=[fake_box]) as ocr_mock:
+            self.task.register_screen("付费商店", keywords=["付费商店"], ocr_box="cash_shop_title")
+            self.assertTrue(self.task.is_screen("付费商店"))
+        ocr_mock.assert_called_once_with(box=fake_box, match=["付费商店"])
+
+    def test_screen_ocr_keywords_with_missing_named_box_falls_back_fullscreen(self):
+        # 区域特征缺失时退化为全屏 OCR，不抛异常。
+        with patch.object(self.task, "get_box_by_name", side_effect=ValueError("missing")), \
+                patch.object(self.task, "ocr", return_value=[Box(1, 1, 5, 5, name="hit")]) as ocr_mock:
+            self.task.register_screen("付费商店", keywords=["付费商店"], ocr_box="cash_shop_title")
+            self.assertTrue(self.task.is_screen("付费商店"))
+        ocr_mock.assert_called_once_with(match=["付费商店"])
+
     def test_assert_screen_success(self):
         self.task.assert_screen("lobby", time_out=5)
 

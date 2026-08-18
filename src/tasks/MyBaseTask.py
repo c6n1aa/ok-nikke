@@ -7,6 +7,7 @@ import time  # 时间模块，处理超时与等待。
 import cv2  # OpenCV，模板缩放匹配使用 cv2.resize / cv2.imread。
 
 from ok import BaseTask
+from ok.feature.Box import Box  # 检测框对象，find_red_dot 返回值类型。
 from ok.task.exceptions import WaitFailedException  # 界面断言/失败恢复使用的框架等待失败异常。
 
 _BEIJING_TZ = datetime.timezone(datetime.timedelta(hours=8))  # 北京时间 UTC+8，无夏令时
@@ -199,6 +200,25 @@ class MyBaseTask(BaseTask):
         self.log_info("已关闭公告/活动弹窗。")  # 记录关闭动作。
         return True  # 返回成功，供上层继续检测大厅。
 
+    def _close_rupee_flash_sale_popup(self):
+        """处理卢比限时特卖（Rupee Flash Sale）弹窗：优先点关闭确认，否则点入口横幅，返回是否已处理。
+
+        该弹窗为两段式：先出现入口横幅 rupee_flash_sale，点击后弹出详情弹窗，
+        需再识别 rupee_flash_sale_close_confirm 点击关闭。每次只处理一步，
+        由 dismiss_all_popups 逐轮调用完成整段流程。
+        """
+        confirm = self.find_one("rupee_flash_sale_close_confirm")  # 优先识别详情弹窗的关闭确认按钮。
+        if confirm is not None:  # 详情弹窗已打开。
+            self.click_box(confirm, after_sleep=1)  # 点击关闭确认按钮关闭详情弹窗。
+            self.log_info("已关闭卢比限时特卖弹窗。")  # 记录关闭动作。
+            return True  # 返回已处理。
+        banner = self.find_one("rupee_flash_sale")  # 识别限时特卖入口横幅。
+        if banner is not None:  # 入口横幅存在。
+            self.click_box(banner, after_sleep=1)  # 点击横幅打开详情弹窗，下一轮再关闭。
+            self.log_info("已点击卢比限时特卖入口。")  # 记录点击动作。
+            return True  # 返回已处理。
+        return False  # 当前帧无卢比限时特卖相关界面。
+
     def _click_enter_game(self):
         """在 coco 特征 box_enter_game 区域内 OCR 识别 TOUCH TO CONTINUE 并点击进入游戏，返回是否点击。"""
         try:
@@ -236,19 +256,23 @@ class MyBaseTask(BaseTask):
         return False  # 返回失败，由调用方决定是否中止后续流程。
 
     def wait_battle_finish(self, time_out=240, check_interval=2):
-        """节流轮询等待自动战斗结束并处理结算界面，返回战斗结果。
+        """节流轮询等待自动战斗结束，返回 (结果, 确认按钮框)，不自动点击。
 
         战斗时长不确定（约10秒~3分钟）：每 check_interval 秒才刷新一帧做单次
-        模板匹配，命中结算界面即提前返回；超时返回 None。避免用 wait_feature
-        等忙轮询长时间对游戏窗口持续抓帧/匹配，与游戏抢 CPU。
+        模板匹配，命中结算界面即提前返回；超时返回 (None, None)。避免用
+        wait_feature 等忙轮询长时间对游戏窗口持续抓帧/匹配，与游戏抢 CPU。
 
-        正常结束：同时识别 battle_finish_reward 与 battle_finish_esc 后，
-        点击 esc 区域继续下一步。
-        战斗失败：同时识别 battle_finish_failed 与 battle_finish_failed_back 后，
-        点击返回区域继续下一步。
+        正常结束：同时识别 battle_finish_reward 与 battle_finish_esc。
+        战斗失败：同时识别 battle_finish_failed 与 battle_finish_failed_back。
+
+        此处只检测不点击——战斗结束后的动作由调用方决定（连续战斗的胜利界面
+        可能有"下一关"等其它按钮），返回值带上了识别到的确认按钮框，调用方
+        需要点击时可直接用它。
 
         Returns:
-            "success" 正常结束并已点击确认；"failed" 战斗失败并已点击返回；None 超时。
+            ("success", esc_box) 正常结束，esc 为确认按钮框；
+            ("failed", failed_back_box) 战斗失败，failed_back_box 为返回按钮框；
+            (None, None) 超时。
         """
         deadline = time.time() + time_out  # 记录整体超时时刻。
         while time.time() < deadline:  # 节流循环直到超时。
@@ -257,18 +281,16 @@ class MyBaseTask(BaseTask):
             reward = self.find_one("battle_finish_reward")  # 单帧匹配正常结束奖励特征。
             esc = self.find_one("battle_finish_esc")  # 单帧匹配正常结束确认按钮特征。
             if reward is not None and esc is not None:  # 正常战斗结束。
-                self.click_box(esc, after_sleep=1)  # 点击结算确认区域继续下一步。
-                self.log_info("战斗胜利，已点击确认继续。")  # 记录正常结束。
-                return "success"  # 返回正常结束结果。
+                self.log_info("检测到战斗胜利结算界面。")  # 记录正常结束。
+                return "success", esc  # 返回结果与确认按钮框，由调用方决定后续动作。
             failed = self.find_one("battle_finish_failed")  # 单帧匹配战斗失败特征。
             failed_back = self.find_one("battle_finish_failed_back")  # 单帧匹配失败返回按钮特征。
             if failed is not None and failed_back is not None:  # 战斗失败。
-                self.click_box(failed_back, after_sleep=1)  # 点击失败返回区域继续下一步。
-                self.log_info("战斗失败，已点击返回继续。")  # 记录失败结束。
-                return "failed"  # 返回失败结束结果。
+                self.log_info("检测到战斗失败结算界面。")  # 记录失败结束。
+                return "failed", failed_back  # 返回结果与返回按钮框，由调用方决定后续动作。
         self.save_failure_screenshot("wait_battle_finish")  # 超时保存现场截图便于排查。
         self.log_warning(f"等待战斗结束超时（{time_out}秒）。")  # 记录超时原因。
-        return None  # 返回超时结果。
+        return None, None  # 返回超时结果。
 
     def find_scaled_template(self, feature_name: str, template_path: str, ref_width: int = 2560,
                              ref_height: int = 1440, **kwargs):
@@ -298,6 +320,59 @@ class MyBaseTask(BaseTask):
                 template = cv2.resize(template, (0, 0), fx=scale, fy=scale, interpolation=interp)
             self._scaled_template_cache[cache_key] = template
         return self.find_one(feature_name, template=template, **kwargs)
+
+    def find_red_dot(self, box, template_path=None, threshold=0.6, min_blob_area=8,
+                     ref_width=2560, ref_height=1440) -> Box | None:
+        """在指定 box 区域内检测通知红点：模板匹配为主（返回精确位置），颜色检测兜底半透明/样式变体红点。
+
+        红点检测必须限定在 box 区域内，不支持全图扫描（全图颜色检测误检率极高）。
+        box 必须是 coco 特征名或 Box 对象，拒绝 None。
+
+        Args:
+            box: 搜索区域。coco box 特征名（如 'box_mission_daily_badge'，自动按当前
+                分辨率缩放）或 Box 对象（可用 self.box_of_screen 生成相对坐标区域）。
+            template_path: 红点模板路径（如 'assets/template/badge.png'）。传入时先做
+                模板匹配，命中返回精确位置；未命中或未传时用颜色检测兜底。
+            threshold: 模板匹配阈值。默认 0.6，低于框架默认 0.8——半透明红点分数
+                偏低（实测 0.70-0.73），必须显式传阈值，不能回落默认 0.8。
+            min_blob_area: 颜色检测判定红点存在的最小红色连通域面积（默认 8，
+                原分辨率红点约 70-95、720p 约 12-20，8 可跨分辨率通用）。
+            ref_width/ref_height: 模板裁剪时的源截图分辨率，默认 2560x1440。
+
+        Returns:
+            命中返回红点位置 Box（模板命中为精确模板框，颜色兜底为最大红色连通域
+            外接框）；未命中返回 None。
+        """
+        box = self.get_box_by_name(box)  # 解析搜索区域：字符串为 coco 特征名/框架快捷名，Box 原样返回。
+        if box is None:  # 区域无效。
+            raise ValueError("find_red_dot 必须传入有效的 box 区域")  # 红点检测必须限定区域。
+        if template_path is not None:  # 配置了模板则先做模板匹配。
+            found = self.find_scaled_template(  # 复用模板缩放+匹配，限定在 box 区域内。
+                "red_dot", template_path,  # 匹配命名与模板路径。
+                ref_width=ref_width, ref_height=ref_height,  # 模板源截图分辨率。
+                box=box, threshold=threshold,  # 限定搜索区域并显式传阈值，避免回落默认 0.8。
+            )
+            if found is not None:  # 模板命中。
+                return found  # 返回模板的精确位置。
+        frame = self.frame  # 取当前帧用于颜色检测兜底。
+        if frame is None:  # 无帧可做颜色检测。
+            return None  # 返回未命中。
+        x1, y1 = max(box.x, 0), max(box.y, 0)  # 裁剪 box 左上角到帧范围内。
+        x2, y2 = min(box.x + box.width, frame.shape[1]), min(box.y + box.height, frame.shape[0])  # 裁剪右下角。
+        if x2 <= x1 or y2 <= y1:  # 区域越界无效。
+            return None  # 返回未命中。
+        roi = frame[y1:y2, x1:x2]  # 取 box 区域子图。
+        hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)  # 转 HSV 便于提取红色。
+        m1 = cv2.inRange(hsv, (0, 40, 40), (12, 255, 255))  # 红色低色相段（0-12°）。
+        m2 = cv2.inRange(hsv, (165, 40, 40), (180, 255, 255))  # 红色高色相段（165-180°，色相环绕）。
+        mask = cv2.bitwise_or(m1, m2)  # 合并两段红色掩码。
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)  # 提取红色连通域。
+        for c in sorted(contours, key=cv2.contourArea, reverse=True):  # 按面积从大到小检查。
+            if cv2.contourArea(c) >= min_blob_area:  # 连通域面积达到阈值视为红点。
+                cx, cy, cw, ch = cv2.boundingRect(c)  # 取红色连通域外接框。
+                from ok.feature.Box import Box  # 局部导入 Box 构造返回值。
+                return Box(x1 + cx, y1 + cy, cw, ch, name="red_dot_color")  # 转回帧坐标返回。
+        return None  # 无红点返回未命中。
 
     def close_overlay(self, keywords=("点击领取奖励",), time_out=5, after_sleep=1, max_clicks=3,
                       require_click=True):
@@ -344,14 +419,16 @@ class MyBaseTask(BaseTask):
         return clicked  # 超时或点满次数后返回当前状态。
 
     def _try_close_one_popup(self, after_sleep=1):
-        """尝试关闭当前帧上的一个弹窗：先公告/活动横幅，再领取奖励遮罩。返回是否成功关掉一个。
+        """尝试关闭当前帧上的一个弹窗：先卢比限时特卖，再公告/活动横幅，最后领取奖励/点击任意处遮罩。返回是否成功关掉一个。
 
         每次只关一个，由 dismiss_all_popups 循环调用，避免一次点击后界面动画未完成导致误判。
         """
+        if self._close_rupee_flash_sale_popup():  # 卢比限时特卖（两段式：入口横幅点击后弹详情，再点关闭确认）。
+            return True  # 已处理卢比限时特卖。
         if self._close_notice_popup():  # 公告/活动横幅（右上角铃铛+关闭按钮）。
             return True  # 已关闭横幅弹窗。
         try:  # 遮罩 OCR 异常不应中断统一清理。
-            boxes = self.ocr(x=1 / 3, y=0.6, to_x=2 / 3, to_y=1, match=["点击领取奖励"])  # 中下部区域查找领取奖励遮罩按钮。
+            boxes = self.ocr(x=1 / 3, y=0.6, to_x=2 / 3, to_y=1, match=["点击领取奖励", "点击任意处"])  # 中下部区域查找领取奖励/任意处关闭遮罩按钮。
         except Exception as e:  # OCR 失败。
             self.log_warning(f"遮罩 OCR 失败: {e}")  # 记录失败原因。
             return False  # 本帧无遮罩可关。
@@ -363,7 +440,7 @@ class MyBaseTask(BaseTask):
 
     def dismiss_all_popups(self, clear_condition=None, time_out=10, after_sleep=1, max_passes=6,
                            wait_for_popup=True):
-        """统一弹窗清理入口：循环关闭公告/活动横幅与领取奖励遮罩等弹窗。
+        """统一弹窗清理入口：循环关闭卢比限时特卖、公告/活动横幅与领取奖励/点击任意处遮罩等弹窗。
 
         语义与 close_overlay 一致：点击后弹窗可能延迟出现，因此当前帧无弹窗时
         默认不会立即返回，而是继续等待（wait_for_popup=True，适用于"点击领取后"等
@@ -419,7 +496,9 @@ class MyBaseTask(BaseTask):
             name: 界面名（子任务用 is_screen/wait_screen/assert_screen 时传入的名称）。
             features: coco 标注的模板特征名列表，全部命中才判定为该界面。
             keywords: OCR 关键词列表，任一命中即判定为该界面（多用于无稳定模板的页面）。
-            ocr_box: 可选 OCR 区域相对坐标 [x, y, to_x, to_y]，避免全屏 OCR 的开销。
+            ocr_box: 可选 OCR 区域，避免全屏 OCR 的开销。可为相对坐标列表
+                [x, y, to_x, to_y]，也可为 coco 标注的区域特征名（字符串），
+                匹配时按当前分辨率解析。
         """
         self.screens[name] = {  # 保存界面判定描述到注册表。
             "features": list(features),  # 模板特征名列表。
@@ -436,8 +515,16 @@ class MyBaseTask(BaseTask):
             return True  # 全部命中才算处于该界面。
         if spec.get("keywords"):  # 无模板特征时退化为 OCR 关键词判定。
             box = spec.get("ocr_box")  # 读取可选 OCR 区域。
+            if isinstance(box, str):  # ocr_box 为 coco 区域特征名时解析为当前分辨率的框。
+                try:  # 特征可能缺失。
+                    box = self.get_box_by_name(box)  # 解析区域框。
+                except ValueError:  # 特征缺失时退化为全屏 OCR。
+                    box = None  # 置空走全屏逻辑。
             if box:  # 指定了区域则只在该区域 OCR。
-                boxes = self.ocr(*box, match=spec["keywords"])  # 区域内匹配关键词。
+                if isinstance(box, (list, tuple)):  # 相对坐标列表形式。
+                    boxes = self.ocr(*box, match=spec["keywords"])  # 区域内匹配关键词。
+                else:  # 已解析的 Box 对象。
+                    boxes = self.ocr(box=box, match=spec["keywords"])  # 区域内匹配关键词。
             else:  # 未指定区域则全屏 OCR。
                 boxes = self.ocr(match=spec["keywords"])  # 全屏匹配关键词。
             return bool(boxes)  # 命中任一关键词即判定为该界面。

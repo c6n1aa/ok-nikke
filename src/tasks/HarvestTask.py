@@ -47,6 +47,6 @@ class HarvestTask(MyBaseTask):  # 定义收获子任务类。
         claim = self.wait_feature("mailbox_claim", time_out=5, raise_if_not_found=False)  # 判断是否为可收取状态。
         if claim:  # 存在可收取按钮才点击。
             self.click_box(claim, after_sleep=1)  # 点击领取奖励。
-            self.dismiss_all_popups(wait_for_popup=True, time_out=10)  # 统一清理领取奖励弹窗，返回邮箱页。
+            self.dismiss_all_popups(time_out=10)  # 统一清理领取奖励弹窗，返回邮箱页（默认等待弹窗出现）。
             self.wait_feature("mailbox_claim_disable", time_out=10, raise_if_not_found=True)  # 等待领取变为不可用，即全部领完。
         self.wait_click_feature("mailbox_close", time_out=10, raise_if_not_found=True, after_sleep=1)  # 点击关闭按钮返回。

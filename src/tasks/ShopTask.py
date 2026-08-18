@@ -164,7 +164,7 @@ class ShopTask(MyBaseTask):  # 商店自动兑换任务，继承项目基类。
             self.log_warning("货币不足，停止当前商店购买。")  # 记录货币不足。
             self.wait_until(lambda: self.find_one("shop_no_currency") is None, time_out=5, raise_if_not_found=False)  # 等待货币不足弹窗自动消失，避免拦截后续点击。
             return False  # 返回失败，调用方据此停止当前商店。
-        self.dismiss_all_popups(wait_for_popup=True, time_out=10)  # 清理购买成功后的遮罩弹窗。
+        self.dismiss_all_popups(time_out=10)  # 清理购买成功后的遮罩弹窗（默认等待弹窗出现）。
         return True  # 返回购买成功。
 
     # ---- 三家商店购买逻辑 ----
