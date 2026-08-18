@@ -5,6 +5,7 @@ from src.tasks.MyBaseTask import MyBaseTask  # 导入项目基类，所有任务
 from src.tasks.OutpostDefenseTask import OutpostDefenseTask  # 导入歼灭子任务。
 from src.tasks.ShopTask import ShopTask  # 导入商店子任务。
 from src.tasks.CashShopTask import CashShopTask  # 导入付费商店子任务。
+from src.tasks.ArkTask import ArkTask  # 导入方舟子任务（企业塔/模拟室/拦截战/竞技场）。
 
 
 class DailyTask(MyBaseTask):  # 定义清日常总编排的父任务类。
@@ -20,12 +21,14 @@ class DailyTask(MyBaseTask):  # 定义清日常总编排的父任务类。
             "歼灭": True,  # 歼灭子流程的开关。
             "商店": True,  # 商店子流程的开关。
             "付费商店": True,  # 付费商店子流程的开关。
+            "方舟": True,  # 方舟子流程的开关。
         })
         self.config_description.update({  # 每个配置项的帮助文本。
             "收获": "是否执行收获（友情点、邮箱）。",
             "歼灭": "是否执行前哨基地歼灭。",
             "商店": "是否执行商店购买（普通/竞技场/废铁）。",
             "付费商店": "是否执行付费商店免费礼包领取（STEP UP/每日/每周/每月）。",
+            "方舟": "是否执行方舟（企业塔/模拟室/拦截战/竞技场）。",
         })
         self.config_type.update({  # 任务列表的日常卡片展开后只显示这一个按钮行。
             self.DAILY_SETTINGS_BUTTON_KEY: {
@@ -59,5 +62,13 @@ class DailyTask(MyBaseTask):  # 定义清日常总编排的父任务类。
             self.run_task_by_class(ShopTask)  # 运行商店子任务，子任务读取自己的配置。
         if self.config.get("付费商店"):  # 只有开关开启时才执行付费商店。
             self.run_task_by_class(CashShopTask)  # 运行付费商店子任务，子任务读取自己的配置。
+        if self.config.get("方舟"):  # 只有开关开启时才执行方舟。
+            self.run_task_by_class(ArkTask)  # 运行方舟子任务，子任务读取自己的配置。
         # 后续新增子流程时，在此追加相同的开关判断和 run_task_by_class 调用即可。
+        if self.config.get("方舟"):  # 只有开启方舟子流程才需要检查失败塔提醒。
+            ark = self.get_task_by_class(ArkTask)  # 获取方舟子任务实例。
+            if ark is not None:  # 子任务已注册。
+                message = ark.failed_towers_message()  # 读取本次运行的战斗失败塔记录。
+                if message:  # 存在战斗失败的塔。
+                    self.log_info(message, notify=True)  # 在所有日常子任务执行完成后统一提醒。
         self.log_info("日常完成。")  # 记录父任务执行完成。

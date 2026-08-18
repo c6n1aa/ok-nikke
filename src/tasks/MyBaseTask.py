@@ -9,6 +9,7 @@ import cv2  # OpenCV，模板缩放匹配使用 cv2.resize / cv2.imread。
 from ok import BaseTask
 from ok.feature.Box import Box  # 检测框对象，find_red_dot 返回值类型。
 from ok.task.exceptions import WaitFailedException  # 界面断言/失败恢复使用的框架等待失败异常。
+from ok.util.color import calculate_colorfulness  # 框架颜色工具：计算区域色彩丰富度。
 
 _BEIJING_TZ = datetime.timezone(datetime.timedelta(hours=8))  # 北京时间 UTC+8，无夏令时
 
@@ -374,6 +375,32 @@ class MyBaseTask(BaseTask):
                 return Box(x1 + cx, y1 + cy, cw, ch, name="red_dot_color")  # 转回帧坐标返回。
         return None  # 无红点返回未命中。
 
+    def is_feature_enabled(self, box: Box, colorfulness_thresh: float = 0.1) -> bool:
+        """判断 UI 元素是否处于可用（高亮彩色）状态。
+
+        游戏内可用/禁用按钮常用"高亮彩色 vs 灰白"表达（如无限之塔"进入战斗"蓝色
+        可用态 vs 灰色禁用态）。CCOEFF 模板匹配会忽略颜色，无法区分这两种状态；
+        此方法用框架的颜色工具计算 box 区域色彩丰富度（RGB 对立轴统计，对灰白压
+        得更狠），低于 colorfulness_thresh 视为灰白禁用。
+
+        Args:
+            box: 元素所在区域（coco 特征框或模板匹配结果 Box）。
+            colorfulness_thresh: 色彩丰富度阈值（0~1），低于则判定为禁用。
+
+        Returns:
+            True 可用；False 禁用（灰白）。无帧/区域越界时保守返回 True。
+        """
+        frame = self.frame  # 取当前帧；无帧（如单测 mock）时保守视为可用。
+        if frame is None:  # 无帧可做颜色检测。
+            return True  # 返回可用，避免误跳可用功能。
+        x1, y1 = max(box.x, 0), max(box.y, 0)  # 裁剪 box 左上角到帧范围内。
+        x2, y2 = min(box.x + box.width, frame.shape[1]), min(box.y + box.height, frame.shape[0])  # 裁剪右下角。
+        if x2 <= x1 or y2 <= y1:  # 区域越界无效。
+            return True  # 保守视为可用。
+        roi = frame[y1:y2, x1:x2]  # 取 box 区域子图。
+        colorfulness = calculate_colorfulness(roi)  # 用框架颜色工具计算色彩丰富度（0~1）。
+        return colorfulness > colorfulness_thresh  # 超过阈值判定为可用。
+
     def close_overlay(self, keywords=("点击领取奖励",), time_out=5, after_sleep=1, max_clicks=3,
                       require_click=True):
         """点击遮罩窗按钮关闭弹窗，避免后续点击被遮罩拦截。
@@ -507,29 +534,40 @@ class MyBaseTask(BaseTask):
         }
 
     def _screen_match(self, spec: dict) -> bool:
-        """按判定描述在当前帧检测是否处于该界面。"""
-        if spec.get("features"):  # 有模板特征则以特征判定为准。
-            for name in spec["features"]:  # 逐个检测特征。
+        """按判定描述在当前帧检测是否处于该界面。
+
+        features 与 keywords 同时配置时取「与」：所有特征命中 且 命中任一关键词。
+        """
+        features = spec.get("features")  # 模板特征名列表。
+        keywords = spec.get("keywords")  # OCR 关键词列表。
+        if features:  # 有模板特征则先逐个检测特征。
+            for name in features:  # 逐个检测特征。
                 if self.find_one(name) is None:  # 任一特征缺失则不在该界面。
                     return False  # 返回未命中。
-            return True  # 全部命中才算处于该界面。
-        if spec.get("keywords"):  # 无模板特征时退化为 OCR 关键词判定。
-            box = spec.get("ocr_box")  # 读取可选 OCR 区域。
-            if isinstance(box, str):  # ocr_box 为 coco 区域特征名时解析为当前分辨率的框。
-                try:  # 特征可能缺失。
-                    box = self.get_box_by_name(box)  # 解析区域框。
-                except ValueError:  # 特征缺失时退化为全屏 OCR。
-                    box = None  # 置空走全屏逻辑。
-            if box:  # 指定了区域则只在该区域 OCR。
-                if isinstance(box, (list, tuple)):  # 相对坐标列表形式。
-                    boxes = self.ocr(*box, match=spec["keywords"])  # 区域内匹配关键词。
-                else:  # 已解析的 Box 对象。
-                    boxes = self.ocr(box=box, match=spec["keywords"])  # 区域内匹配关键词。
-            else:  # 未指定区域则全屏 OCR。
-                boxes = self.ocr(match=spec["keywords"])  # 全屏匹配关键词。
-            return bool(boxes)  # 命中任一关键词即判定为该界面。
+            if not keywords:  # 未配置关键词时特征全部命中即判定为该界面。
+                return True  # 返回命中。
+            return self._match_ocr_keywords(spec)  # 同时配置了关键词则还需命中任一关键词。
+        if keywords:  # 无模板特征时退化为 OCR 关键词判定。
+            return self._match_ocr_keywords(spec)  # 按关键词判定。
         self.log_warning(f"界面 {spec} 未配置判定条件")  # 记录空配置。
         return False  # 空配置判定为不在该界面。
+
+    def _match_ocr_keywords(self, spec: dict) -> bool:
+        """按界面判定描述在当前帧 OCR 匹配关键词，命中任一关键词返回 True。"""
+        box = spec.get("ocr_box")  # 读取可选 OCR 区域。
+        if isinstance(box, str):  # ocr_box 为 coco 区域特征名时解析为当前分辨率的框。
+            try:  # 特征可能缺失。
+                box = self.get_box_by_name(box)  # 解析区域框。
+            except ValueError:  # 特征缺失时退化为全屏 OCR。
+                box = None  # 置空走全屏逻辑。
+        if box:  # 指定了区域则只在该区域 OCR。
+            if isinstance(box, (list, tuple)):  # 相对坐标列表形式。
+                boxes = self.ocr(*box, match=spec["keywords"])  # 区域内匹配关键词。
+            else:  # 已解析的 Box 对象。
+                boxes = self.ocr(box=box, match=spec["keywords"])  # 区域内匹配关键词。
+        else:  # 未指定区域则全屏 OCR。
+            boxes = self.ocr(match=spec["keywords"])  # 全屏匹配关键词。
+        return bool(boxes)  # 命中任一关键词即判定为该界面。
 
     def current_screen(self) -> str | None:
         """在当前帧识别所处界面，返回界面名；未命中返回 None（常用于失败日志）。"""

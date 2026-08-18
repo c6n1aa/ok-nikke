@@ -13,6 +13,7 @@ from src.tasks.HarvestTask import HarvestTask
 from src.tasks.OutpostDefenseTask import OutpostDefenseTask
 from src.tasks.ShopTask import ShopTask
 from src.tasks.CashShopTask import CashShopTask
+from src.tasks.ArkTask import ArkTask
 
 
 class SubTaskCard(ConfigContentMixin, ExpandSettingCard):
@@ -112,6 +113,7 @@ class DailyTab(CustomTab):
         (OutpostDefenseTask, "歼灭"),
         (ShopTask, "商店"),
         (CashShopTask, "付费商店"),
+        (ArkTask, "方舟"),
     ]
 
     def __init__(self):

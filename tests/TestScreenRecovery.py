@@ -66,6 +66,32 @@ class TestScreenRecovery(TaskTestCase):
             self.assertTrue(self.task.is_screen("付费商店"))
         ocr_mock.assert_called_once_with(match=["付费商店"])
 
+    def test_screen_match_features_and_keywords_and(self):
+        # features 与 keywords 同时配置时取「与」：特征命中且关键词命中才判定为该界面。
+        fake_box = Box(100, 100, 50, 50, confidence=1, name="box_sub_pages_title")
+        with patch.object(self.task, "find_one", return_value=Box(1, 1, 5, 5, name="ark_ranking")), \
+                patch.object(self.task, "get_box_by_name", return_value=fake_box), \
+                patch.object(self.task, "ocr", return_value=[fake_box]) as ocr_mock:
+            self.task.register_screen("方舟", features=["ark_ranking"], keywords=["方舟"], ocr_box="box_sub_pages_title")
+            self.assertTrue(self.task.is_screen("方舟"))
+        ocr_mock.assert_called_once_with(box=fake_box, match=["方舟"])
+
+    def test_screen_match_features_and_keywords_fails_when_keyword_missing(self):
+        # 特征命中但关键词未命中时判定不在该界面。
+        fake_box = Box(100, 100, 50, 50, confidence=1, name="box_sub_pages_title")
+        with patch.object(self.task, "find_one", return_value=Box(1, 1, 5, 5, name="ark_ranking")), \
+                patch.object(self.task, "get_box_by_name", return_value=fake_box), \
+                patch.object(self.task, "ocr", return_value=[]):
+            self.task.register_screen("方舟", features=["ark_ranking"], keywords=["方舟"], ocr_box="box_sub_pages_title")
+            self.assertFalse(self.task.is_screen("方舟"))
+
+    def test_screen_match_features_and_keywords_fails_when_feature_missing(self):
+        # 特征缺失时不进入 OCR 判定，直接判定不在该界面。
+        with patch.object(self.task, "find_one", return_value=None), \
+                patch.object(self.task, "ocr", side_effect=AssertionError("特征未命中不应 OCR")):
+            self.task.register_screen("方舟", features=["ark_ranking"], keywords=["方舟"], ocr_box="box_sub_pages_title")
+            self.assertFalse(self.task.is_screen("方舟"))
+
     def test_assert_screen_success(self):
         self.task.assert_screen("lobby", time_out=5)
 

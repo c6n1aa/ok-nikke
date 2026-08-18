@@ -169,20 +169,20 @@ class ShopTask(MyBaseTask):  # 商店自动兑换任务，继承项目基类。
 
     # ---- 三家商店购买逻辑 ----
 
-    def _do_general_shop(self):  # 普通商店：买第一列第 1 格 + 免费刷新。
-        if self.wait_feature("general_shop_free_item", time_out=3, raise_if_not_found=False) is None:  # 判断是否有可购买的免费商品。
-            self.log_info("普通商店无可购买免费商品，跳过。")  # 记录跳过原因。
-            return  # 无免费商品直接结束。
-        self._buy_cell(1, 1, "general_shop_buy_confirm")  # 购买第一列第 1 格免费商品。
-        if self.wait_feature("shop_general_free", time_out=3, raise_if_not_found=False) is not None:  # 判断是否仍有免费刷新机会。
-            self.wait_click_feature("shop_general_refresh", time_out=10, raise_if_not_found=True, after_sleep=1)  # 点击免费刷新按钮。
-            if self.wait_feature("general_shop_refresh_zero", time_out=5, raise_if_not_found=False) is not None:  # 判断刷新确认弹窗是否零消耗。
-                self.wait_click_feature("general_shop_refresh_confirm", time_out=10, raise_if_not_found=True, after_sleep=1)  # 确认刷新。
-                self.next_frame()  # 刷新一帧，确保读取刷新后的画面。
-                if not self._is_sold_out(1, 1):  # 刷新后第 1 格可购买（非售罄）则再买一次。
-                    self._buy_cell(1, 1, "general_shop_buy_confirm")  # 再次购买第一列第 1 格。
-            else:  # 刷新弹窗非零消耗（需花费货币）。
-                self.wait_click_feature("general_shop_refresh_cancel", time_out=10, raise_if_not_found=True, after_sleep=1)  # 取消刷新。
+    def _do_general_shop(self):  # 普通商店：第一格未售罄则购买；购买/售罄后还有免费刷新机会则刷新再买，否则跳过。
+        if not self._is_sold_out(1, 1):  # 第一格商品未售罄。
+            self._buy_cell(1, 1, "general_shop_buy_confirm")  # 购买第一列第 1 格商品。
+        if self.wait_feature("shop_general_free", time_out=3, raise_if_not_found=False) is None:  # 无免费刷新机会。
+            self.log_info("普通商店无免费刷新机会，跳过。")  # 记录跳过原因。
+            return  # 无免费刷新机会直接结束。
+        self.click_box("box_shop_general_refresh", after_sleep=1)  # 有免费刷新机会，点击免费刷新按钮。
+        if self.wait_feature("general_shop_refresh_free", time_out=5, raise_if_not_found=False) is not None:  # 判断刷新确认弹窗是否零消耗。
+            self.wait_click_feature("general_shop_refresh_confirm", time_out=10, raise_if_not_found=True, after_sleep=1)  # 确认刷新。
+            self.next_frame()  # 刷新一帧，确保读取刷新后的画面。
+            if not self._is_sold_out(1, 1):  # 刷新后第 1 格可购买（非售罄）则再买一次。
+                self._buy_cell(1, 1, "general_shop_buy_confirm")  # 购买刷新后的第一列第 1 格。
+        else:  # 刷新弹窗非零消耗（需花费货币）。
+            self.wait_click_feature("general_shop_refresh_cancel", time_out=10, raise_if_not_found=True, after_sleep=1)  # 取消刷新。
 
     def _do_arena_shop(self):  # 竞技场商店：代码模板匹配前 3 格 + 固定列 4/5/6。
         for item in self.config.get("优先购买列", []):  # 按用户配置的优先顺序遍历。

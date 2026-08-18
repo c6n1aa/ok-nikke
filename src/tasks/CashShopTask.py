@@ -8,7 +8,7 @@ from src.tasks.MyBaseTask import MyBaseTask  # 项目基类，所有任务统一
 class CashShopTask(MyBaseTask):  # 付费商店免费礼包领取任务，继承项目基类。
 
     done_keys = {  # 完成状态：STEP UP/每日免费礼包（日常刷新），每周（周常刷新），每月（月度刷新）。
-        "cash_shop_stepup": "day",  # STEP UP 免费礼包日常完成状态。
+        # "cash_shop_stepup": "day",  # STEP UP 免费礼包日常完成状态。
         "cash_shop_daily": "day",  # 每日免费礼包日常完成状态。
         "cash_shop_weekly": "week",  # 每周免费礼包周常完成状态。
         "cash_shop_monthly": "month",  # 每月免费礼包月度完成状态。
@@ -24,7 +24,7 @@ class CashShopTask(MyBaseTask):  # 付费商店免费礼包领取任务，继承
     def __init__(self, *args, **kwargs):  # 初始化任务元数据与配置。
         super().__init__(*args, **kwargs)  # 必须先调用父类初始化。
         self.name = "付费商店"  # 任务显示名称。
-        self.description = "自动领取付费商店中STEP UP/每日/每周/每月的免费礼包。"  # 任务说明。
+        self.description = "自动领取付费商店中每日/每周/每月的免费礼包。"  # 任务说明。
         self.register_screen("付费商店", keywords=["付费商店"], ocr_box="box_sub_pages_title")  # 注册付费商店界面：标题区域 OCR 确认。
 
     def _get_box(self, name):  # 获取标注区域框，特征缺失时抛等待失败异常。
@@ -95,11 +95,11 @@ class CashShopTask(MyBaseTask):  # 付费商店免费礼包领取任务，继承
 
     def _combined_step(self):  # 合并子流程：一次进店，先 STEP UP 再普通礼包，结束后统一退出。
         self._enter_cash_shop()  # 进入付费商店。
-        if not self.is_done("cash_shop_stepup", "day"):  # STEP UP 本日未完成才处理。
-            try:  # 单流程失败不中断整体。
-                self._do_stepup_pack()  # 领取 STEP UP 免费礼包。
-            except WaitFailedException as e:  # STEP UP 领取失败。
-                self.log_warning(f"STEP UP 免费礼包领取失败，跳过：{e}")  # 记录失败并继续后续礼包。
+        # if not self.is_done("cash_shop_stepup", "day"):  # STEP UP 本日未完成才处理。
+        #     try:  # 单流程失败不中断整体。
+        #         self._do_stepup_pack()  # 领取 STEP UP 免费礼包。
+        #     except WaitFailedException as e:  # STEP UP 领取失败。
+        #         self.log_warning(f"STEP UP 免费礼包领取失败，跳过：{e}")  # 记录失败并继续后续礼包。
         try:  # 普通礼包失败不中断整体。
             self._do_ordinary_packs()  # 领取每日/每周/每月免费礼包。
         except WaitFailedException as e:  # 普通礼包领取失败。
