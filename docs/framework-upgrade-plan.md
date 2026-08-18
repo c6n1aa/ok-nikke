@@ -16,10 +16,10 @@
 2. 同步模板项目的新工程结构（依赖 profiles、config 新格式）
 3. 迁移后保证现有业务代码（tasks / patches / ui）全部可用
 4. 建立可重复的验证与回滚流程
+5. 将自定义 Tab/补丁的 import 从旧路径 `ok.gui.*` 迁移到新路径 `ok.ui.qt.*`（见 3.2）
 
 **非目标（本期不做）：**
 - 迁移到 Web UI（`web_main.py` / `requirements-web.txt` 可选，见 6.3）
-- 迁移自定义 Tab/补丁的 import 到新路径 `ok.ui.qt.*`（旧路径 `ok.gui.*` 有兼容层，暂不动，见 3.2）
 
 ---
 
@@ -60,9 +60,33 @@
 | `src/config.py` | `use_gui: True` + `window_size` | ✅ 旧格式被 `resolve_ui_config` 兼容（`ok/core/ui_config.py:29-32`），但计划迁移到新格式 |
 | `main.py` / `main_debug.py` | `ok.OK(config)` | ✅ 构造签名未变 |
 
-### 3.2 关键兼容机制：ok.gui 兼容层
+### 3.2 关键兼容机制：ok.gui 兼容层（计划迁移到新路径）
 
-2.0 通过 `ok/gui/__init__.py` 中的 **MetaPathFinder shim** 把旧路径 `ok.gui.X` 重定向到 `ok.ui.qt.X`，且保证类在旧/新命名空间下单例（不会双重定义）。因此本项目现有 `from ok.gui.xxx import xxx` 导入**无需修改**即可工作。
+2.0 通过 `ok/gui/__init__.py` 中的 **MetaPathFinder shim** 把旧路径 `ok.gui.X` 重定向到 `ok.ui.qt.X`，且保证类在旧/新命名空间下单例（不会双重定义）。因此本项目现有 `from ok.gui.xxx import xxx` 导入在 2.0 下**仍然可用**，这是升级的兜底保障。
+
+**但本期计划将自定义代码的 import 全部迁移到新路径 `ok.ui.qt.*`**，理由：
+1. shim 是过渡兼容层，后续版本可能移除；新路径是唯一正路
+2. 模块别名（`ok/ui/qt/StartController.py` 通过 `sys.modules[__name__] = _core` 指向 `ok.core.start_controller`）保证 `ok.ui.qt.StartController` 与框架内部模块是**同一对象**，`patches` 替换类后框架内部引用同样生效，行为与旧路径完全一致
+3. 本项目是唯一自定义方（无第三方代码依赖 `ok.gui`），迁移范围可控（13 处 import / 5 个文件）
+
+**迁移清单（共 13 处）：**
+
+| 文件 | 旧路径 | 新路径 |
+|---|---|---|
+| `src/patches/start_controller.py:9` | `ok.gui.StartController` | `ok.ui.qt.StartController` |
+| `src/patches/start_controller.py:12` | `ok.gui.Communicate` | `ok.ui.qt.Communicate` |
+| `src/patches/basic_options.py:68` | `ok.gui.tasks.LabelAndFileSelector` | `ok.ui.qt.tasks.LabelAndFileSelector` |
+| `src/patches/tasks_tab.py:10` | `ok.gui.tasks.TaskCard` | `ok.ui.qt.tasks.TaskCard` |
+| `src/patches/tasks_tab.py:46,114` | `ok.gui.tasks.OneTimeTaskTab` | `ok.ui.qt.tasks.OneTimeTaskTab` |
+| `src/patches/tasks_tab.py:47` | `ok.gui.widget.ExpandCardLayout` | `ok.ui.qt.widget.ExpandCardLayout` |
+| `src/patches/tasks_tab.py:136` | `ok.gui.tasks.ConfigCard` | `ok.ui.qt.tasks.ConfigCard` |
+| `src/ui/DailyTab.py:6` | `ok.gui.tasks.ConfigCard` | `ok.ui.qt.tasks.ConfigCard` |
+| `src/ui/DailyTab.py:7` | `ok.gui.widget.CustomTab` | `ok.ui.qt.widget.CustomTab` |
+| `src/ui/DailyTab.py:8` | `ok.gui.widget.ExpandCardLayout` | `ok.ui.qt.widget.ExpandCardLayout` |
+| `src/ui/DailyTab.py:9` | `ok.gui.widget.Tab` | `ok.ui.qt.widget.Tab` |
+| `src/ui/MyTab.py:6` | `ok.gui.widget.CustomTab` | `ok.ui.qt.widget.CustomTab` |
+
+> 其他 `ok.*` import（`ok.feature` / `ok.task` / `ok.util` / `ok.device`）在新旧版本路径不变，无需迁移。
 
 **结论：静态分析层面，本项目全部框架依赖在 2.0.2 下兼容。升级风险集中在 patches 运行时行为与依赖锁定，属可控范围。**
 
@@ -90,12 +114,25 @@
 3. 删除本地 venv 中旧版本并重装：`pip install -r requirements.txt`（建议重建 venv 或 `pip uninstall ok-script` 后重装，避免残留）
 4. 启动 `python main_debug.py` 冒烟验证
 
-### 步骤 3：回归验证（详见第 5 节）
+### 步骤 3：迁移 import 到新路径 ok.ui.qt
 
-### 步骤 4：提交与合并
+> 必须在步骤 2 之后执行（`ok.ui.qt` 仅在 2.0 存在，1.x 下无此路径）。
 
-1. 在 `upgrade/ok-script-2.0.2` 分支提交变更（建议分 2-3 个逻辑提交：结构同步 / 依赖升级 / 修复调整）
-2. 全部验收通过后，合并回 `dev`（`git checkout dev && git merge upgrade/ok-script-2.0.2`）
+1. 按 §3.2 迁移清单，将 5 个文件中的 13 处 `ok.gui.*` import 改为 `ok.ui.qt.*`
+   - `src/patches/start_controller.py`（2 处，含第 404 行注释同步更新）
+   - `src/patches/basic_options.py`（1 处）
+   - `src/patches/tasks_tab.py`（4 处）
+   - `src/ui/DailyTab.py`（4 处）
+   - `src/ui/MyTab.py`（1 处）
+2. **校验无残留**：`grep -rn "ok\.gui\." src/` 应无输出（注释除外）
+3. 启动 `python main_debug.py` 冒烟，确认 UI 正常渲染、patches 正常应用（shim 与新路径指向同一模块对象，行为应无变化）
+
+### 步骤 4：回归验证（详见第 5 节）
+
+### 步骤 5：提交与合并
+
+1. 在 `upgrade-framework` 分支提交变更（建议 3-4 个逻辑提交：结构同步 / 依赖升级 / import 迁移 / 修复调整）
+2. 全部验收通过后，合并回 `dev`（`git checkout dev && git merge upgrade-framework`）
 3. 分支可保留供后续 Web UI 迁移复用
 
 ---
@@ -124,6 +161,7 @@
 2. **任务执行**：DailyTask / ShopTask / CashShopTask 各跑一遍
 3. **overlay 关闭**：验证 2.0 的 overlay 修复（`eaf8967` / `91fdda5`）生效，任务结束 overlay 正常退出
 4. **进程退出**：无 OpenVINO 遥测导致的退出挂起（本项目 runtime patch 已处理，需确认在 2.0 下仍生效）
+5. **import 迁移验证**：`grep -rn "ok\.gui\." src/` 无残留；DailyTab / MyTab 正常渲染（CustomTab / Tab / ExpandCardLayout / ConfigContentMixin 均从 `ok.ui.qt.*` 导入）
 
 ### 5.3 打包验证（可选，发布前）
 
@@ -135,12 +173,13 @@
 
 | # | 风险 | 等级 | 应对 |
 |---|---|---|---|
-| 1 | patches 猴子补丁与 2.0 重构后的内部实现不兼容（静态兼容 ≠ 运行时兼容） | 中 | 手工验证 5.2.1/5.2.2；若 `ok.gui` shim 有边界问题，将 import 改为 `ok.ui.qt.*`（改动极小） |
+| 1 | patches 猴子补丁与 2.0 重构后的内部实现不兼容（静态兼容 ≠ 运行时兼容） | 中 | 手工验证 5.2.1/5.2.2；import 已按步骤 3 迁移到 `ok.ui.qt.*`，不再依赖 shim |
 | 2 | `TaskExecutor.next_frame` 补丁在 2.0 中行为变化 | 低 | 签名一致（2.0.2:248），运行时验证任务执行不卡帧 |
-| 3 | pywin32 312 坏版本 | 中 | 升级时直接排除（`>=313`），见步骤 2.2 |
+| 3 | pywin32 312 坏版本 | 中 | 升级时直接排除（`>=313`），见步骤 2 第 2 条 |
 | 4 | 依赖 profiles 重构导致 requirements 漂移 | 中 | 以 pyproject 为唯一源重新生成 requirements；diff 检查 |
 | 5 | 模板版本号误导（2.0.0b7） | 低 | 本计划已明确以 2.0.2 为准 |
 | 6 | 本地 ok-script 仓库有 37 个未推送提交，若运行环境用了本地路径而非 pip 包 | 中 | 先确认 `ok.__file__` 指向；确保运行环境安装的是 pypi 2.0.2 |
+| 7 | import 迁移遗漏或写错路径（如混用新旧路径导致类双重定义） | 低 | 按 §3.2 清单逐文件核对；迁移后 `grep -rn "ok\.gui\." src/` 无残留；新路径与 shim 指向同一模块对象，行为一致 |
 
 ### 6.1 回滚方案
 
@@ -154,7 +193,7 @@ git revert --no-commit <upgrade-merge> # 或直接 reset 合并提交
 
 ### 6.2 回滚触发条件
 
-- 步骤 3 回归测试出现无法在 2 小时内定位的失败
+- 步骤 4 回归测试出现无法在 2 小时内定位的失败
 - 手工验证中启动器自动化、任务执行出现阻断性问题
 - 升级分支上连续 3 个修复提交仍无法恢复
 
@@ -178,9 +217,11 @@ git revert --no-commit <upgrade-merge> # 或直接 reset 合并提交
 - [ ] 重新生成 requirements.txt（pywin32 排除 312）
 - [ ] 重建/刷新 venv，安装依赖
 - [ ] `main_debug.py` 冒烟启动
+- [ ] 按 §3.2 清单迁移 13 处 `ok.gui.*` → `ok.ui.qt.*`（5 个文件）
+- [ ] `grep -rn "ok\.gui\." src/` 无残留
 - [ ] 运行 tests/ 全部 9 个测试文件
-- [ ] 手工验证启动器自动化 + 3 个核心任务 + overlay 退出
-- [ ] 提交（结构同步 / 依赖升级 / 修复调整 3 个提交）
+- [ ] 手工验证启动器自动化 + 3 个核心任务 + overlay 退出 + import 迁移后 UI 渲染
+- [ ] 提交（结构同步 / 依赖升级 / import 迁移 / 修复调整 3-4 个提交）
 - [ ] 合并回 dev
 - [ ] （发布前）pyappify 打包验证
 
