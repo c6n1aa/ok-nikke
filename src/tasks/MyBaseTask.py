@@ -200,9 +200,9 @@ class MyBaseTask(BaseTask):
         return True  # 返回成功，供上层继续检测大厅。
 
     def _click_enter_game(self):
-        """在 coco 特征 bbox_enter_game 区域内 OCR 识别 TOUCH TO CONTINUE 并点击进入游戏，返回是否点击。"""
+        """在 coco 特征 box_enter_game 区域内 OCR 识别 TOUCH TO CONTINUE 并点击进入游戏，返回是否点击。"""
         try:
-            enter_box = self.get_box_by_name("bbox_enter_game")  # 获取 coco 标注的进入游戏文字区域（已按当前分辨率缩放）。
+            enter_box = self.get_box_by_name("box_enter_game")  # 获取 coco 标注的进入游戏文字区域（已按当前分辨率缩放）。
         except ValueError:  # coco 特征缺失等异常情况，视为未命中。
             return False
         if enter_box is None:  # 当前帧该区域不可用。
@@ -234,6 +234,41 @@ class MyBaseTask(BaseTask):
         self.save_failure_screenshot("wait_until_lobby_after_start")  # 超时保存现场截图便于排查。
         self.log_warning(f"等待进入游戏大厅超时（{time_out}秒）。")  # 记录超时原因。
         return False  # 返回失败，由调用方决定是否中止后续流程。
+
+    def wait_battle_finish(self, time_out=240, check_interval=2):
+        """节流轮询等待自动战斗结束并处理结算界面，返回战斗结果。
+
+        战斗时长不确定（约10秒~3分钟）：每 check_interval 秒才刷新一帧做单次
+        模板匹配，命中结算界面即提前返回；超时返回 None。避免用 wait_feature
+        等忙轮询长时间对游戏窗口持续抓帧/匹配，与游戏抢 CPU。
+
+        正常结束：同时识别 battle_finish_reward 与 battle_finish_esc 后，
+        点击 esc 区域继续下一步。
+        战斗失败：同时识别 battle_finish_failed 与 battle_finish_failed_back 后，
+        点击返回区域继续下一步。
+
+        Returns:
+            "success" 正常结束并已点击确认；"failed" 战斗失败并已点击返回；None 超时。
+        """
+        deadline = time.time() + time_out  # 记录整体超时时刻。
+        while time.time() < deadline:  # 节流循环直到超时。
+            self.sleep(check_interval)  # 轻量等待，不抓帧不匹配。
+            self.next_frame()  # 刷新一帧，避免使用旧帧。
+            reward = self.find_one("battle_finish_reward")  # 单帧匹配正常结束奖励特征。
+            esc = self.find_one("battle_finish_esc")  # 单帧匹配正常结束确认按钮特征。
+            if reward is not None and esc is not None:  # 正常战斗结束。
+                self.click_box(esc, after_sleep=1)  # 点击结算确认区域继续下一步。
+                self.log_info("战斗胜利，已点击确认继续。")  # 记录正常结束。
+                return "success"  # 返回正常结束结果。
+            failed = self.find_one("battle_finish_failed")  # 单帧匹配战斗失败特征。
+            failed_back = self.find_one("battle_finish_failed_back")  # 单帧匹配失败返回按钮特征。
+            if failed is not None and failed_back is not None:  # 战斗失败。
+                self.click_box(failed_back, after_sleep=1)  # 点击失败返回区域继续下一步。
+                self.log_info("战斗失败，已点击返回继续。")  # 记录失败结束。
+                return "failed"  # 返回失败结束结果。
+        self.save_failure_screenshot("wait_battle_finish")  # 超时保存现场截图便于排查。
+        self.log_warning(f"等待战斗结束超时（{time_out}秒）。")  # 记录超时原因。
+        return None  # 返回超时结果。
 
     def find_scaled_template(self, feature_name: str, template_path: str, ref_width: int = 2560,
                              ref_height: int = 1440, **kwargs):

@@ -24,6 +24,7 @@ ok-nikke-maid 是基于 PyPI `ok-script` 库（ok-script-app 模板）构建的�
 - 以下为被 gitignore 的运行时目录（不要提交）：`configs/`（生成的配置 JSON）、`ok_tasks/`、`ok_templates/`（模板匹配素材）、`screenshots/`、`logs/`、`cache/`、`site/`、`dev_tools/`（临时脚本与生成的开发产物）。
 - 一次性开发脚本及其生成的文件（如 OCR 批量报告、重命名映射表、XAL→coco 转换中间产物、备份）都放在仓库根目录的 `dev_tools/` 下 —— 绝不要放到系统临时目录。新增的临时脚本及其输出一律存到 `dev_tools/`，路径使用相对仓库根目录的写法，并保持该目录被 gitignore。
 - 模板匹配的 coco 标注文件受版本控制，位于 `assets/coco_annotations.json`（`src/config.py` 的 `template_matching` 引用它）。
+- **`assets/images/` 下的图片不是单纯的游戏截图**，而是压缩后的模板图集（atlas）。它们由标注的 2560x1440 截图生成：标注来源有两种 —— XAL（x-anylabeling）标注经 `dev_tools/import_xal.py` 导入，或使用本框架自带开发工具的截图标注（GUI「模板 tab → 保存压缩」），两条路径都走 ok 框架的 `FeatureSet.compress_copy_coco`/`compress_coco`：全部已标注特征按 (width,height) 分组、按 bbox 冲突贪心拼到 N 张白底大图（默认 2560x1440）上，只保留被标注区域，其余区域以白色填充。因此**不要把 `assets/images/*.png` 当作游戏截图去读画面/OCR/理解 UI**。配套的 `assets/coco_annotations.json` 是 COCO 格式标注：`images[].file_name` 指向 `images/*.png`，`annotations[].bbox` 是**图集上的坐标**（不是原游戏画面的坐标），`categories[].name` 为特征名；`FeatureSet` 通过 `src/config.py` 的 `template_matching` 读取它，并在运行时把坐标与图片一起缩放到当前游戏分辨率后匹配。相比之下，`assets/template/` 下是手动裁剪、无 coco 标注的小 UI 元素图（如公告铃铛、关闭按钮），一律用 `find_scaled_template` 匹配。
 - 模板匹配：coco 里标注的模板由 `FeatureSet` 按当前游戏分辨率自动缩放（坐标和图片都会缩放）。对于 `assets/template/` 下手动裁剪、无法标注（位置不确定）的小模板，一律调用 `MyBaseTask` 的 `find_scaled_template(feature_name, template_path, ref_width, ref_height)` 辅助方法 —— 它会按当前游戏分辨率等比缩放模板（源截图默认 2560x1440，按路径+缩放比例缓存），再执行 `find_one(template=...)`。禁止把未缩放的原始模板直接传给 `find_one`/`find_feature`，否则在非 2560x1440 分辨率下匹配会失效。
 
 ## GUI 框架与样式约束
