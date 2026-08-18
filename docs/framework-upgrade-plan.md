@@ -1,7 +1,7 @@
 # ok-nikke-maid 框架升级计划（ok-script 1.0.189 → 2.0.2）
 
 > 创建日期：2026-08-19
-> 升级分支：`upgrade/ok-script-2.0.2`（基于 `dev` 创建）
+> 升级分支：`upgrade-framework`（基于 `dev` 创建）
 > 涉及仓库：ok-nikke-maid（本仓库）、ok-script（框架）、ok-script-app（模板）
 > 文档状态：已评审，待执行
 
@@ -18,7 +18,7 @@
 4. 建立可重复的验证与回滚流程
 
 **非目标（本期不做）：**
-- 迁移到 Web UI（`web_main.py` / `requirements-web.txt` 可选，见 6.4）
+- 迁移到 Web UI（`web_main.py` / `requirements-web.txt` 可选，见 6.3）
 - 迁移自定义 Tab/补丁的 import 到新路径 `ok.ui.qt.*`（旧路径 `ok.gui.*` 有兼容层，暂不动，见 3.2）
 
 ---
@@ -157,6 +157,16 @@ git revert --no-commit <upgrade-merge> # 或直接 reset 合并提交
 - 步骤 3 回归测试出现无法在 2 小时内定位的失败
 - 手工验证中启动器自动化、任务执行出现阻断性问题
 - 升级分支上连续 3 个修复提交仍无法恢复
+
+### 6.3 Web UI 迁移（可选，本期不做）
+
+2.0 框架新增了 Web UI 支持，模板已配套提供 `web_main.py`、`web_main_debug.py`、`requirements-web.txt` 以及 `pyappify.yml` 中的 Web profile。本计划主路径为 **Qt GUI**，不启用 Web 端，故不涉及以下文件的引入：
+
+- `web_main.py` / `web_main_debug.py`（Web 模式入口）
+- `requirements-web.txt`（`ok-script[adb,default,ocr,web]` 依赖集）
+- `pyappify.yml` 的 Web profile
+
+若未来需要 Web 端，迁移方式为：从模板复制上述文件 → `config.py` 的 `gui.type` 设为 `'web'`（`launch_mode` 可选 `pywebview` / `browser` / `server`）→ 按需打包。本期无需任何动作。
 
 ---
 
