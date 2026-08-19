@@ -35,6 +35,10 @@ def _patch_openvino_telemetry():
 def _ensure_game_foreground():
     # 游戏窗口不在前台时强制切到前台，保证 pynput 交互与捕获可用。
     # 节流：1 秒内只尝试一次，避免任务运行中每帧都触发系统调用。
+    # 注意：绝不能用 win32process.AttachThreadInput —— 它会把本线程输入队列与游戏线程绑定，
+    # 用户点击 GUI 按钮时与焦点争夺叠加会引发跨进程输入队列死锁，导致整个 ok GUI 卡死。
+    # 改用框架自带的 hwnd_window.bring_to_front()（仅 ShowWindow/BringWindowToTop/
+    # SetForegroundWindow + 刷新兜底，不含 AttachThreadInput）。
     global _FOREGROUND_LAST_ATTEMPT
     now = time.monotonic()
     if now - _FOREGROUND_LAST_ATTEMPT < _FOREGROUND_INTERVAL:
@@ -42,38 +46,10 @@ def _ensure_game_foreground():
     _FOREGROUND_LAST_ATTEMPT = now
     try:
         from ok import og
-        hwnd_obj = getattr(og.executor.device_manager, 'hwnd_window', None)
-        hwnd = getattr(hwnd_obj, 'hwnd', 0)
-        if not hwnd:
+        hwnd_window = getattr(og.executor.device_manager, 'hwnd_window', None)
+        if hwnd_window is None or not getattr(hwnd_window, 'hwnd', 0):
             return
-        import win32api
-        import win32con
-        import win32gui
-        import win32process
-        if win32gui.GetForegroundWindow() == hwnd:
-            return
-        game_thread, _ = win32process.GetWindowThreadProcessId(hwnd)
-        cur_thread = win32api.GetCurrentThreadId()
-        attached = False
-        if game_thread != cur_thread:
-            try:
-                win32process.AttachThreadInput(cur_thread, game_thread, True)
-                attached = True
-            except Exception:
-                attached = False
-        try:
-            if win32gui.IsIconic(hwnd):
-                win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-            win32gui.BringWindowToTop(hwnd)
-            win32gui.SetForegroundWindow(hwnd)
-        except Exception as e:
-            logger.warning(f'ensure game foreground error: {e}')
-        finally:
-            if attached:
-                try:
-                    win32process.AttachThreadInput(cur_thread, game_thread, False)
-                except Exception:
-                    pass
+        hwnd_window.bring_to_front()
     except Exception as e:
         logger.warning(f'ensure game foreground failed: {e}')
 

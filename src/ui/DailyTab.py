@@ -6,6 +6,7 @@ from ok import Logger, og
 from ok.ui.qt.tasks.ConfigCard import ConfigContentMixin
 from ok.ui.qt.widget.CustomTab import CustomTab
 from ok.ui.qt.widget.ExpandCardLayout import ExpandCardLayout
+from ok.ui.qt.common.design_system import configure_page_layout
 
 from src.tasks.DailyTask import DailyTask
 from src.tasks.HarvestTask import HarvestTask
@@ -124,6 +125,10 @@ class DailyTab(CustomTab):
         if old_layout is not None:
             QWidget().setLayout(old_layout)  # 移除旧布局（Qt 要求先转移到临时 widget）
         expand_layout = ExpandCardLayout(self.view)
+        # 框架 Tab.__init__ 本会对默认页面布局调用 configure_page_layout（16px 外边距）。
+        # 这里替换了默认布局，ExpandCardLayout 自身又设了 0 内边距，需手动补回页面级外边距，
+        # 否则卡片会紧贴 Tab 边框，与「任务/设置」等其他 tab 的视觉不一致。
+        configure_page_layout(expand_layout)
         self.vBoxLayout = expand_layout
         self.logger = Logger.get_logger(self.__class__.__name__)
         self.executor = None
