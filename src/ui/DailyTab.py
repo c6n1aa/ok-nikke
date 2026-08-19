@@ -3,10 +3,10 @@ from PySide6.QtWidgets import QApplication
 from qfluentwidgets import ExpandSettingCard, FluentIcon, SwitchButton
 
 from ok import Logger, og
-from ok.gui.tasks.ConfigCard import ConfigContentMixin
-from ok.gui.widget.CustomTab import CustomTab
-from ok.gui.widget.ExpandCardLayout import ExpandCardLayout
-from ok.gui.widget.Tab import Tab
+from ok.ui.qt.tasks.ConfigCard import ConfigContentMixin
+from ok.ui.qt.widget.CustomTab import CustomTab
+from ok.ui.qt.widget.ExpandCardLayout import ExpandCardLayout
+from ok.ui.qt.widget.Tab import Tab
 
 from src.tasks.DailyTask import DailyTask
 from src.tasks.HarvestTask import HarvestTask

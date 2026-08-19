@@ -7,7 +7,7 @@ def _patch_tasks_tab_daily_card():
     # 任务列表里日常任务卡片展开后只保留标准按钮配置行（日常开关已迁移到
     # 「日常设置」tab），按钮点击跳转到日常设置 tab。按钮行由 DailyTask 的
     # config_type 按钮配置渲染，样式与其他任务的设置行保持一致。
-    from ok.gui.tasks.TaskCard import TaskCard
+    from ok.ui.qt.tasks.TaskCard import TaskCard
 
     original_init = TaskCard.__init__
 
@@ -43,8 +43,8 @@ def _patch_tasks_tab_daily_card():
 def _patch_tasks_tab_daily_pin():
     # 任务列表把日常任务卡片置顶，并在其下方插入一条分割线。
     # 刷新(任务列表变化)时会先移除旧分割线再重建，避免累积重复。
-    from ok.gui.tasks.OneTimeTaskTab import OneTimeTaskTab
-    from ok.gui.widget.ExpandCardLayout import ExpandCardLayout
+    from ok.ui.qt.tasks.OneTimeTaskTab import OneTimeTaskTab
+    from ok.ui.qt.widget.ExpandCardLayout import ExpandCardLayout
     from PySide6.QtWidgets import QWidgetItem
     from qfluentwidgets import HorizontalSeparator
 
@@ -111,7 +111,7 @@ def _patch_tasks_tab_sync_config_on_show():
     # 「日常设置」tab 直接写共享的 task.config 字典，任务列表卡片不会自动感知，
     # 因此在显示时对每张卡片调用 update_config()（逐个 update_value + 刷新子配置可见性），
     # 与 DailyTab._refresh_ui 的同步策略保持一致。
-    from ok.gui.tasks.OneTimeTaskTab import OneTimeTaskTab
+    from ok.ui.qt.tasks.OneTimeTaskTab import OneTimeTaskTab
 
     original_show_event = OneTimeTaskTab.showEvent
 
@@ -133,7 +133,7 @@ def _patch_tasks_tab_reset_done_button():
     from PySide6.QtWidgets import QHBoxLayout
     from qfluentwidgets import FluentIcon, InfoBar, PushButton
 
-    from ok.gui.tasks.ConfigCard import ConfigContentMixin
+    from ok.ui.qt.tasks.ConfigCard import ConfigContentMixin
     from src.tasks.MyBaseTask import MyBaseTask
 
     original_add_buttons = ConfigContentMixin.add_buttons

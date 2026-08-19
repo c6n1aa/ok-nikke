@@ -65,7 +65,7 @@ def _get_desktop_path():
 
 def _patch_file_selector_initial_directory():
     # 让启动器路径选择框默认打开到桌面目录，方便直接看到桌面快捷方式
-    from ok.gui.tasks.LabelAndFileSelector import LabelAndFileSelector
+    from ok.ui.qt.tasks.LabelAndFileSelector import LabelAndFileSelector
 
     original = LabelAndFileSelector._initial_directory
 

@@ -6,10 +6,10 @@ import win32con
 import win32gui
 
 import ok
-import ok.gui.StartController as start_controller_module
+import ok.ui.qt.StartController as start_controller_module
 from ok import Logger, og
 from ok.device.capture_methods.bitblt_utils import clean_up_bitblt, capture_by_bitblt
-from ok.gui.Communicate import communicate
+from ok.ui.qt.Communicate import communicate
 from ok.util.process import execute, is_admin
 from ok.util.window import find_hwnd, get_window_bounds, resize_window, show_title_bar
 
@@ -401,5 +401,5 @@ class NikkeStartController(start_controller_module.StartController):
 
 
 def apply():
-    # App.__init__ 中 `from ok.gui.StartController import StartController` 会取到子类
+    # App.__init__ 中 `from ok.ui.qt.StartController import StartController` 会取到子类
     start_controller_module.StartController = NikkeStartController
