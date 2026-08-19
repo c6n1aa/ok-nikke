@@ -100,19 +100,165 @@
 
 ---
 
-## 6. 待运行时验证的项（静态分析无法覆盖）
+## 6. 手工验收清单（运行时验证，静态分析无法覆盖）
 
-| # | 项 | 验证方式 |
-|---|---|---|
-| 1 | `ok.ui.qt.StartController` 与 `ok.core.start_controller` 是同一对象（补丁生效前提） | `python -c "import ok.ui.qt.StartController as m, ok.core.start_controller as c; assert m is c"` |
-| 2 | `NikkeStartController` 替换后实际被框架采用（非静默失效） | App 启动后检查 `og.start_controller.__class__.__name__ == 'NikkeStartController'` |
-| 3 | `TaskExecutor.next_frame` 运行时行为（前台保持逻辑生效，任务不卡帧） | 跑一次一次性任务 |
-| 4 | `tasks_tab.py` 四个补丁在真实 UI 下的渲染（日常置顶/分割线/只留按钮/重置完成状态） | 打开任务列表 + 日常设置 Tab 目测 |
-| 5 | overlay 关闭/帧取消修复（2.0 commits）在本项目生效 | 任务结束 overlay 正常退出 |
-| 6 | OpenVINO 遥测退出挂起补丁在 2.0.2 仍生效（断网退出不卡死） | 断网退出进程验证 |
-| 7 | `--no-deps` 打包后 `ok-d3dshot` 链不缺包 | `pyappify` 构建 + 启动验证 |
+> 适用：每次升级 ok-script 后、以及本分支首次合并到 dev 后都应完整跑一遍。
+> 前置条件：在仓库根目录、用项目 venv 运行 `.\.venv\Scripts\python.exe main_debug.py`（以管理员身份，否则启动器流程会提示提权）。
+> 每一项都给出「前置 → 步骤 → 期望 → 判定标准 → 关联的脆弱补丁」。勾选式记录用 `[ ]` / `[x]`。
 
----
+### 6.1 补丁生效前提（最先做，5 分钟，无需游戏）
+
+- [ ] **A1 模块别名一致（start_controller 补丁生效前提）**
+  - 步骤：`.\.venv\Scripts\python.exe -c "import ok.ui.qt.StartController as m, ok.core.start_controller as c; assert m is c"`
+  - 期望：命令静默成功（无 `AssertionError`、无 traceback）。
+  - 判定：`m is c` 必须为真，否则 `start_controller.py` 的类替换会在框架内部不生效（静默失效）。
+  - 关联：§5.3 `start_controller.py`。
+
+- [ ] **A2 NikkeStartController 实际被采用（非静默失效）**
+  - 步骤：启动 `main_debug.py`，待主窗口出现后，在 Python 控制台执行 `og.start_controller.__class__.__name__`
+  - 期望：返回 `'NikkeStartController'`（不是 `'StartController'`）。
+  - 判定：若返回 `'StartController'`，说明别名机制失效或 `apply()` 未执行，启动器自动化会退回框架默认逻辑且不报错——**阻断性失败**。
+  - 关联：§5.3。
+
+- [ ] **A3 启动期自检（建议补齐，见 §7.2）**
+  - 步骤：确认 `og.start_controller.__class__ is NikkeStartController`、且不抛任何导入期错误。
+  - 期望：App 正常启动到主窗口，无红色异常日志。
+  - 判定：若补丁在 `apply_all()` 或 `Globals.__init__` 抛异常，应在启动早期就报错（目前未加自检，属 §7 待办）。
+
+### 6.2 启动器自动化（风险最高，需游戏 + 真实启动器，~15 分钟）
+
+- [ ] **B1 管理员提权提示**
+  - 步骤：非管理员启动 `main_debug.py`。
+  - 期望：弹出 UAC 提示 / 或界面提示「PC版本需要管理员权限，请以管理员身份重新启动本程序」。
+  - 判定：未以管理员运行时不应直接尝试启动游戏。
+
+- [ ] **B2 游戏已运行时跳过启动器（不重复启动）**
+  - 步骤：先手动打开 NIKKE 到登录界面（进程 `nikke.exe` 已在），再在 App 点「启动」。
+  - 期望：直接等待游戏就绪，不弹启动器、不重新拉起启动器。
+  - 判定：没有「已有一个 NIKKE 进程」冲突报错，且日志显示 `game main process already running, skip launcher`。
+
+- [ ] **B3 冷启动走启动器（OCR 找启动按钮 + 等待稳定）**
+  - 步骤：关闭游戏，确保 `NIKKE 启动器` 配置里已选好 `nikke_launcher.exe`（见 §6.5 迁移验证），点「启动」。
+  - 期望：启动器被拉起 → 窗口稳定判定 → OCR 在 `LAUNCHER_BUTTON_REGION`(0.05,0.83,0.30,0.93) 找到「启动」按钮 → 点击 → 等待游戏窗口。
+  - 判定：最终进入游戏且 `communicate.starting_emulator` 完成；若卡在「启动器启动按钮未找到」，检查区域坐标与 OCR 是否识别到「启动」二字。
+
+- [ ] **B4 未配置启动器时的兜底提示**
+  - 步骤：清空 `NIKKE 启动器` 分区里的路径，点「启动」。
+  - 期望：弹提示「未配置启动器路径，请在设置->基础设置中选择启动器，或手动启动游戏」（实际文案在 `start_controller.py`，确认与 UI 一致）。
+  - 判定：不崩溃、不无限卡在 loading。
+
+### 6.3 任务执行（前台保持 + 不卡帧，~10 分钟）
+
+- [ ] **C1 一次性任务前台保持（`runtime` 补丁）**
+  - 步骤：把 NIKKE 窗口切到后台（别的窗口盖住），启动一个一次性任务（如 DailyTask 的某个子任务）。
+  - 期望：`runtime._patch_executor_foreground` 会把游戏窗口拉回前台（`_ensure_game_foreground` 节流每秒一次）。
+  - 判定：任务不因「后台时 `can_capture` 为 False」而卡在 `next_frame` 超时；任务正常完成。
+  - 关联：§5.4 `runtime.py` `_patch_executor_foreground`。
+
+- [ ] **C2 `TaskExecutor.next_frame` 行为（`time_out=6` 签名一致 ≠ 行为一致）**
+  - 步骤：跑一个耗时 >30s 的一次性任务，观察日志是否有频繁的 `ensure game foreground` 节流提示（应约每秒一次，而非每帧）。
+  - 期望：取帧正常、任务不卡帧、不报 `next_frame` 超时。
+  - 判定：签名一致已静态确认（2.0.2:248），此处验证运行时行为。
+  - 关联：§5.4 `runtime.py` + §2 表「TaskExecutor.next_frame」。
+
+### 6.4 任务列表 / 日常设置 UI 渲染（tasks_tab 四个补丁，~10 分钟）
+
+- [ ] **D1 日常卡片置顶 + 分割线**（`_patch_tasks_tab_daily_pin`）
+  - 步骤：打开「任务」Tab。
+  - 期望：DailyTask 卡片排在最顶部，「任务信息」容器之后、其余任务卡片之前，且下方有一条 `HorizontalSeparator` 分割线；刷新列表（如改配置触发 `task_list_updated`）后分割线不重复累积。
+  - 判定：布局与 §5.1 描述一致；重复刷新不产生多条分割线（`_daily_separator` 复用逻辑）。
+
+- [ ] **D2 日常卡片展开只留跳转按钮**（`_patch_tasks_tab_daily_card`）
+  - 步骤：展开 DailyTask 卡片。
+  - 期望：展开区只剩「日常设置」导航按钮（由 `DailyTask.DAILY_SETTINGS_BUTTON_KEY` 渲染），开关行与 Operation 行已移除。
+  - 判定：点击该按钮能切到「日常设置」Tab（`DailyTask.open_daily_settings`）。
+
+- [ ] **D3 切回任务 Tab 同步 config**（`_patch_tasks_tab_sync_config_on_show`）
+  - 步骤：在「日常设置」Tab 改某个子任务开关 → 切回「任务」Tab 看 DailyTask 卡片。
+  - 期望：卡片控件值与 `task.config` 当前值同步（不显示过期值）。
+
+- [ ] **D4 重置完成状态按钮**（`_patch_tasks_tab_reset_done_button`）
+  - 步骤：对一个有 `done_keys` 的 MyBaseTask（如 HarvestTask，先让它标记完成）→ 展开卡片。
+  - 期望：Operation 行、`Reset Config` 之前出现「重置完成状态」按钮（`FluentIcon.SYNC`）。
+  - 判定：点击后弹 InfoBar「已重置完成状态」，`clear_done_all()` 生效，状态图标复位。
+
+- [ ] **D5 任务列表整体渲染不崩**（`_patch_tasks_tab_*` 依赖 `TaskCard`/`ConfigCard` 内部）
+  - 步骤：浏览所有任务卡片，展开/收起若干次。
+  - 期望：无 `AttributeError`/布局错乱；重点关注 qfluentwidgets 升级是否会改 `_ExpandLayout__widgets/_ExpandLayout__items`（§5.1 的 `insertWidget` 私有属性依赖）。
+
+### 6.5 配置分区迁移与持久化（basic_options 改造，~5 分钟）
+
+- [ ] **E1 旧启动器路径自动迁移**
+  - 步骤：升级前若旧的 `configs/Basic Options.json` 含「启动器路径」非空值，升级后首次启动应自动搬到 `configs/nikke_launcher.json`（UI 显示「NIKKE 启动器」分区）。
+  - 期望：`configs/nikke_launcher.json` 内容含 `{"启动器路径": "<旧值>"}`；旧的 `Basic Options.json` 里该键被框架 `verify_config` 自动裁剪。
+  - 判定：无需用户重新选启动器即可直接 B3 冷启动。
+
+- [ ] **E2 新分区在设置 UI 出现且可保存**
+  - 步骤：打开「设置 → NIKKE 启动器」，改/清空路径并保存，重启 App。
+  - 期望：改动持久化到 `configs/nikke_launcher.json`；分区名是「NIKKE 启动器」（中文），磁盘文件名是 `nikke_launcher.json`（英文，避免中文路径）。
+  - 判定：重启后值仍在；`_migrate_legacy_launcher_path` 幂等，不会覆盖已迁移值。
+
+- [ ] **E3 文件选择器默认桌面目录**（`_patch_file_selector_initial_directory`）
+  - 步骤：在「NIKKE 启动器」点文件选择框。
+  - 期望：默认打开到桌面目录（`initial_directory: 'desktop'`），方便直接选桌面 `.lnk` 快捷方式。
+  - 关联：§5.2 `basic_options._patch_file_selector_initial_directory`。
+
+### 6.6 overlay 关闭 / 帧取消修复（2.0 commits，~10 分钟）
+
+- [ ] **F1 任务结束后 overlay 正常退出**
+  - 步骤：跑一个会显示 overlay 的任务到结束。
+  - 期望：overlay 随任务结束正常关闭，无残留半透明层、无「帧取消」报错。
+  - 判定：2.0 的 overlay 修复（`eaf8967` / `91fdda5`）在本项目实际生效，不回退到 1.x 的残留行为。
+
+### 6.7 OpenVINO 遥测退出挂死（runtime 补丁，~10 分钟，需断网）
+
+- [ ] **G1 断网退出不卡死**
+  - 步骤：断开网络（或屏蔽 openvino telemetry 上报），正常退出 App（关闭窗口 / 结束进程）。
+  - 期望：进程在数秒内干净退出，不卡在 `atexit`/非 daemon 线程 join。
+  - 判定：`runtime._patch_openvino_telemetry` 在 2.0.2 仍把 `backend_ga4._send_func` / `backend_ga.GABackend.send` 替换为 no-op，避免无超时 `urlopen` 挂死。
+  - 关联：§5.4 `runtime.py` `_patch_openvino_telemetry`（这是第三方 `openvino_telemetry` 内部补丁，openvino 升级即可能失效）。
+
+### 6.8 打包（发布前，--no-deps，~20 分钟，CI 或本地）
+
+- [ ] **H1 `ok-d3dshot` 链不缺包**
+  - 步骤：本地用 `pyappify.yml` 构建 EXE（或等 CI `build.yml`），启动打包产物。
+  - 期望：启动不报 `ModuleNotFoundError: ok_d3dshot` / `comtypes` 等。
+  - 判定：`requirements.txt`（`--no-deps` 不解析传递依赖）已显式列全 `ok-d3dshot` 及其传递依赖（comtypes 等）；升级时若 pip-compile 新增传递依赖务必补进 requirements。
+  - 关联：§4 依赖变更。
+
+- [ ] **H2 Python / pywin32 版本合规**
+  - 步骤：确认打包环境 Python 3.12、`pywin32==311`（非 312）。
+  - 期望：`requires-python = ">=3.12,<3.13"`，`pywin32` 排除 312。
+  - 判定：打包节点与 `pyproject.toml` 一致；误装 312 会触发框架标记过的 broken release。
+
+### 6.9 验收结论记录模板
+
+```
+验收日期：____
+环境：Windows ___, Python 3.12, ok-script 2.0.2, NIKKE 客户端版本 ___
+A1 模块别名一致        [ ]
+A2 NikkeStartController [ ]
+A3 启动期自检          [ ]
+B1 管理员提权          [ ]
+B2 已运行跳过          [ ]
+B3 冷启动启动器        [ ]
+B4 未配置兜底          [ ]
+C1 前台保持            [ ]
+C2 不卡帧              [ ]
+D1 置顶+分割线         [ ]
+D2 只留按钮            [ ]
+D3 切回同步            [ ]
+D4 重置完成状态        [ ]
+D5 列表不崩            [ ]
+E1 旧值迁移            [ ]
+E2 新分区持久化        [ ]
+E3 桌面默认目录        [ ]
+F1 overlay 退出        [ ]
+G1 断网退出            [ ]
+H1 ok-d3dshot 打包     [ ]
+H2 版本合规            [ ]
+未通过项 / 备注：____
+```
 
 ## 7. 对未来开发 / 再次升级的建议
 
