@@ -1,13 +1,17 @@
 adbutils==2.12.0
-    # via -r requirements.in
+    # via ok-script (pyproject.toml [project.optional-dependencies] qt)
 certifi==2026.6.17
     # via requests
 charset-normalizer==3.4.9
     # via requests
 comtypes==1.4.16
-    # via pycaw
+    # via
+    #   ok-d3dshot
+    #   pycaw
 darkdetect==0.8.0
-    # via pyside6-fluent-widgets
+    # via
+    #   ok-script
+    #   pyside6-fluent-widgets
 decorator==5.3.1
     # via retry2
 deprecation==2.1.0
@@ -18,19 +22,22 @@ mouse==0.7.1
     # via ok-script
 numpy==2.4.6
     # via
+    #   ok-script
     #   opencv-python
     #   openvino
     #   shapely
-ok-script==1.0.189
-    # via -r requirements.in
+ok-d3dshot==0.1.5
+    # via ok-script
+ok-script==2.0.2
+    # via pyproject.toml [project.optional-dependencies] qt
 onnxocr-ppocrv5==0.0.20
-    # via -r requirements.in
+    # via pyproject.toml [project.optional-dependencies] qt
 opencc==1.4.1
-    # via -r requirements.in
+    # via pyproject.toml [project.optional-dependencies] qt
 opencv-python==5.0.0.93
-    # via -r requirements.in
+    # via pyproject.toml [project.optional-dependencies] qt
 openvino==2026.2.1
-    # via -r requirements.in
+    # via pyproject.toml [project.optional-dependencies] qt
 openvino-telemetry==2025.2.0
     # via openvino
 packaging==26.2
@@ -38,12 +45,13 @@ packaging==26.2
 pillow==12.3.0
     # via
     #   adbutils
+    #   ok-script
     #   onnxocr-ppocrv5
 psutil==7.2.2
     # via
     #   ok-script
     #   pycaw
-pyappify==1.0.6
+pyappify==1.0.13
     # via ok-script
 pycaw==20240210
     # via ok-script
@@ -52,16 +60,18 @@ pyclipper==1.4.0
 pydirectinput==1.0.4
     # via ok-script
 pynput==1.8.2
-    # via -r requirements.in
+    # via pyproject.toml [project.optional-dependencies] qt
 pyside6-essentials==6.11.1
-    # via -r requirements.in
+    # via pyproject.toml [project.optional-dependencies] qt
 pyside6-fluent-widgets==1.11.3
     # via
-    #   -r requirements.in
     #   ok-script
+    #   pyproject.toml [project.optional-dependencies] qt
 pysidesix-frameless-window==0.8.2
-    # via pyside6-fluent-widgets
-pywin32==312
+    # via
+    #   ok-script
+    #   pyside6-fluent-widgets
+pywin32==311
     # via
     #   ok-script
     #   pysidesix-frameless-window
