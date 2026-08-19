@@ -46,7 +46,6 @@ def make_bottom_right_black(frame): #可选. 某些游戏截图时遮挡UID使�
 config = {
     'custom_tasks':True, # enable creating and editing custom tasks
     'debug': False,  # Optional, default: False
-    'use_gui': True, # 目前只支持True
     'config_folder': 'configs', #最好不要修改
     'global_configs': [],
     # 'screenshot_processor': make_bottom_right_black, # 在截图的时候对frame进行修改, 可选
@@ -81,11 +80,14 @@ config = {
     #     'resolution': (1280, 720),
     # },
     'start_timeout': 120,  # default 60
-    'window_size': { #ok-script窗口大小
-        'width': 1200,
-        'height': 800,
-        'min_width': 600,
-        'min_height': 450,
+    'gui': {
+        'type': 'qt',
+        'window_size': { #ok-script窗口大小
+            'width': 1200,
+            'height': 800,
+            'min_width': 600,
+            'min_height': 450,
+        },
     },
     'supported_resolution': {
         'ratio': '16:9', #支持的游戏分辨率

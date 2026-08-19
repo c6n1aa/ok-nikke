@@ -1,0 +1,22 @@
+[project]
+name = "ok-nikke-maid"
+version = "0.0.1"
+description = "ok-nikke-maid automation app"
+requires-python = ">=3.12,<3.13"
+dependencies = []
+
+[project.optional-dependencies]
+qt = [
+    "ok-script[adb,default,ocr,qt]==2.0.2",
+    "OpenCC",
+    "onnxocr-ppocrv5",
+    "openvino",
+    "opencv-python",
+    "pynput",
+    "pyside6-essentials",
+    "pyside6-fluent-widgets",
+    "pywin32>=306,!=312",
+]
+docs = [
+    "mkdocs==1.6.1",
+]
