@@ -100,7 +100,7 @@
    - `[project.optional-dependencies]` 定义 `qt` / `web` / `docs` profiles
    - `qt = ["ok-script[adb,default,ocr,qt]==2.0.2", "openvino", "opencv-python"]`
    - 本项目不需要 `adb`（纯 Windows 游戏），可去掉该 extra；若保留则无妨
-2. **迁移 `config.py` 的 GUI 配置**：
+2. **迁移 `src/config.py` 的 GUI 配置**（注意：实际路径是 `src/config.py`，非根目录）：
    - 旧：`'use_gui': True` + 顶层 `'window_size'`
    - 新：`'gui': {'type': 'qt', 'window_size': {...}}`
    - 保留 `'use_gui'` 会走兼容分支，但新格式是唯一正路
@@ -110,7 +110,9 @@
 ### 步骤 2：升级框架依赖
 
 1. `requirements.txt` / `pyproject.toml` 中 `ok-script` 改为 `==2.0.2`
-2. **`pywin32` 必须排除 312**：框架官方已标记 pywin32 312 为 broken release 并排除（ok-script commit 936cb23）。锁定 `pywin32>=313` 或去掉精确锁
+2. **`pywin32` 必须排除 312**：框架官方已标记 pywin32 312 为 broken release 并排除（ok-script commit 936cb23）。框架 2.0.2 实际约束为 `pywin32>=306,!=312`（见 ok-script `pyproject.toml`）；本项目应保持一致。
+   - ⚠️ **不要写 `pywin32>=313`**：PyPI 上 pywin32 当前可用版本为 `306/307/308/309/310/311/312`，**没有 313**（PyWin32 build 号不严格对应 Python 版本）。`!=312` 时 pip 会解析到 build 311（支持 Python 3.8–3.12），可在本项目 Python 3.12 环境下正常安装。
+   - 当前 requirements.txt 锁定 `pywin32==312`，必须改为 `pywin32>=306,!=312`（或显式 `pywin32==311`）。
 3. 删除本地 venv 中旧版本并重装：`pip install -r requirements.txt`（建议重建 venv 或 `pip uninstall ok-script` 后重装，避免残留）
 4. 启动 `python main_debug.py` 冒烟验证
 
@@ -211,18 +213,19 @@ git revert --no-commit <upgrade-merge> # 或直接 reset 合并提交
 
 ## 7. 任务拆解与检查表
 
-- [ ] 确认 `ok.__file__` 指向 pypi 安装路径（排除本地仓库干扰）
-- [ ] 新建 `pyproject.toml`（extras profiles，ok-script==2.0.2）
-- [ ] 迁移 `config.py` 到 `gui` 新格式
-- [ ] 重新生成 requirements.txt（pywin32 排除 312）
-- [ ] 重建/刷新 venv，安装依赖
-- [ ] `main_debug.py` 冒烟启动
-- [ ] 按 §3.2 清单迁移 13 处 `ok.gui.*` → `ok.ui.qt.*`（5 个文件）
-- [ ] `grep -rn "ok\.gui\." src/` 无残留
-- [ ] 运行 tests/ 全部 9 个测试文件
+- [x] 确认 `ok.__file__` 指向 pypi 安装路径（排除本地仓库干扰）
+- [x] 新建 `pyproject.toml`（extras profiles，ok-script==2.0.2，`requires-python = ">=3.12,<3.13"`）
+- [x] 迁移 `src/config.py` 到 `gui` 新格式（注意：是 `src/config.py`，非根目录）
+- [x] 重新生成 requirements.txt（`pywin32>=306,!=312`；移除 `requirements.in`，改用 `pyproject.toml` 作为 pip-compile 源）
+- [x] pip-compile 后 diff 检查 `--no-deps` 兼容性（所有传递依赖显式列出，特别是新增的 `ok-d3dshot` 及其传递依赖）
+- [x] 重建/刷新 venv，安装依赖
+- [x] `main_debug.py` 冒烟启动
+- [x] 按 §3.2 清单迁移 13 处 `ok.gui.*` → `ok.ui.qt.*`（5 个文件）
+- [x] `grep -rn "ok\.gui\." src/` 无残留
+- [x] 运行 tests/ 全部 9 个测试文件
 - [ ] 手工验证启动器自动化 + 3 个核心任务 + overlay 退出 + import 迁移后 UI 渲染
 - [ ] 提交（结构同步 / 依赖升级 / import 迁移 / 修复调整 3-4 个提交）
-- [ ] 合并回 dev
+- [ ] 合并回 dev（待用户确认后执行）
 - [ ] （发布前）pyappify 打包验证
 
 ---
@@ -233,4 +236,115 @@ git revert --no-commit <upgrade-merge> # 或直接 reset 合并提交
 - 兼容 shim：`ok/gui/__init__.py`（`ok-script` 仓库 commit 026cf9e "Preserve legacy Qt module identity"）
 - config 兼容：`ok/core/ui_config.py` `resolve_ui_config()`
 - pywin32 修复：ok-script commit 936cb23 "fix: exclude broken pywin32 312 release"
-- 模板新结构参考：`ok-script-app` 仓库 `pyproject.toml`、`web_main.py`、`config.py`
+- 模板新结构参考：`ok-script-app` 仓库 `pyproject.toml`、`web_main.py`、`src/config.py`
+
+---
+
+## 9. 最终校验记录（2026-08-19）
+
+> 校验方式：对照 ok-script 2.0.2 实际 pyproject.toml / commit 936cb23 / HEAD、ok-script-app 模板实际文件、本项目 src/ 全量 grep，逐项验证文档主张。
+> 校验结论：**主干可行、自洽**；已就地修正 2 处错误（pywin32 约束、config.py 路径），下列各项为补充说明与残留风险，按"已确认 / 需补充 / 待运行时验证"分类。
+
+### 9.1 已就地修正
+
+| # | 原主张 | 实际情况 | 修正位置 |
+|---|---|---|---|
+| 1 | 步骤 2 第 2 条建议 `pywin32>=313` | PyPI 上 pywin32 可用版本为 `306–312`，**313 不存在**；312 broken；框架实际约束 `pywin32>=306,!=312`（解析到 build 311，支持 Python 3.12） | §4 步骤 2 第 2 条、§7 检查表 |
+| 2 | 步骤 1 第 2 条 / §7 检查表说"迁移 `config.py`" | 实际路径 `src/config.py`（模板 ok-script-app 同此路径），非根目录 | §4 步骤 1 第 2 条、§7 检查表 |
+
+### 9.2 需补充的疏漏
+
+#### 9.2.1 ok-d3dshot 新依赖（文档未提）
+
+- ok-script 2.0 的 `[default]` extras 新引入 `ok-d3dshot>=0.1.5`（见 ok-script `pyproject.toml`），1.0.189 无此依赖
+- 升级后 `pip-compile` 会自动在 requirements.txt 中新增 `ok-d3dshot==0.1.5` 及其传递依赖（如 `comtypes`，与 pycaw 重复但无冲突）
+- **影响**：体积小幅增加；首次重建 venv 时会出现新包，需知悉；`--no-deps` 打包要求 ok-d3dshot 必须显式列入 requirements.txt（pip-compile 会处理，但人工 diff 时不要误删）
+
+#### 9.2.2 pyappify.yml 的 `pip_args: "--no-deps"` 约束（文档未提）
+
+- 本项目与模板的 `pyappify.yml` 均使用 `pip_args: "--no-deps"`，打包时 pip **不解析传递依赖**
+- 含义：requirements.txt 必须显式列出**全部**传递依赖（当前已如此，如 adbutils/mouse/pycaw/pydirectinput/psutil/requests/pyappify 都是 ok-script 的传递依赖但被显式列出）
+- 升级动作：`pip-compile` 后必须 diff 检查无遗漏，特别是 9.2.1 的 ok-d3dshot 及其传递依赖
+- **此约束与 §6 风险 #4"依赖 profiles 重构导致 requirements 漂移"叠加**，应在步骤 1 第 3 条之后追加一步：diff 检查 `--no-deps` 兼容性
+
+#### 9.2.3 Python 版本约束（文档未提）
+
+- 模板 `pyproject.toml` 显式锁定 `requires-python = ">=3.12,<3.13"`
+- 本项目与模板 `pyappify.yml` 均 `requires_python: "3.12"`
+- 含义：升级**不能跨 Python 大版本**；pywin32 选 build 也受 Python 版本限制（build 311 支持 Python 3.8–3.12，build 313 不存在）
+- 升级动作：本项目 `pyproject.toml` 应写 `requires-python = ">=3.12,<3.13"`，与模板一致
+- 修订 §7 检查表已补充此项
+
+#### 9.2.4 requirements.in 应被 pyproject.toml 取代（文档未明说）
+
+- 本项目当前用 `requirements.in` 作为 pip-compile 输入（内容含 `ok-script`、`OpenCC`、`adbutils`、`onnxocr-ppocrv5`、`openvino`、`opencv-python`、`pynput`、`pyside6-essentials`、`pyside6-fluent-widgets`）
+- 模板 ok-script-app **没有 requirements.in**，只用 `pyproject.toml` 的 `[project.optional-dependencies]` 作为 pip-compile 输入
+- 升级动作：新建 `pyproject.toml` 后**删除 `requirements.in`**，改用 `pip-compile pyproject.toml -o requirements.txt`，避免两套源不一致
+- §7 检查表已补充此项
+
+#### 9.2.5 adbutils 处理需厘清（文档措辞含糊）
+
+- 文档 §4 步骤 1 说"本项目不需要 adb（纯 Windows 游戏），可去掉该 extra；若保留则无妨"
+- 实际：adbutils 当前是 **requirements.in 中的显式独立依赖**（不是通过 ok-script[adb] extra 引入的）
+- 三种处理方案：
+
+| 方案 | pyproject.toml | requirements.in | 结果 |
+|---|---|---|---|
+| A（与模板一致，推荐） | `ok-script[adb,default,ocr,qt]==2.0.2` | 删除 `adbutils` 行 | adbutils 由 extra 提供，无重复 |
+| B（去掉 adb） | `ok-script[default,ocr,qt]==2.0.2` | 保留 `adbutils` 行（或一并删除） | 减少 adbutils/retry2/deprecation/pillow(重复) 4 个依赖 |
+| C（混用，**不推荐**） | `ok-script[default,ocr,qt]==2.0.2` | 保留 `adbutils` 行 | 与方案 B 同效果，但语义不清 |
+
+- **建议方案 A**：与模板一致，减少偏离；adbutils 在 Windows 路径下不会被实际调用，仅增加约 2MB 体积
+
+#### 9.2.6 main_debug.py 的 UAC 提权（文档未提）
+
+- `main_debug.py` 在 `ok.OK(config)` 之前有 `is_admin()` / `request_admin()` 逻辑，会触发 UAC 弹窗
+- 步骤 2 第 4 条 / 步骤 3 第 3 条说"`python main_debug.py` 冒烟"，未提示 UAC
+- 影响：小；开发者首次跑可能误判 UAC 弹窗为故障
+- 升级动作：无；仅提示知晓
+
+#### 9.2.7 §6 风险 #6 措辞修正
+
+- 原措辞："本地 ok-script 仓库有 37 个未推送提交"
+- 实际：相对 `origin/master` 有 **37 个未推送提交**；其中相对 `v2.0.2` tag 有 **5 个后续提交**（91fdda5 / 41a59bc / c05ca2f / eaf8967 / 3b2495a）
+- 两个数字描述对象不同，不矛盾，但易混淆
+- 风险触发条件应明确：**仅当用 editable install（`pip install -e D:\dev\vibespace\ok-script`）指向本地 HEAD 时才有风险**；安装 pypi 2.0.2 包不受影响
+- 修订建议：将 §6 风险 #6 改为"本地 ok-script 仓库 HEAD 领先 origin/master 37 个提交（含 v2.0.2 自身及之后 5 个）；若运行环境用 `pip install -e` 指向本地仓库 HEAD，会用到未发布的 5 个提交，与 pypi 2.0.2 行为可能存在差异"
+
+#### 9.2.8 §3.2 清单第 1 处 import 形式需注明
+
+- 文档清单第 1 行写"`ok.gui.StartController` → `ok.ui.qt.StartController`"
+- 实际 `src/patches/start_controller.py:9` 是 `import ok.gui.StartController as start_controller_module`（**module import 形式，含 `as` 别名**），非 `from X import Y` 形式
+- 迁移后：`import ok.ui.qt.StartController as start_controller_module`
+- 迁移规则一致（路径替换即可），但开发者执行时应注意保留 `as start_controller_module` 别名（`apply()` 第 405 行依赖此别名访问 `start_controller_module.StartController`）
+
+### 9.3 经核查确认无问题
+
+| # | 校验项 | 结论 |
+|---|---|---|
+| 1 | import 清单行号 | §3.2 清单 12 处实际 import + 1 处注释（404 行）= 13 处，全部行号准确（`grep -rn "ok\.gui" src/` 已逐行核对） |
+| 2 | `src/globals.py` 是否依赖 `ok.gui` | 否；仅 `from ok import Logger` + `PySide6.QtCore.QObject`，无需迁移 |
+| 3 | §3.1 StartController "类由 QObject 改为普通类，不影响继承重写" | 正确；信号机制由独立模块 `ok/core/events.py` 的 `communicate` 提供，不依赖 QObject 基类 |
+| 4 | §2 表格 ok-script HEAD 描述 | "v2.0.2 + 5 未推送提交"准确（HEAD=91fdda5，v2.0.2..HEAD 共 5 个提交）；与 §6 风险 #6 的 37 个未推送提交是不同维度（origin/master..HEAD = 37），不矛盾 |
+| 5 | tests/ 目录 9 个测试文件 | 全部存在，文件名与 §5.1 表格一致 |
+| 6 | 模板 pyproject.toml `requires-python = ">=3.12,<3.13"` | 与本项目 pyappify.yml `requires_python: "3.12"` 一致，升级方向正确 |
+| 7 | 模板 `[qt]` extras 写法 `ok-script[adb,default,ocr,qt]==2.0.0b7` | 文档步骤 1 第 1 条引用正确，仅版本号需改为 2.0.2（文档已明确提醒） |
+
+### 9.4 待运行时验证（静态分析无法覆盖）
+
+| # | 项 | 验证方式 |
+|---|---|---|
+| 1 | `ok.gui.StartController` module alias 在 2.0.2 下是否指向 `ok.core.start_controller`（与 shim 同对象） | 步骤 3 完成后 `python -c "import ok.ui.qt.StartController as m; import ok.core.start_controller as c; assert m is c"` |
+| 2 | `NikkeStartController(start_controller_module.StartController)` 继承链在父类从 QObject 改为普通 class 后，子类无 Qt 元对象冲突 | 步骤 4 手工验证 5.2.1（启动器自动化） |
+| 3 | `TaskExecutor.next_frame(time_out=6)` 运行时行为（签名一致 ≠ 行为一致） | 步骤 4 手工验证 5.2.2（任务执行不卡帧） |
+| 4 | overlay 关闭/帧取消修复（commits eaf8967 / 91fdda5）在本项目实际生效 | 步骤 4 手工验证 5.2.3 |
+| 5 | OpenVINO 遥测导致的退出挂起（runtime patch）在 2.0.2 下仍生效 | 步骤 4 手工验证 5.2.4 |
+| 6 | `pip-compile` 生成的 requirements.txt 与 `--no-deps` 打包兼容（无传递依赖遗漏） | 步骤 1 完成后 diff 检查；步骤 5.3 打包验证 |
+
+### 9.5 校验总结
+
+- **主干可行性**：✅ 通过。文档核心路径（结构同步 → 依赖升级 → import 迁移 → 回归验证）逻辑自洽，与模板/框架 2.0.2 实际状态一致
+- **已修正错误**：2 处（pywin32 约束、config.py 路径）
+- **补充疏漏**：8 项（ok-d3dshot / --no-deps / Python 版本 / requirements.in / adbutils / main_debug UAC / 风险 #6 措辞 / import 形式注明）
+- **待运行时验证**：6 项（无法静态判定，已列入 §5 验收清单与 §9.4）
+- **建议**：执行升级前先完成 §9.4 第 1 项的 module alias 一致性验证（成本极低、能提前发现 shim 与新路径指向不一致的极端情况）
