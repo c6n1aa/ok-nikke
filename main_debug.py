@@ -16,7 +16,9 @@ def request_admin():
     params = f'"{script}"'
     if len(sys.argv) > 1:
         params += ' ' + ' '.join(f'"{a}"' if ' ' in a else a for a in sys.argv[1:])
-    ret = ctypes.windll.shell32.ShellExecuteW(None, 'runas', sys.executable, params, None, 1)
+    venv_python = os.path.join(os.path.dirname(script), '.venv', 'Scripts', 'python.exe')
+    python_exe = venv_python if os.path.exists(venv_python) else sys.executable
+    ret = ctypes.windll.shell32.ShellExecuteW(None, 'runas', python_exe, params, None, 1)
     return ret > 32
 
 
