@@ -6,7 +6,6 @@ from ok import Logger, og
 from ok.ui.qt.tasks.ConfigCard import ConfigContentMixin
 from ok.ui.qt.widget.CustomTab import CustomTab
 from ok.ui.qt.widget.ExpandCardLayout import ExpandCardLayout
-from ok.ui.qt.widget.Tab import Tab
 
 from src.tasks.DailyTask import DailyTask
 from src.tasks.HarvestTask import HarvestTask
@@ -117,8 +116,15 @@ class DailyTab(CustomTab):
     ]
 
     def __init__(self):
-        # CustomTab.__init__ 不接受 layout_class，改用 ExpandCardLayout 让展开/收起带位移动画
-        Tab.__init__(self, layout_class=ExpandCardLayout)
+        super().__init__()
+        # Tab.__init__ 创建的是 QVBoxLayout；替换为 ExpandCardLayout 让展开/收起带位移动画。
+        # 先移除旧布局，再设置新的 ExpandCardLayout。
+        from PySide6.QtWidgets import QWidget
+        old_layout = self.view.layout()
+        if old_layout is not None:
+            QWidget().setLayout(old_layout)  # 移除旧布局（Qt 要求先转移到临时 widget）
+        expand_layout = ExpandCardLayout(self.view)
+        self.vBoxLayout = expand_layout
         self.logger = Logger.get_logger(self.__class__.__name__)
         self.executor = None
         self.logger.info(f'DailyTab init {self.__class__.__name__}')
