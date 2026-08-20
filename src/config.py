@@ -55,7 +55,7 @@ config = {
     'wait_until_settle_time': 1, #调用 wait_until时候, 在第一次满足条件的时候, 会等待再次检测, 以避免某些滑动动画没到预定位置就在动画路径中被检测到
     'ocr': { #可选, 使用的OCR库
         'lib': 'onnxocr',
-        'auto_simplify': True, #自动繁体转简体, 需要ppocrv5等可以识别繁体的库
+        'auto_simplify': False, #自动繁体转简体, 需要ppocrv5等可以识别繁体的库
         'params': {
             'use_openvino': True,
         }
