@@ -13,7 +13,7 @@ from ok.ui.qt.Communicate import communicate
 from ok.util.process import execute, is_admin
 from ok.util.window import find_hwnd, get_window_bounds, resize_window, show_title_bar
 
-from src.patches.basic_options import get_launcher_path
+from src.patches.basic_options import LAUNCHER_PATH_KEY
 
 logger = Logger.get_logger(__name__)
 
@@ -119,7 +119,8 @@ class NikkeStartController(start_controller_module.StartController):
         return True
 
     def _get_launcher_path(self):
-        return get_launcher_path()
+        basic = og.global_config.get_config('Basic Options')
+        return str(basic.get(LAUNCHER_PATH_KEY) or '').strip()
 
     def _launcher_button_text(self):
         return LAUNCHER_BUTTON_TEXT
