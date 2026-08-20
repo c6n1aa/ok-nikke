@@ -5,7 +5,6 @@ ok-nikke-maid 是基于 PyPI `ok-script` 库（ok-script-app 模板）构建的�
 ## 环境与命令
 
 - Windows 平台下，所有终端命令一律用 PowerShell 7（`pwsh`）执行，不要切换到 cmd 或其他 shell，除非被明确要求。
-- 这里的命令实际执行方式：opencode 全局配置（`~/.config/opencode/opencode.jsonc`）将 `"shell": "pwsh"` 设为短名（**不要**用 `C:\Users\<用户名>\AppData\Local\Microsoft\WindowsApps\pwsh.exe`，那是应用执行别名 reparse point，opencode 启动时的 `statSync` 会报 `EACCES` 失败；用 `pwsh` 短名，opencode 会通过 `which("pwsh")` 解析到真实安装路径，没有 `.cmd` 包装，也没有 `cmd.exe` 这一层）。opencode 通过 Node `spawn(cmd, [], {shell})` 执行每条命令，在 Windows 上会构造 `pwsh.exe -c "<命令>"`（不带 `-NoProfile`），所以完整命令串会原样到达 pwsh，只由 PowerShell 解析。因此：
   - 双引号字符串内的 `|`（管道符）是安全的（pwsh 看到的字面命令，例如 `Select-String -Pattern "test_|FAIL|OK|Ran|Error"` 可以正常工作）。旧的 cmd.exe 限制已不再适用。
   - 如果希望在字符串里传 `|` 时零插值、最清晰，仍然优先用**单引号**（`-Pattern 'test_|FAIL'`）——同样安全，还能避免 pwsh 的字符串插值问题。
   - 输出端到端为 UTF-8：`PYTHONUTF8=1` 和 `PYTHONIOENCODING=utf-8` 已设置在 Windows **用户**级环境变量中（管道输出与 `chcp`/控制台代码页无关）。如果哪天看到中文乱码，先确认这两个环境变量还在、且 shell 配置没有被改回 `.cmd` 文件。

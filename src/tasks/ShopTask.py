@@ -166,31 +166,34 @@ class ShopTask(MyBaseTask):  # 商店自动兑换任务，继承项目基类。
         else:  # 固定网格商品（普通/竞技场），按行列取格子中心。
             cx, cy = self._cell_center(row, col)  # 计算格子中心坐标。
         self.click(cx, cy, after_sleep=1)  # 点击格子弹出购买确认框并等待界面刷新。
-        self.wait_click_feature("shop_buy_max", time_out=10, raise_if_not_found=True, after_sleep=1)  # 先点最大购买，置数量为上限。
-        self.wait_click_feature(confirm_feature, time_out=10, raise_if_not_found=True, after_sleep=1)  # 等待并点击确认按钮。
+        # 确认框高度会浮动，shop_buy_max / shop_buy_confirm 限定在各自标注区域（box_shop_buy_max / box_shop_buy_confirm）内识别，避免误点/漏点。
+        self.wait_click_feature("shop_buy_max", box=self.get_box_by_name("box_shop_buy_max"), time_out=3, raise_if_not_found=False, after_sleep=0.5)  # 点最大购买，置数量为上限；无可点不抛错，3 秒内未出现即继续。
+        self.wait_click_feature(confirm_feature, box=self.get_box_by_name("box_shop_buy_confirm"), time_out=5, raise_if_not_found=True, after_sleep=0.5)  # 等待并点击确认按钮。
         if self.wait_feature("shop_no_currency", time_out=2, raise_if_not_found=False) is not None:  # 检测是否弹出货币不足提示。
             self.log_warning("货币不足，停止当前商店购买。")  # 记录货币不足。
-            self.wait_until(lambda: self.find_one("shop_no_currency") is None, time_out=5, raise_if_not_found=False)  # 等待货币不足弹窗自动消失，避免拦截后续点击。
+            self.wait_until(lambda: self.find_one("shop_no_currency") is None, time_out=3, raise_if_not_found=False)  # 等待货币不足弹窗自动消失，避免拦截后续点击。
             return False  # 返回失败，调用方据此停止当前商店。
-        self.dismiss_all_popups(time_out=10)  # 清理购买成功后的遮罩弹窗（默认等待弹窗出现）。
+        self.dismiss_all_popups(time_out=3, wait_for_popup=True)  # 清购买成功后的遮罩弹窗；出现即秒关，不出现也不长时间等待。
+        self.next_frame()  # 刷新一帧，确保后续读取的是购买后的最新画面。
         return True  # 返回购买成功。
 
     # ---- 三家商店购买逻辑 ----
 
     def _do_general_shop(self):  # 普通商店：第一格未售罄则购买；购买/售罄后还有免费刷新机会则刷新再买，否则跳过。
         if not self._is_sold_out(self._cell_box(1, 1)):  # 第一格商品未售罄。
-            self._buy_cell("general_shop_buy_confirm", row=1, col=1)  # 购买第一列第 1 格商品。
-        if self.wait_feature("shop_general_free", time_out=3, raise_if_not_found=False) is None:  # 无免费刷新机会。
+            self._buy_cell("shop_buy_confirm", row=1, col=1)  # 购买第一列第 1 格商品。
+        # 免费刷新标志会上下小范围浮动，已在 box_shop_general_free 标注区域内框定，直接限定识别。
+        if self.wait_feature("shop_general_free", box=self.get_box_by_name("box_shop_general_free"), time_out=5, raise_if_not_found=False) is None:  # 限定区域内无免费刷新机会。
             self.log_info("普通商店无免费刷新机会，跳过。")  # 记录跳过原因。
             return  # 无免费刷新机会直接结束。
         self.click_box("box_shop_general_refresh", after_sleep=1)  # 有免费刷新机会，点击免费刷新按钮。
         if self.wait_feature("general_shop_refresh_free", time_out=5, raise_if_not_found=False) is not None:  # 判断刷新确认弹窗是否零消耗。
-            self.wait_click_feature("general_shop_refresh_confirm", time_out=10, raise_if_not_found=True, after_sleep=1)  # 确认刷新。
+            self.wait_click_feature("general_shop_refresh_confirm", time_out=5, raise_if_not_found=True, after_sleep=1)  # 确认刷新。
             self.next_frame()  # 刷新一帧，确保读取刷新后的画面。
             if not self._is_sold_out(self._cell_box(1, 1)):  # 刷新后第 1 格可购买（非售罄）则再买一次。
-                self._buy_cell("general_shop_buy_confirm", row=1, col=1)  # 购买刷新后的第一列第 1 格。
+                self._buy_cell("shop_buy_confirm", row=1, col=1)  # 购买刷新后的第一列第 1 格。
         else:  # 刷新弹窗非零消耗（需花费货币）。
-            self.wait_click_feature("general_shop_refresh_cancel", time_out=10, raise_if_not_found=True, after_sleep=1)  # 取消刷新。
+            self.wait_click_feature("general_shop_refresh_cancel", time_out=5, raise_if_not_found=True, after_sleep=1)  # 取消刷新（无免费机会）。
 
     def _do_arena_shop(self):  # 竞技场商店：代码模板匹配前 3 格 + 固定列 4/5/6。
         for item in self.config.get("优先购买列", []):  # 按用户配置的优先顺序遍历。
