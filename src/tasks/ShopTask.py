@@ -10,11 +10,11 @@ from src.tasks.MyBaseTask import MyBaseTask  # 项目基类，所有任务统一
 
 # 竞技场代码模板（第一列 1-3 格随机出现，用模板匹配识别），名称 -> 模板路径。
 _CODE_TEMPLATES = {
-    "燃烧代码": os.path.join("assets", "template", "fire_code.png"),  # 燃烧代码模板，源自 2560x1440 截图。
-    "风压代码": os.path.join("assets", "template", "wind_code.png"),  # 风压代码模板，源自 2560x1440 截图。
-    "铁甲代码": os.path.join("assets", "template", "iron_code.png"),  # 铁甲代码模板，源自 2560x1440 截图。
-    "电击代码": os.path.join("assets", "template", "electric_code.png"),  # 电击代码模板，源自 2560x1440 截图。
-    "水冷代码": os.path.join("assets", "template", "water_code.png"),  # 水冷代码模板，源自 2560x1440 截图。
+    "燃烧代码": os.path.join("assets", "template", "shop", "arena shop", "fire_code.png"),  # 燃烧代码模板，源自 2560x1440 截图。
+    "风压代码": os.path.join("assets", "template", "shop", "arena shop", "wind_code.png"),  # 风压代码模板，源自 2560x1440 截图。
+    "铁甲代码": os.path.join("assets", "template", "shop", "arena shop", "iron_code.png"),  # 铁甲代码模板，源自 2560x1440 截图。
+    "电击代码": os.path.join("assets", "template", "shop", "arena shop", "electric_code.png"),  # 电击代码模板，源自 2560x1440 截图。
+    "水冷代码": os.path.join("assets", "template", "shop", "arena shop", "water_code.png"),  # 水冷代码模板，源自 2560x1440 截图。
 }
 
 # 竞技场第一列固定格位（列号从 1 开始），商品名 -> 列号。
@@ -223,22 +223,22 @@ class ShopTask(MyBaseTask):  # 商店自动兑换任务，继承项目基类。
     # 其余商品需按各自模板标定（未标定前统一用首商品值，卡片框会有偏差，需实测校正）。
     # 各模板 PNG 需从 2560x1440 截图裁切，放到 assets/template/ 下；缺失时该商品被优雅跳过。
     _RECYCLING_ICON_TEMPLATES = {
-        "优秀团队合作宝箱": ("assets/template/shop/teamwork.png", 0.296, 0.253),  # 骨架：优秀团队合作宝箱。
-        "保养工具箱II": ("assets/template/shop/toolbox2.png", 0.306, 0.272),  # 骨架：保养工具箱II。
-        "企业精选武装": ("assets/template/shop/gear.png", 0.282, 0.244),  # 骨架：企业精选武装。
-        "珠宝": ("assets/template/shop/jewel.png", 0.284, 0.232),  # 核心：珠宝（中位数兜底）。
-        "指挥官自由使用卷": ("assets/template/shop/commander_ticket.png", 0.284, 0.232),  # 核心：指挥官自由使用卷（中位数兜底）。
-        "极乐净土VIP餐券": ("assets/template/shop/elysion_vip.png", 0.282, 0.228),  # 核心：极乐净土VIP餐券。
-        "米西利斯VIP卡": ("assets/template/shop/missilis_vip.png", 0.272, 0.237),  # 核心：米西利斯VIP卡。
-        "泰特拉VIP护理券": ("assets/template/shop/tetra_vip.png", 0.272, 0.228),  # 核心：泰特拉VIP护理券。
-        "朝圣者补给套组交换券": ("assets/template/shop/pilgrim_ticket.png", 0.282, 0.231),  # 核心：朝圣者补给套组交换券。
-        "反常年券": ("assets/template/shop/anomaly_ticket.png", 0.286, 0.233),  # 核心：反常年券。
-        "信用点盒": ("assets/template/shop/credit_case.png", 0.277, 0.231),  # 核心：信用点盒（图标命中反推卡框已实测标定，跨格 find_all 自然命中多张）。
-        "战斗数据辑盒": ("assets/template/shop/battle_data.png", 0.277, 0.231),  # 核心：战斗数据辑盒（图标命中反推卡框已实测标定，跨格）。
-        "芯尘盒": ("assets/template/shop/core_dust.png", 0.277, 0.231),  # 核心：芯尘盒（图标命中反推卡框已实测标定，跨格）。
-        "信用点": ("assets/template/shop/credit.png", 0.284, 0.232),  # 核心：信用点（中位数兜底）。
-        "成长套组：1H（活动限定）": ("assets/template/shop/growth_set.png", 0.301, 0.231),  # 核心：成长套组-活动限定商品。
-        "简介个性化礼包（活动限定）": ("assets/template/shop/custom_pack.png", 0.296, 0.231),  # 核心：简介个性化礼包-活动限定商品。
+        "优秀团队合作宝箱": ("assets/template/shop/recycling shop/teamwork.png", 0.296, 0.253),  # 骨架：优秀团队合作宝箱。
+        "保养工具箱II": ("assets/template/shop/recycling shop/toolbox2.png", 0.306, 0.272),  # 骨架：保养工具箱II。
+        "企业精选武装": ("assets/template/shop/recycling shop/gear.png", 0.282, 0.244),  # 骨架：企业精选武装。
+        "珠宝": ("assets/template/shop/recycling shop/jewel.png", 0.284, 0.232),  # 核心：珠宝（中位数兜底）。
+        "指挥官自由使用卷": ("assets/template/shop/recycling shop/commander_ticket.png", 0.284, 0.232),  # 核心：指挥官自由使用卷（中位数兜底）。
+        "极乐净土VIP餐券": ("assets/template/shop/recycling shop/elysion_vip.png", 0.282, 0.228),  # 核心：极乐净土VIP餐券。
+        "米西利斯VIP卡": ("assets/template/shop/recycling shop/missilis_vip.png", 0.272, 0.237),  # 核心：米西利斯VIP卡。
+        "泰特拉VIP护理券": ("assets/template/shop/recycling shop/tetra_vip.png", 0.272, 0.228),  # 核心：泰特拉VIP护理券。
+        "朝圣者补给套组交换券": ("assets/template/shop/recycling shop/pilgrim_ticket.png", 0.282, 0.231),  # 核心：朝圣者补给套组交换券。
+        "反常年券": ("assets/template/shop/recycling shop/anomaly_ticket.png", 0.286, 0.233),  # 核心：反常年券。
+        "信用点盒": ("assets/template/shop/recycling shop/credit_case.png", 0.277, 0.231),  # 核心：信用点盒（图标命中反推卡框已实测标定，跨格 find_all 自然命中多张）。
+        "战斗数据辑盒": ("assets/template/shop/recycling shop/battle_data.png", 0.277, 0.231),  # 核心：战斗数据辑盒（图标命中反推卡框已实测标定，跨格）。
+        "芯尘盒": ("assets/template/shop/recycling shop/core_dust.png", 0.277, 0.231),  # 核心：芯尘盒（图标命中反推卡框已实测标定，跨格）。
+        "信用点": ("assets/template/shop/recycling shop/credit.png", 0.284, 0.232),  # 核心：信用点（中位数兜底）。
+        "成长套组：1H（活动限定）": ("assets/template/shop/recycling shop/growth_set.png", 0.301, 0.231),  # 核心：成长套组-活动限定商品。
+        "简介个性化礼包（活动限定）": ("assets/template/shop/recycling shop/custom_pack.png", 0.296, 0.231),  # 核心：简介个性化礼包-活动限定商品。
     }
 
     def _find_all_scaled_template(self, feature_name, template_path, box, threshold=0.8,

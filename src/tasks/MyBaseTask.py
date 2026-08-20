@@ -165,10 +165,10 @@ class MyBaseTask(BaseTask):
         return self.wait_feature("ark", time_out=time_out, raise_if_not_found=raise_if_not_found)
 
     _NOTICE_BELL_TEMPLATES = (  # 公告弹窗铃铛模板列表：公告(notice_bell1)与活动(notice_bell2)弹窗图标样式略有差异，依次尝试任一命中即可。
-        os.path.join('assets', 'template', 'notice_bell1.png'),  # 活动弹窗铃铛模板，来自 2560x1440 截图。
-        os.path.join('assets', 'template', 'notice_bell2.png'),  # 公告弹窗铃铛模板，来自 2560x1440 截图。
+        os.path.join('assets', 'template', 'common', 'notice_bell1.png'),  # 活动弹窗铃铛模板，来自 2560x1440 截图。
+        os.path.join('assets', 'template', 'common', 'notice_bell2.png'),  # 公告弹窗铃铛模板，来自 2560x1440 截图。
     )
-    _COMMON_CLOSE_TEMPLATE = os.path.join('assets', 'template', 'common_close.png')  # 通用关闭按钮模板，来自 2560x1440 截图。
+    _COMMON_CLOSE_TEMPLATE = os.path.join('assets', 'template', 'common', 'common_close.png')  # 通用关闭按钮模板，来自 2560x1440 截图。
     _ENTER_GAME_TEXT = re.compile("TOUCH TO CONTINUE", re.IGNORECASE)  # 进入游戏提示文字，OCR 部分匹配并忽略大小写。
 
     def _close_notice_popup(self):
@@ -332,7 +332,7 @@ class MyBaseTask(BaseTask):
         Args:
             box: 搜索区域。coco box 特征名（如 'box_mission_daily_badge'，自动按当前
                 分辨率缩放）或 Box 对象（可用 self.box_of_screen 生成相对坐标区域）。
-            template_path: 红点模板路径（如 'assets/template/badge.png'）。传入时先做
+            template_path: 红点模板路径（如 'assets/template/common/badge.png'）。传入时先做
                 模板匹配，命中返回精确位置；未命中或未传时用颜色检测兜底。
             threshold: 模板匹配阈值。默认 0.6，低于框架默认 0.8——半透明红点分数
                 偏低（实测 0.70-0.73），必须显式传阈值，不能回落默认 0.8。
