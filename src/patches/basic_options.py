@@ -34,7 +34,7 @@ _basic_options_extra_type = {
     },
 }
 _basic_options_extra_description = {
-    LAUNCHER_PATH_KEY: 'NIKKE 启动器文件路径 例如：D:/NIKKE/Launcher/nikke_launcher.exe',
+    LAUNCHER_PATH_KEY: 'NIKKE 启动器文件路径 \n例如：D:/NIKKE/Launcher/nikke_launcher.exe',
     TRIGGER_INTERVAL_KEY: '后台触发任务每轮检测之间的额外延时(毫秒)。调大可降低系统资源占用，但会让后台响应变慢。',
 }
 
