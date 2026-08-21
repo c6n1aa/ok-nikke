@@ -1,5 +1,6 @@
 import os
 import unittest
+from contextlib import ExitStack
 from types import SimpleNamespace
 from unittest.mock import PropertyMock, patch
 
@@ -41,42 +42,60 @@ class TestArkTask(_DebugOffTestCase):
         super().setUp()
         _isolate_task_config(self.task, 'ArkTask')
         self.task.config["关闭自动爬塔"] = self.task.default_config["关闭自动爬塔"]
+        self.task.config["企业塔"] = self.task.default_config["企业塔"]
+        self.task.config["模拟室"] = False  # 默认关闭模拟室子流程，企业塔相关测试不受其干扰。
         self.task.clear_done("tribe_tower")
+        self.task.clear_done("simulation")
         self.task.failed_towers = []
 
     def test_config_defaults(self):
+        self.assertTrue(self.task.default_config["企业塔"])  # 企业塔子流程默认开启。
+        self.assertIn("企业塔", self.task.config_description)  # 企业塔配置有中文帮助文本。
+        sub = self.task.config_type["企业塔"]["sub_configs"]  # 开关联动子配置显隐。
+        self.assertEqual(["关闭自动爬塔"], sub[True])  # 启用时显示爬塔模式开关。
+        self.assertEqual([], sub[False])  # 关闭时收起配置。
         self.assertFalse(self.task.default_config["关闭自动爬塔"])
         self.assertIn("关闭自动爬塔", self.task.config_description)
-        self.assertEqual({"tribe_tower": "day"}, ArkTask.done_keys)
+        self.assertTrue(self.task.default_config["模拟室"])  # 模拟室子流程默认开启。
+        self.assertIn("模拟室", self.task.config_description)  # 模拟室配置有中文帮助文本。
+        self.assertEqual({"tribe_tower": "day", "simulation": "day"}, ArkTask.done_keys)
         self.assertEqual("方舟", self.task.name)
+
+    def test_skip_tribe_tower_when_disabled(self):
+        self.task.config["企业塔"] = False  # 用户未启用企业塔。
+        with patch.object(self.task, "_nav_to_ark"), \
+                patch.object(self.task, "_do_tribe_tower_flow", side_effect=AssertionError("不应执行企业塔流程")), \
+                patch.object(self.task, "_do_simulation_flow"):
+            self.task.run()
+        self.assertFalse(self.task.is_done("tribe_tower", "day"))
 
     def test_skip_when_already_done(self):
         self.task.mark_done("tribe_tower", "day")
-        with patch.object(self.task, "_tribe_tower_flow", side_effect=AssertionError("不应执行企业塔流程")):
+        with patch.object(self.task, "_nav_to_ark"), \
+                patch.object(self.task, "_do_tribe_tower_flow", side_effect=AssertionError("不应执行企业塔流程")):
             self.task.run()
         self.assertTrue(self.task.is_done("tribe_tower", "day"))
 
     def test_abort_when_lobby_not_found(self):
-        with patch.object(self.task, "wait_until_lobby_after_start", return_value=False), \
-                patch.object(self.task, "_tribe_tower_flow", side_effect=AssertionError("不应执行企业塔流程")):
+        with patch.object(self.task, "_nav_to_ark", side_effect=WaitFailedException("未能进入方舟")), \
+                patch.object(self.task, "_recover_to_lobby", return_value=True), \
+                patch.object(self.task, "_do_tribe_tower_flow", side_effect=AssertionError("不应执行企业塔流程")):
             self.task.run()
         self.assertFalse(self.task.is_done("tribe_tower", "day"))
 
     def test_runs_flow_and_marks_done(self):
-        with patch.object(self.task, "wait_until_lobby_after_start", return_value=True), \
-                patch.object(self.task, "dismiss_all_popups"), \
+        with patch.object(self.task, "_nav_to_ark"), \
                 patch.object(self.task, "try_step",
                             side_effect=lambda step_fn, **kw: step_fn()), \
-                patch.object(self.task, "_tribe_tower_flow", return_value=True) as flow_mock, \
+                patch.object(self.task, "_do_tribe_tower_flow", return_value=True) as flow_mock, \
                 patch.object(self.task, "_under_daily", return_value=True):
             self.task.run()
         flow_mock.assert_called_once()
         self.assertTrue(self.task.is_done("tribe_tower", "day"))
 
     def test_flow_failure_not_marked_done(self):
-        with patch.object(self.task, "wait_until_lobby_after_start", return_value=True), \
-                patch.object(self.task, "dismiss_all_popups"), \
-                patch.object(self.task, "try_step", return_value=False):
+        with patch.object(self.task, "_nav_to_ark"), \
+                patch.object(self.task, "try_step", side_effect=[True, False]):
             self.task.run()
         self.assertFalse(self.task.is_done("tribe_tower", "day"))
 
@@ -85,11 +104,10 @@ class TestArkTask(_DebugOffTestCase):
             self.task.failed_towers = [2, 4]
             return True
 
-        with patch.object(self.task, "wait_until_lobby_after_start", return_value=True), \
-                patch.object(self.task, "dismiss_all_popups"), \
+        with patch.object(self.task, "_nav_to_ark"), \
                 patch.object(self.task, "try_step",
                             side_effect=lambda step_fn, **kw: step_fn()), \
-                patch.object(self.task, "_tribe_tower_flow", side_effect=fake_flow), \
+                patch.object(self.task, "_do_tribe_tower_flow", side_effect=fake_flow), \
                 patch.object(self.task, "_under_daily", return_value=False), \
                 patch.object(self.task, "log_info") as log_mock:
             self.task.run()
@@ -104,11 +122,10 @@ class TestArkTask(_DebugOffTestCase):
             self.task.failed_towers = [1]
             return True
 
-        with patch.object(self.task, "wait_until_lobby_after_start", return_value=True), \
-                patch.object(self.task, "dismiss_all_popups"), \
+        with patch.object(self.task, "_nav_to_ark"), \
                 patch.object(self.task, "try_step",
                             side_effect=lambda step_fn, **kw: step_fn()), \
-                patch.object(self.task, "_tribe_tower_flow", side_effect=fake_flow), \
+                patch.object(self.task, "_do_tribe_tower_flow", side_effect=fake_flow), \
                 patch.object(self.task, "_under_daily", return_value=True), \
                 patch.object(self.task, "log_info") as log_mock:
             self.task.run()
@@ -184,25 +201,19 @@ class TestArkTask(_DebugOffTestCase):
                 patch.object(self.task, "click") as click_mock:
             self.task._enter_tower("box_tribe_tower1")
         cx, cy = 959 + 42, 762 + 29 + 144
-        click_mock.assert_called_once_with(cx, cy, after_sleep=1)
+        click_mock.assert_called_once_with(cx, cy, after_sleep=3)
 
     def test_enter_tower_raises_when_box_missing(self):
         with patch.object(self.task, "get_box_by_name", side_effect=ValueError("missing")):
             with self.assertRaises(WaitFailedException):
                 self.task._enter_tower("box_tribe_tower1")
 
-    def test_enter_ark_and_tower(self):
+    def test_enter_infinite_tower(self):
         with patch.object(self.task, "wait_click_feature") as click_mock, \
                 patch.object(self.task, "assert_screen") as assert_mock:
-            self.task._enter_ark_and_tower()
-        self.assertEqual(
-            [("ark",), ("ark_tribe_tower",)],
-            [c.args for c in click_mock.call_args_list],
-        )
-        self.assertEqual(
-            [("ark",), ("infinite_tower",)],
-            [c.args for c in assert_mock.call_args_list],
-        )
+            self.task._enter_infinite_tower()
+        self.assertEqual([("ark_tribe_tower",)], [c.args for c in click_mock.call_args_list])
+        self.assertEqual([("infinite_tower",)], [c.args for c in assert_mock.call_args_list])
 
     def test_try_tower_skips_when_not_open(self):
         with patch.object(self.task, "_tower_is_open", return_value=False), \
@@ -217,11 +228,12 @@ class TestArkTask(_DebugOffTestCase):
                 patch.object(self.task, "wait_feature", return_value=stage_box), \
                 patch.object(self.task, "get_box_by_name", return_value=battle_box), \
                 patch.object(self.task, "is_feature_enabled", return_value=False), \
+                patch.object(self.task, "click_box") as click_box_mock, \
                 patch.object(self.task, "wait_click_feature") as click_mock, \
                 patch.object(self.task, "_climb_battle", side_effect=AssertionError("不应进入战斗")):
             result = self.task._try_tower(1)
         self.assertFalse(result)
-        click_mock.assert_any_call("box_tower_enter", raise_if_not_found=True, after_sleep=1)
+        click_box_mock.assert_any_call("box_tower_enter", raise_if_not_found=True, after_sleep=1)
         click_mock.assert_any_call("tribe_tower_close", raise_if_not_found=True, after_sleep=1)
         click_mock.assert_any_call("common_back", raise_if_not_found=True, after_sleep=1)
 
@@ -231,12 +243,13 @@ class TestArkTask(_DebugOffTestCase):
                 patch.object(self.task, "_enter_tower"), \
                 patch.object(self.task, "wait_feature", return_value=stage_box) as wait_mock, \
                 patch.object(self.task, "get_box_by_name", return_value=None), \
+                patch.object(self.task, "click_box") as click_box_mock, \
                 patch.object(self.task, "wait_click_feature") as click_mock, \
                 patch.object(self.task, "_climb_battle", side_effect=AssertionError("不应进入战斗")):
             result = self.task._try_tower(1)
         self.assertFalse(result)
         wait_mock.assert_any_call("tribe_tower_stage", raise_if_not_found=True)
-        click_mock.assert_any_call("box_tower_enter", raise_if_not_found=True, after_sleep=1)
+        click_box_mock.assert_any_call("box_tower_enter", raise_if_not_found=True, after_sleep=1)
         click_mock.assert_any_call("tribe_tower_close", raise_if_not_found=True, after_sleep=1)
         click_mock.assert_any_call("common_back", raise_if_not_found=True, after_sleep=1)
 
@@ -342,29 +355,167 @@ class TestArkTask(_DebugOffTestCase):
         self.assertEqual(2, back_mock.call_count)
 
     def test_flow_all_towers_skipped_returns_ark(self):
-        with patch.object(self.task, "_enter_ark_and_tower"), \
+        with patch.object(self.task, "_nav_to_ark"), \
+                patch.object(self.task, "_enter_infinite_tower"), \
                 patch.object(self.task, "_try_tower", return_value=False) as try_mock, \
                 patch.object(self.task, "wait_click_feature") as back_mock:
-            self.task._tribe_tower_flow()
+            self.task._do_tribe_tower_flow()
         self.assertEqual(4, try_mock.call_count)
         back_mock.assert_called_once_with("common_back", raise_if_not_found=False, after_sleep=1)
 
     def test_flow_abandon_mode_ends_after_first_battle(self):
         self.task.config["关闭自动爬塔"] = True
-        with patch.object(self.task, "_enter_ark_and_tower"), \
+        with patch.object(self.task, "_nav_to_ark"), \
+                patch.object(self.task, "_enter_infinite_tower"), \
                 patch.object(self.task, "_try_tower", side_effect=[False, True]) as try_mock, \
                 patch.object(self.task, "wait_click_feature") as back_mock:
-            self.task._tribe_tower_flow()
+            self.task._do_tribe_tower_flow()
         self.assertEqual(2, try_mock.call_count)
         back_mock.assert_not_called()
 
     def test_flow_normal_mode_processes_all_towers(self):
-        with patch.object(self.task, "_enter_ark_and_tower"), \
+        with patch.object(self.task, "_nav_to_ark"), \
+                patch.object(self.task, "_enter_infinite_tower"), \
                 patch.object(self.task, "_try_tower", return_value=True) as try_mock, \
                 patch.object(self.task, "wait_click_feature") as back_mock:
-            self.task._tribe_tower_flow()
+            self.task._do_tribe_tower_flow()
         self.assertEqual(4, try_mock.call_count)
         back_mock.assert_called_once()
+
+
+class TestArkTaskSimulation(_DebugOffTestCase):
+    """模拟室子流程测试：覆盖成功/跳过/失败/已完成跳过等主要分支。"""
+
+    task_class = ArkTask
+
+    config = config
+
+    def setUp(self):
+        super().setUp()
+        _isolate_task_config(self.task, 'ArkTask')
+        self.task.config["模拟室"] = True  # 模拟室子流程测试统一开启。
+        self.task.clear_done("simulation")
+        self.task.clear_done("tribe_tower")
+
+    def _patch_common(self):
+        """返回公共补丁栈：已确保在方舟界面、企业塔流程置空。"""
+        stack = ExitStack()  # 统一管理补丁生命周期。
+        stack.enter_context(patch.object(self.task, "_nav_to_ark"))
+        stack.enter_context(patch.object(self.task, "_do_tribe_tower_flow"))
+        return stack
+
+    def test_skip_when_disabled(self):
+        self.task.config["模拟室"] = False  # 用户未启用模拟室。
+        with patch.object(self.task, "_do_simulation_flow", side_effect=AssertionError("不应执行模拟室流程")), \
+                patch.object(self.task, "_nav_to_ark"), \
+                patch.object(self.task, "_do_tribe_tower_flow"):
+            self.task.run()
+        self.assertFalse(self.task.is_done("simulation", "day"))
+
+    def test_skip_when_already_done(self):
+        self.task.mark_done("simulation", "day")  # 标记本周期已完成。
+        with patch.object(self.task, "_do_simulation_flow", side_effect=AssertionError("不应执行模拟室流程")), \
+                patch.object(self.task, "_nav_to_ark"), \
+                patch.object(self.task, "_do_tribe_tower_flow"):
+            self.task.run()
+        self.assertTrue(self.task.is_done("simulation", "day"))
+
+    def test_success_marks_done(self):
+        with self._patch_common(), \
+                patch.object(self.task, "_do_simulation_flow") as flow_mock:
+            self.task.run()
+        flow_mock.assert_called_once()
+        self.assertTrue(self.task.is_done("simulation", "day"))
+
+    def test_failure_not_marked_done(self):
+        with self._patch_common(), \
+                patch.object(self.task, "try_step", side_effect=[True, True, False]), \
+                patch.object(self.task, "_do_simulation_flow"):
+            self.task.run()
+        self.assertFalse(self.task.is_done("simulation", "day"))
+
+    def test_run_executes_subflows_in_order(self):
+        order = []  # 记录子流程执行顺序。
+        with self._patch_common(), \
+                patch.object(self.task, "_do_tribe_tower_flow", side_effect=lambda: order.append("tower")), \
+                patch.object(self.task, "_do_simulation_flow", side_effect=lambda: order.append("simulation")):
+            self.task.run()
+        self.assertEqual(["tower", "simulation"], order)
+
+    def test_flow_no_red_dot_closes(self):
+        with patch.object(self.task, "_nav_to_ark"), \
+                patch.object(self.task, "wait_click_feature") as click_mock, \
+                patch.object(self.task, "assert_screen"), \
+                patch.object(self.task, "find_red_dot", return_value=None), \
+                patch.object(self.task, "find_one", side_effect=AssertionError("无红点时不应继续")), \
+                patch.object(self.task, "click_box", side_effect=AssertionError("无红点时不应点击")):
+            self.task._do_simulation_flow()
+        clicked = [c.args[0] for c in click_mock.call_args_list]
+        self.assertEqual(["ark_simulation_room", "simulation_close"], clicked)
+
+    def test_flow_full_success_skips_level_and_toggle(self):
+        red_dot = Box(1387, 804, 36, 45, confidence=1, name="red_dot")  # 徽标红点。
+        level5 = Box(1511, 406, 74, 84, confidence=1, name="simulation_level5")  # 已选中 Lv.5。
+        active = Box(1192, 1116, 76, 38, confidence=1, name="simulation_quick_complete_active")  # 立即完成已激活。
+        quick = Box(1380, 1208, 49, 47, confidence=1, name="simulation_quick_battle")  # 快速战斗按钮。
+        find_map = {"simulation_level5": level5, "simulation_quick_complete_active": active,
+                    "simulation_quick_battle": quick}  # 按特征名返回识别结果。
+        with patch.object(self.task, "_nav_to_ark"), \
+                patch.object(self.task, "wait_click_feature") as click_mock, \
+                patch.object(self.task, "assert_screen"), \
+                patch.object(self.task, "find_red_dot", return_value=red_dot), \
+                patch.object(self.task, "find_one", side_effect=lambda name, *a, **k: find_map.get(name)), \
+                patch.object(self.task, "click_box") as click_box_mock, \
+                patch.object(self.task, "dismiss_all_popups") as dismiss_mock:
+            self.task._do_simulation_flow()
+        clicked = [c.args[0] for c in click_mock.call_args_list]
+        self.assertEqual(["ark_simulation_room", "box_simulation_region_selector",
+                          "simulation_quick_battle_finishi", "simulation_close"], clicked)
+        self.assertEqual([red_dot, quick], [c.args[0] for c in click_box_mock.call_args_list])
+        dismiss_mock.assert_called_once()
+
+    def test_flow_selects_level5_and_activates_quick_complete(self):
+        red_dot = Box(1387, 804, 36, 45, confidence=1, name="red_dot")  # 徽标红点。
+        toggle = Box(1192, 1116, 76, 38, confidence=1, name="simulation_quick_complete_disable")  # 灰色未激活开关。
+        quick = Box(1380, 1208, 49, 47, confidence=1, name="simulation_quick_battle")  # 快速战斗按钮。
+        find_map = {"simulation_level5": None, "simulation_quick_complete_active": None,
+                    "simulation_quick_complete_disable": toggle, "simulation_quick_battle": quick}  # Lv.5 未选、开关未激活。
+        with patch.object(self.task, "_nav_to_ark"), \
+                patch.object(self.task, "wait_click_feature") as click_mock, \
+                patch.object(self.task, "assert_screen"), \
+                patch.object(self.task, "find_red_dot", return_value=red_dot), \
+                patch.object(self.task, "find_one", side_effect=lambda name, *a, **k: find_map.get(name)), \
+                patch.object(self.task, "click_box") as click_box_mock, \
+                patch.object(self.task, "dismiss_all_popups"):
+            self.task._do_simulation_flow()
+        clicked = [c.args[0] for c in click_mock.call_args_list]
+        self.assertEqual(["ark_simulation_room", "simulation_level5", "box_simulation_region_selector",
+                          "simulation_quick_battle_finishi", "simulation_close"], clicked)
+        self.assertEqual([red_dot, toggle, quick], [c.args[0] for c in click_box_mock.call_args_list])
+
+    def test_flow_no_quick_battle_closes(self):
+        red_dot = Box(1387, 804, 36, 45, confidence=1, name="red_dot")  # 徽标红点。
+        level5 = Box(1511, 406, 74, 84, confidence=1, name="simulation_level5")  # 已选中 Lv.5。
+        active = Box(1192, 1116, 76, 38, confidence=1, name="simulation_quick_complete_active")  # 立即完成已激活。
+        find_map = {"simulation_level5": level5, "simulation_quick_complete_active": active,
+                    "simulation_quick_battle": None}  # 无快速战斗按钮。
+        with patch.object(self.task, "_nav_to_ark"), \
+                patch.object(self.task, "wait_click_feature") as click_mock, \
+                patch.object(self.task, "assert_screen"), \
+                patch.object(self.task, "find_red_dot", return_value=red_dot), \
+                patch.object(self.task, "find_one", side_effect=lambda name, *a, **k: find_map.get(name)), \
+                patch.object(self.task, "click_box") as click_box_mock, \
+                patch.object(self.task, "dismiss_all_popups") as dismiss_mock:
+            self.task._do_simulation_flow()
+        clicked = [c.args[0] for c in click_mock.call_args_list]
+        self.assertEqual(["ark_simulation_room", "box_simulation_region_selector", "simulation_close"],
+                         clicked)
+        self.assertEqual([red_dot], [c.args[0] for c in click_box_mock.call_args_list])
+        dismiss_mock.assert_not_called()
+
+    def test_simulation_screen_registered(self):
+        self.assertIn("simulation_room", self.task.screens)  # 模拟室界面已注册。
+        self.assertEqual(["simulation_mark"], self.task.screens["simulation_room"]["features"])  # 以室徽特征判定。
 
 
 class TestDailyTaskArkIntegration(_DebugOffTestCase):
