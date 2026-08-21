@@ -8,6 +8,14 @@ ok-nikke-maid 是基于 PyPI `ok-script` 库（ok-script-app 模板）构建的�
   - 双引号字符串内的 `|`（管道符）是安全的（pwsh 看到的字面命令，例如 `Select-String -Pattern "test_|FAIL|OK|Ran|Error"` 可以正常工作）。旧的 cmd.exe 限制已不再适用。
   - 如果希望在字符串里传 `|` 时零插值、最清晰，仍然优先用**单引号**（`-Pattern 'test_|FAIL'`）——同样安全，还能避免 pwsh 的字符串插值问题。
   - 输出端到端为 UTF-8：`PYTHONUTF8=1` 和 `PYTHONIOENCODING=utf-8` 已设置在 Windows **用户**级环境变量中（管道输出与 `chcp`/控制台代码页无关）。如果哪天看到中文乱码，先确认这两个环境变量还在、且 shell 配置没有被改回 `.cmd` 文件。
+- 已通过 scoop 安装现代 CLI 工具，处理文本/文件时优先使用它们而非 PowerShell 原生 cmdlet —— 它们语法与 bash 一致或更简洁，适合管道组合：
+  - 文本搜索用 `rg`（ripgrep），不用 `Select-String`：`rg -n "pattern" src/`、`rg -l "TODO"`。默认遵守 `.gitignore`；搜隐藏文件加 `-H`，包含被忽略文件加 `-u`。
+  - 查找文件用 `fd`，不用 `Get-ChildItem -Recurse`：`fd "\.py$"`、`fd config -t f`（`-t f` 文件 / `-t d` 目录）。
+  - 查看文件用 `bat`，不用 `Get-Content`：`bat -r 10:50 file.ps1`（只看行范围）、`bat -l json file`（强制指定语言）。
+  - 文本替换用 `sd`，不用 sed（无转义地狱）：`sd 'old' 'new' file.txt`；配合管道：`rg ... | sd 'a' 'b'`。
+  - 结构化数据：JSON 用 `jq`（`command | jq '.items[].name'`），YAML/TOML/CSV 等用 `yq`（`yq '.services.web.image' docker-compose.yml`）。
+  - diff 通过 `delta` 渲染（已配置为 git pager，`git diff` 自动生效）。
+  - 注意事项：这些工具输出纯文本/JSON，不要假设 PowerShell 对象管道语义；首次使用前先用 `Get-Command <工具>` 验证存在，不存在则回退到原生 cmdlet；非交互的 agent 运行中不要调用交互式工具（`fzf`、`zoxide`）。
 - 仅支持 Python 3.12。始终使用仓库本地虚拟环境，不要激活或使用全局 Python：`.\.venv\Scripts\python.exe`。
 - 安装依赖必须加 `--no-deps`：`.\.venv\Scripts\python.exe -m pip install --no-deps -r requirements.txt --upgrade`。因为 `pyside6-fluent-widgets` 声明了完整的 PySide6 元包，而本项目只需要 `pyside6-essentials`。`pyproject.toml`（`[project.optional-dependencies]`）是依赖源文件；每次 `pip-compile` 后都要再次删掉生成的 `pyside6`、`pyside6-addons` 条目。升级注意点（ok-script 2.x）：`pywin32` 必须保持 `>=306,!=312`（build 312 是坏版本；不要写成 `>=313` —— 该版本不存在，pip 会解析到 build 311，支持 Python 3.12）；`ok-d3dshot` 是新增的传递依赖，因打包用 `--no-deps` 跑 pip，所以必须显式列在 `requirements.txt` 里。
 - 运行 GUI：`python main_debug.py`（调试模式）或 `python main.py`。必须在仓库根目录运行。
@@ -53,7 +61,7 @@ ok-nikke-maid 是基于 PyPI `ok-script` 库（ok-script-app 模板）构建的�
 - 任务测试用 `unittest` 编写，继承 `ok.test.TaskTestCase`，并设置 `task_class` 指向被测任务（例如 `from src.tasks.MyTask import MyTask`）。标准参考见 `docs/after_quick_start/README.md`（§3 自动化测试）。
 - 核心技术：`self.set_image(<路径>)` 把屏幕输入固定为一张静态图片，从而创造稳定、可复现的运行环境，用于断言识别、点击、OCR 等行为。
 - 复现用户报告的问题：把用户上传的截图作为测试图（如 `self.set_image('tests/user_screenshots/user_bug_report_01.png')`），调用出错的精确方法，并断言修复后的行为符合预期。
-- 运行测试：`run_tests.ps1` 运行 `tests/` 下全部测试；单个文件或方法可在 PyCharm 中右键运行。在 PyCharm 中，运行/调试配置的「工作目录」必须设为仓库根目录，否则 `tests/images/` 等相对路径无法解析。
+
 
 ## 发布
 

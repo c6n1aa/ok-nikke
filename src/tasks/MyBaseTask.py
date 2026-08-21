@@ -263,7 +263,9 @@ class MyBaseTask(BaseTask):
         模板匹配，命中结算界面即提前返回；超时返回 (None, None)。避免用
         wait_feature 等忙轮询长时间对游戏窗口持续抓帧/匹配，与游戏抢 CPU。
 
-        正常结束：同时识别 battle_finish_reward 与 battle_finish_esc。
+        正常结束：识别 battle_finish_esc（ESC 确认提示，图标粗壮跨分辨率可靠；
+        battle_finish_reward 为细笔画文字，实测在非原生分辨率下缩放后匹配分
+        仅约 0.45，不可作为判据）。
         战斗失败：同时识别 battle_finish_failed 与 battle_finish_failed_back。
 
         此处只检测不点击——战斗结束后的动作由调用方决定（连续战斗的胜利界面
@@ -276,12 +278,15 @@ class MyBaseTask(BaseTask):
             (None, None) 超时。
         """
         deadline = time.time() + time_out  # 记录整体超时时刻。
+        polls = 0  # 轮询计数，用于 debug 日志观察节流间隔。
         while time.time() < deadline:  # 节流循环直到超时。
             self.sleep(check_interval)  # 轻量等待，不抓帧不匹配。
             self.next_frame()  # 刷新一帧，避免使用旧帧。
-            reward = self.find_one("battle_finish_reward")  # 单帧匹配正常结束奖励特征。
-            esc = self.find_one("battle_finish_esc")  # 单帧匹配正常结束确认按钮特征。
-            if reward is not None and esc is not None:  # 正常战斗结束。
+            polls += 1  # 轮询次数加一。
+            self.log_debug(f"战斗轮询第 {polls} 次（每 {check_interval} 秒一帧），已耗时 {time.time() - (deadline - time_out):.0f} 秒。")  # debug 日志确认轮询节奏。
+            v_variance = 100 / 1440  # Y 轴上下各扩展约 100 像素（以 2560x1440 为基准的相对比例，随分辨率等比缩放；不同战斗结算界面的 ESC 位置可能上下偏移）。
+            esc = self.find_one("battle_finish_esc", vertical_variance=v_variance)  # 纵向扩大搜索范围匹配正常结束确认按钮特征（粗壮图标，跨分辨率可靠）。
+            if esc is not None:  # 正常战斗结束。
                 self.log_info("检测到战斗胜利结算界面。")  # 记录正常结束。
                 return "success", esc  # 返回结果与确认按钮框，由调用方决定后续动作。
             failed = self.find_one("battle_finish_failed")  # 单帧匹配战斗失败特征。

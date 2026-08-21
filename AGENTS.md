@@ -9,6 +9,14 @@ ok-nikke-maid is a Python GUI automation app for the NIKKE Windows game client, 
   - `|` inside **double-quoted** strings is safe (pwsh sees the literal command, e.g. `Select-String -Pattern "test_|FAIL|OK|Ran|Error"` works). The old cmd.exe-based restriction no longer applies.
   - Still prefer **single quotes** for `|` inside strings when you want zero-interpolation and maximum clarity (`-Pattern 'test_|FAIL'`) — it is equally safe and avoids pwsh string-interpolation surprises.
   - Output is UTF-8 end to end: `PYTHONUTF8=1` and `PYTHONIOENCODING=utf-8` are set at the Windows **User** level (also ensure `chcp`/console pages are irrelevant for piped output). If you ever see Chinese mojibake, check that those two env vars survive and that the shell config wasn't reverted to a `.cmd` file.
+- Modern CLI tools (installed via scoop) are available and preferred over PowerShell native cmdlets for text/file processing — they use bash-like syntax and compose well in pipes:
+  - Search text with `rg` (ripgrep), not `Select-String`: `rg -n "pattern" src/`, `rg -l "TODO"`. Respects `.gitignore`; add `-H` for hidden files, `-u` to include ignored files.
+  - Find files with `fd`, not `Get-ChildItem -Recurse`: `fd "\.py$"`, `fd config -t f` (`-t f` file / `-t d` directory).
+  - View files with `bat`, not `Get-Content`: `bat -r 10:50 file.ps1` (line range), `bat -l json file` (force language).
+  - Text substitution with `sd`, not sed (no escape hell): `sd 'old' 'new' file.txt`; in pipes: `rg ... | sd 'a' 'b'`.
+  - Structured data: `jq` for JSON (`command | jq '.items[].name'`), `yq` for YAML/TOML/CSV (`yq '.services.web.image' docker-compose.yml`).
+  - Diffs render via `delta` (configured as the git pager, so `git diff` uses it automatically).
+  - Caveats: these tools emit plain text/JSON — do not assume PowerShell object-pipeline semantics; verify availability with `Get-Command <tool>` before first use and fall back to native cmdlets if missing; do not script against interactive tools (`fzf`, `zoxide`) in non-interactive agent runs.
 - Python 3.12 only. Always use the repo-local venv, never activate/global python: `.\.venv\Scripts\python.exe`.
 - Install deps with `--no-deps`: `.\.venv\Scripts\python.exe -m pip install --no-deps -r requirements.txt --upgrade`. This is required — `pyside6-fluent-widgets` declares the full PySide6 metapackage and only `pyside6-essentials` is wanted. `pyproject.toml` (`[project.optional-dependencies]`) is the dependency source; after `pip-compile`, re-remove the generated `pyside6`/`pyside6-addons` entries. Upgrade gotchas (ok-script 2.x): keep `pywin32>=306,!=312` (build 312 is a broken release; do not pin `>=313` — that version does not exist, so pip resolves to build 311 which supports Python 3.12); `ok-d3dshot` is a new transitive dependency that must stay explicitly listed because packaging runs pip with `--no-deps`.
 - Run GUI: `python main_debug.py` (debug) or `python main.py`. Must be run from the repo root.
@@ -54,7 +62,7 @@ ok-nikke-maid is a Python GUI automation app for the NIKKE Windows game client, 
 - Write task tests as `unittest` subclasses of `ok.test.TaskTestCase`; set `task_class` to the task under test (e.g. `from src.tasks.MyTask import MyTask`). A standard reference is `docs/after_quick_start/README.md` (§3 自动化测试).
 - Core technique: `self.set_image(<path>)` pins the screen input to a static image, creating a stable, reproducible environment for asserting task behavior (recognize, click, OCR, etc.).
 - To reproduce a user-reported bug, use the user's uploaded screenshot as the test image (e.g. `self.set_image('tests/user_screenshots/user_bug_report_01.png')`), call the exact method that failed, and assert the fixed behavior.
-- Running tests: all of `tests/` via `run_tests.ps1`; a single file/method can be run in PyCharm by right-clicking it. In PyCharm the run/debug configuration's Working directory MUST be the repo root, otherwise relative paths like `tests/images/` will not resolve.
+
 
 ## Release
 
