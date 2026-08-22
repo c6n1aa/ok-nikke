@@ -2,10 +2,10 @@ import time
 
 from ok.task.exceptions import WaitFailedException
 
-from src.tasks.MyBaseTask import MyBaseTask  # 导入项目基类，所有任务统一继承它。
+from src.tasks.NikkeBaseTask import NikkeBaseTask  # 导入项目基类，所有任务统一继承它。
 
 
-class OutpostDefenseTask(MyBaseTask):  # 定义歼灭子任务类。
+class OutpostDefenseTask(NikkeBaseTask):  # 定义歼灭子任务类。
 
     done_keys = {"outpost_defense": "day"}  # 完成状态：歼灭（日常刷新）。
 

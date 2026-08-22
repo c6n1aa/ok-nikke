@@ -1,12 +1,12 @@
 # Screen Recognition & Failure Recovery
 
-This page describes the generic "screen recognition" and "failure recovery" skeleton provided by `MyBaseTask` (`src/tasks/MyBaseTask.py`). It is the shared constraint for future task development; agents must follow the "Constraints" section below when building new tasks.
+This page describes the generic "screen recognition" and "failure recovery" skeleton provided by `NikkeBaseTask` (`src/tasks/NikkeBaseTask.py`). It is the shared constraint for future task development; agents must follow the "Constraints" section below when building new tasks.
 
 ## Background
 
 Early tasks relied on `wait_feature`/`wait_click_feature` under the assumption that "clicking the entry lands on the target screen". When an unexpected state appears (popup, slow loading, network hiccup), the next wait times out and raises `WaitFailedException`, leaving the task stuck mid-flow with no recovery — and the next task keeps operating on a wrong screen assumption.
 
-`MyBaseTask` now provides a lightweight, abstractable, extensible mechanism built entirely on existing ok-script APIs, without introducing new framework concepts.
+`NikkeBaseTask` now provides a lightweight, abstractable, extensible mechanism built entirely on existing ok-script APIs, without introducing new framework concepts.
 
 ## Plan A: Screen Recognition
 
@@ -22,7 +22,7 @@ self.register_screen(name, features=(), keywords=(), ocr_box=None)
 - `keywords`: list of OCR keywords; any hit identifies the screen. Use only for pages without a stable template.
 - `ocr_box`: optional OCR region to keep OCR cost down. Either relative coordinates `[x, y, to_x, to_y]`, or a coco-annotated region feature name (string) resolved to the current resolution at match time (e.g. `"box_sub_pages_title"`); falls back to full-screen OCR when the feature is missing.
 
-`MyBaseTask.__init__` registers the lobby by default: `register_screen("lobby", features=["ark"])` — "ark button visible = back in the lobby".
+`NikkeBaseTask.__init__` registers the lobby by default: `register_screen("lobby", features=["ark"])` — "ark button visible = back in the lobby".
 
 > Registration is **optional**: only register a screen when the task actually needs to detect it (`is_screen`/`wait_screen`/`assert_screen`) or needs it as a recovery target. Transient overlay pages (friend/mailbox), popups, and simple click-through tasks need no extra registration.
 

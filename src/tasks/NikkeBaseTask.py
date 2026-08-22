@@ -14,7 +14,7 @@ from ok.util.color import calculate_colorfulness  # 框架颜色工具：计算�
 _BEIJING_TZ = datetime.timezone(datetime.timedelta(hours=8))  # 北京时间 UTC+8，无夏令时
 
 
-class MyBaseTask(BaseTask):
+class NikkeBaseTask(BaseTask):
     # NIKKE 刷新规则：日常每天北京时间 04:00，周常每周二刷新。
     _day_reset_hour = 4        # 日常刷新时刻（北京时间，时）
     _week_reset_weekday = 1    # 周常刷新星期（周一=0，周二=1）

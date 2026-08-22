@@ -2,10 +2,10 @@ import re  # 正则模块，用于 OCR 文字的部分匹配。
 
 from ok.task.exceptions import WaitFailedException  # 框架等待失败异常，子流程断言失败时抛出由 try_step 捕获。
 
-from src.tasks.MyBaseTask import MyBaseTask  # 项目基类，所有任务统一继承它。
+from src.tasks.NikkeBaseTask import NikkeBaseTask  # 项目基类，所有任务统一继承它。
 
 
-class CashShopTask(MyBaseTask):  # 付费商店免费礼包领取任务，继承项目基类。
+class CashShopTask(NikkeBaseTask):  # 付费商店免费礼包领取任务，继承项目基类。
 
     done_keys = {  # 完成状态：STEP UP/每日免费礼包（日常刷新），每周（周常刷新），每月（月度刷新）。
         "cash_shop_stepup": "day",  # STEP UP 免费礼包日常完成状态。

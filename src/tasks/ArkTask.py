@@ -3,7 +3,7 @@ import re  # 正则模块，用于 OCR 关键词的部分匹配。
 from ok import og  # 全局单例，读取当前执行任务以判断是否由日常编排。
 from ok.task.exceptions import WaitFailedException  # 界面断言/战斗超时抛出的框架等待失败异常。
 
-from src.tasks.MyBaseTask import MyBaseTask  # 项目基类，所有任务统一继承它。
+from src.tasks.NikkeBaseTask import NikkeBaseTask  # 项目基类，所有任务统一继承它。
 
 # 塔号 -> 企业名，用于战斗失败时提醒用户。
 _TOWER_NAMES = {
@@ -17,7 +17,7 @@ _TOWER_NAMES = {
 _OPEN_PATTERN = re.compile(r"OPEN", re.IGNORECASE)
 
 
-class ArkTask(MyBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截战/竞技场等子流程。
+class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截战/竞技场等子流程。
 
     done_keys = {"tribe_tower": "day", "simulation": "day"}  # 完成状态：企业塔与模拟室（日常刷新）。
 

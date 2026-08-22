@@ -1,7 +1,7 @@
 from ok import og
 
 from src.tasks.HarvestTask import HarvestTask  # 导入收获子任务。
-from src.tasks.MyBaseTask import MyBaseTask  # 导入项目基类，所有任务统一继承它。
+from src.tasks.NikkeBaseTask import NikkeBaseTask  # 导入项目基类，所有任务统一继承它。
 from src.tasks.OutpostDefenseTask import OutpostDefenseTask  # 导入歼灭子任务。
 from src.tasks.ShopTask import ShopTask  # 导入商店子任务。
 from src.tasks.CashShopTask import CashShopTask  # 导入付费商店子任务。
@@ -9,7 +9,7 @@ from src.tasks.ArkTask import ArkTask  # 导入方舟子任务（企业塔/模�
 from src.tasks.RaidTask import RaidTask  # 导入讨伐子任务（协同作战/个人突袭）。
 
 
-class DailyTask(MyBaseTask):  # 定义清日常总编排的父任务类。
+class DailyTask(NikkeBaseTask):  # 定义清日常总编排的父任务类。
 
     DAILY_SETTINGS_BUTTON_KEY = "点击前往日常任务设置"  # 任务列表卡片里跳转日常设置 tab 的按钮配置键。
 

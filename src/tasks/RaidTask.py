@@ -1,10 +1,10 @@
 
 from ok.task.exceptions import WaitFailedException  # 导入等待失败异常，流程断言失败时抛出由 try_step 捕获恢复。
 
-from src.tasks.MyBaseTask import MyBaseTask  # 导入项目基类，所有任务统一继承它。
+from src.tasks.NikkeBaseTask import NikkeBaseTask  # 导入项目基类，所有任务统一继承它。
 
 
-class RaidTask(MyBaseTask):  # 定义讨伐任务类，包含协同作战与个人突袭两个子流程。
+class RaidTask(NikkeBaseTask):  # 定义讨伐任务类，包含协同作战与个人突袭两个子流程。
 
     done_keys = {"coop": "day", "solo_raid": "day"}  # 完成状态：协同作战与个人突袭均为日常刷新。
 

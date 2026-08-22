@@ -178,7 +178,7 @@
   - 期望：卡片控件值与 `task.config` 当前值同步（不显示过期值）。
 
 - [ ] **D4 重置完成状态按钮**（`_patch_tasks_tab_reset_done_button`）
-  - 步骤：对一个有 `done_keys` 的 MyBaseTask（如 HarvestTask，先让它标记完成）→ 展开卡片。
+  - 步骤：对一个有 `done_keys` 的 NikkeBaseTask（如 HarvestTask，先让它标记完成）→ 展开卡片。
   - 期望：Operation 行、`Reset Config` 之前出现「重置完成状态」按钮（`FluentIcon.SYNC`）。
   - 判定：点击后弹 InfoBar「已重置完成状态」，`clear_done_all()` 生效，状态图标复位。
 

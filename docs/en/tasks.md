@@ -6,7 +6,7 @@ The one-time task example is `src/tasks/MyOneTimeTask.py`; the background trigge
 
 - Inherit from `BaseTask` for a task that runs when the user starts it.
 - Inherit from `TriggerTask` for periodic background checks.
-- Put shared behavior in `src/tasks/MyBaseTask.py`.
+- Put shared behavior in `src/tasks/NikkeBaseTask.py`.
 
 Task classes typically set their name, description, defaults, and widgets in `__init__()`, then implement automation in `run()`.
 

@@ -1,7 +1,7 @@
-from src.tasks.MyBaseTask import MyBaseTask  # 导入项目基类，所有任务统一继承它。
+from src.tasks.NikkeBaseTask import NikkeBaseTask  # 导入项目基类，所有任务统一继承它。
 
 
-class DebugTask(MyBaseTask):  # 实机调试任务：供「开发工具」tab 按需调用单个调试方法。
+class DebugTask(NikkeBaseTask):  # 实机调试任务：供「开发工具」tab 按需调用单个调试方法。
     # 用法：GUI 开发工具 tab → Debug Task Function → 选 DebugTask → 输入方法名 → Call。
     # 每个方法执行一个独立动作并返回可读字符串，方便逐项排查实机问题。
 

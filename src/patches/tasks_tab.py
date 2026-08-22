@@ -169,12 +169,12 @@ def _patch_tasks_tab_sync_config_on_show():
 def _patch_tasks_tab_reset_done_button():
     # 任务列表里收获/歼灭/商店卡片展开后的 Operation 行、Reset Config 前注入
     # 「重置完成状态」按钮，便于用户改完配置后一键清除完成状态并重跑。
-    # 仅对有 done_keys 的 MyBaseTask 子任务显示；纯编排的 DailyTask 无 done_keys 不显示。
+    # 仅对有 done_keys 的 NikkeBaseTask 子任务显示；纯编排的 DailyTask 无 done_keys 不显示。
     from PySide6.QtWidgets import QHBoxLayout
     from qfluentwidgets import FluentIcon, InfoBar, PushButton
 
     from ok.ui.qt.tasks.ConfigCard import ConfigContentMixin
-    from src.tasks.MyBaseTask import MyBaseTask
+    from src.tasks.NikkeBaseTask import NikkeBaseTask
 
     original_add_buttons = ConfigContentMixin.add_buttons
 
@@ -190,8 +190,8 @@ def _patch_tasks_tab_reset_done_button():
         reset_done.clicked.connect(self._reset_done_clicked)  # 连接重置回调。
 
     def _has_done_state(self):
-        # 只有带完成状态（done_keys 非空）的 MyBaseTask 子任务才需要该按钮。
-        return isinstance(self.task, MyBaseTask) and bool(getattr(self.task, "done_keys", None))
+        # 只有带完成状态（done_keys 非空）的 NikkeBaseTask 子任务才需要该按钮。
+        return isinstance(self.task, NikkeBaseTask) and bool(getattr(self.task, "done_keys", None))
 
     def _operation_buttons_layout(self):
         # Operation 行是 viewLayout 最后一个 LabelAndWidget；其主布局里嵌套的

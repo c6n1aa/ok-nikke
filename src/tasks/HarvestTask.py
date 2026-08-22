@@ -1,7 +1,7 @@
-from src.tasks.MyBaseTask import MyBaseTask  # 导入项目基类，所有任务统一继承它。
+from src.tasks.NikkeBaseTask import NikkeBaseTask  # 导入项目基类，所有任务统一继承它。
 
 
-class HarvestTask(MyBaseTask):  # 定义收获子任务类。
+class HarvestTask(NikkeBaseTask):  # 定义收获子任务类。
 
     done_keys = {"harvest": "day"}  # 完成状态：收获（日常刷新）。
 

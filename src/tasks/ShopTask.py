@@ -6,7 +6,7 @@ import numpy as np  # 数值计算模块，SOLD OUT 横幅带的像素统计使�
 from ok.feature.Box import Box  # 框类型，构造网格每格的匹配区域。
 from ok.task.exceptions import WaitFailedException  # 框架等待失败异常，子流程断言失败时抛出由 try_step 捕获。
 
-from src.tasks.MyBaseTask import MyBaseTask  # 项目基类，所有任务统一继承它。
+from src.tasks.NikkeBaseTask import NikkeBaseTask  # 项目基类，所有任务统一继承它。
 
 # 竞技场代码模板（第一列 1-3 格随机出现，用模板匹配识别），名称 -> 模板路径。
 _CODE_TEMPLATES = {
@@ -50,7 +50,7 @@ _BROKEN_CORE_SLOT = [
 ]
 
 
-class ShopTask(MyBaseTask):  # 商店自动兑换任务，继承项目基类。
+class ShopTask(NikkeBaseTask):  # 商店自动兑换任务，继承项目基类。
 
     done_keys = {  # 完成状态：普通/竞技场商店（日常刷新），废铁商店（周常刷新）。
         "shop_general": "day",  # 普通商店日常完成状态。

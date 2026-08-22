@@ -6,7 +6,7 @@
 
 - 用户点击后执行一次的任务继承 `BaseTask`。
 - 需要后台周期检查的任务继承 `TriggerTask`。
-- 通用能力可以放在 `src/tasks/MyBaseTask.py`。
+- 通用能力可以放在 `src/tasks/NikkeBaseTask.py`。
 
 任务类通常在 `__init__()` 中设置名称、描述、默认配置和配置控件，在 `run()` 中实现自动化逻辑。
 

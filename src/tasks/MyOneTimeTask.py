@@ -3,10 +3,10 @@ import re
 from qfluentwidgets import FluentIcon
 
 from ok import og
-from src.tasks.MyBaseTask import MyBaseTask
+from src.tasks.NikkeBaseTask import NikkeBaseTask
 
 
-class MyOneTimeTask(MyBaseTask):
+class MyOneTimeTask(NikkeBaseTask):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

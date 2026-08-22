@@ -1,12 +1,12 @@
 # 界面识别与失败恢复
 
-本文介绍 `MyBaseTask`（`src/tasks/MyBaseTask.py`）提供的通用「界面识别」与「失败恢复」骨架。这是后续任务开发的统一约束，Agent 在开发新任务时必须遵守文末的「约束」一节。
+本文介绍 `NikkeBaseTask`（`src/tasks/NikkeBaseTask.py`）提供的通用「界面识别」与「失败恢复」骨架。这是后续任务开发的统一约束，Agent 在开发新任务时必须遵守文末的「约束」一节。
 
 ## 背景
 
 早期任务各自用 `wait_feature`/`wait_click_feature`，默认「点完入口就已在目标页面」。一旦遇到弹窗、加载慢、网络波动等意外界面，后续等待会超时并抛出 `WaitFailedException`，任务停在半路且没有任何恢复动作，下一个任务还会基于错误的界面假设继续操作。
 
-为此，`MyBaseTask` 沉淀了一套轻量、可抽象、可扩展的通用机制，全部复用 ok-script 现有 API，不引入新的框架概念。
+为此，`NikkeBaseTask` 沉淀了一套轻量、可抽象、可扩展的通用机制，全部复用 ok-script 现有 API，不引入新的框架概念。
 
 ## 方案 A：界面识别
 
@@ -22,7 +22,7 @@ self.register_screen(name, features=(), keywords=(), ocr_box=None)
 - `keywords`：OCR 关键词列表，任一命中即判定为该界面，用于没有稳定模板的页面。
 - `ocr_box`：可选 OCR 区域，缩小 OCR 范围以降低开销。可为相对坐标 `[x, y, to_x, to_y]`，也可为 coco 标注的区域特征名（字符串），匹配时按当前分辨率解析（如 `"box_sub_pages_title"`）；特征缺失时退化为全屏 OCR。
 
-`MyBaseTask.__init__` 默认注册了大厅界面：`register_screen("lobby", features=["ark"])`，即「识别到方舟按钮 = 已回到大厅」。
+`NikkeBaseTask.__init__` 默认注册了大厅界面：`register_screen("lobby", features=["ark"])`，即「识别到方舟按钮 = 已回到大厅」。
 
 > 注册是**可选**的：只在确实需要识别/等待该界面（`is_screen`/`wait_screen`/`assert_screen`）或把它作为恢复目标时才注册。好友、邮箱等临时弹层/弹窗页面，以及只点击几次的简单任务，都不需要注册额外界面。
 
