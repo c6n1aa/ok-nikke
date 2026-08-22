@@ -118,6 +118,7 @@ config = {
         ["src.tasks.ShopTask", "ShopTask"],
         ["src.tasks.CashShopTask", "CashShopTask"],
         ["src.tasks.ArkTask", "ArkTask"],
+        ["src.tasks.RaidTask", "RaidTask"],
         ["src.tasks.DebugTask", "DebugTask"],
         ["ok", "DiagnosisTask"],
     ],

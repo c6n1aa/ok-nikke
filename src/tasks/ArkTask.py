@@ -45,8 +45,8 @@ class ArkTask(MyBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截战
             },
         })
         # 界面注册：方舟需同时命中 coco 特征与标题 OCR；无限之塔以塔徽特征判定；模拟室以室徽特征判定。
-        self.register_screen("ark", features=["ark_ranking"], keywords=["方舟"], ocr_box="box_sub_pages_title")
-        self.register_screen("infinite_tower", features=["tribe_tower_mark"])
+        self.register_screen("ark", features=["ark_tribe_tower", "ark_ranking"])
+        self.register_screen("tribe_tower", features=["tribe_tower_mark"])
         self.register_screen("simulation_room", features=["simulation_mark"])
 
     def run(self):  # 任务执行入口：先统一进入方舟，再依次执行各子流程。
@@ -59,9 +59,17 @@ class ArkTask(MyBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截战
         self._do_simulation()  # 执行模拟室子流程。
 
     def _nav_to_ark(self):  # 导航到方舟界面：已在方舟直接返回；否则确保大厅后点击方舟入口（供子流程开头与统一入口复用）。
+        self.next_frame()  # 先刷新一帧再判定：上一子流程收尾刚点过返回按钮，旧帧仍停留在上一个界面，不刷新会误判不在方舟。
         if self.is_screen("ark"):  # 已在方舟界面（上一子流程结束后的常态）。
             return  # 直接返回，无需导航。
-        if not self.wait_until_lobby_after_start():  # 不在方舟时先确保进入游戏大厅（兼容刚启动/失败恢复回大厅的场景）。
+        self.dismiss_all_popups(wait_for_popup=False, time_out=10)  # 统一清理残留弹窗（爬塔结算奖励等可能遮挡方舟特征导致误判）。
+        self.next_frame()  # 弹窗清理后再刷新一帧重新判定。
+        if self.is_screen("ark"):  # 弹窗清理后已在方舟界面。
+            return  # 直接返回，无需导航。
+        if self.find_one("common_back") is not None or self.find_one("common_home") is not None:  # 屏幕上存在返回/主页按钮说明处于应用内其它界面，而非冷启动加载中。
+            if not self._recover_to_lobby():  # 走统一失败恢复协议回大厅（有界等待并主动点击主页），避免在冷启动等待里空转。
+                raise WaitFailedException("未能回到游戏大厅")  # 抛异常由 try_step 恢复重试。
+        elif not self.wait_until_lobby_after_start():  # 无应用内特征时才视为冷启动/加载中：循环关公告弹窗并点 TOUCH TO CONTINUE 进入大厅。
             raise WaitFailedException("未能进入游戏大厅")  # 抛异常由 try_step 恢复重试。
         self.dismiss_all_popups(wait_for_popup=False, time_out=10)  # 统一清理大厅残留弹窗，无弹窗立即返回。
         self.wait_click_feature("ark", raise_if_not_found=True, after_sleep=1)  # 从大厅点击方舟入口。
@@ -116,7 +124,7 @@ class ArkTask(MyBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截战
         self.click_box(red_dot, after_sleep=1)  # 点击带红点的徽标进入关卡选择。
         if self.find_one("simulation_level5") is None:  # 当前未选中最高难度 Lv.5。
             self.wait_click_feature("simulation_level5", raise_if_not_found=True, after_sleep=1)  # 选择 Lv.5 难度。
-        self.wait_click_feature("box_simulation_region_selector", raise_if_not_found=True, after_sleep=1)  # 点击地区选择器确认地区。
+        self.click_box("box_simulation_region_selector", raise_if_not_found=True, after_sleep=1)  # 点击地区选择器确认地区。
         if self.find_one("simulation_quick_complete_active") is None:  # 立即完成开关尚未激活。
             toggle = self.find_one("simulation_quick_complete_disable")  # 识别灰色未激活开关以精确定位。
             if toggle is not None:  # 找到未激活开关。
@@ -137,7 +145,7 @@ class ArkTask(MyBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截战
 
     def _do_tribe_tower_flow(self):  # 企业塔整体流程：确保在方舟→无限之塔→逐塔挑战→返回方舟。
         self._nav_to_ark()  # 确保处于方舟界面（正常已就位；失败恢复回大厅后由此重新进入）。
-        self._enter_infinite_tower()  # 从方舟进入无限之塔界面。
+        self._enter_tribe_tower()  # 从方舟进入无限之塔界面。
         abandoned = False  # 自动撤退模式是否已处理并返回方舟。
         for index in range(1, 5):  # 依次处理 1-4 号塔。
             handled = self._try_tower(index)  # 处理单号塔，返回是否进入过塔。
@@ -177,9 +185,9 @@ class ArkTask(MyBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截战
             self._climb_battle(index, battle_box)  # 正常战斗并处理结算，结束后返回无限之塔界面。
         return True  # 已进入过塔。
 
-    def _enter_infinite_tower(self):  # 从方舟进入无限之塔界面（调用时已确保处于方舟界面）。
+    def _enter_tribe_tower(self):  # 从方舟进入无限之塔界面（调用时已确保处于方舟界面）。
         self.wait_click_feature("ark_tribe_tower", raise_if_not_found=True, after_sleep=1)  # 点击企业塔入口。
-        self.assert_screen("infinite_tower")  # 确认已进入无限之塔界面。
+        self.assert_screen("tribe_tower")  # 确认已进入无限之塔界面。
 
     def _enter_tower(self, box_key):  # 点击塔卡进入该塔。
         try:  # 区域特征可能缺失。
@@ -192,20 +200,24 @@ class ArkTask(MyBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截战
         cy = box.y + box.height + int(0.1 * self.height)  # 点击 y 取区域底边下移 0.1 倍屏幕高度（塔卡中部）。
         self.click(cx, cy, after_sleep=3)  # 点击塔卡进入该塔。
 
-    def _climb_battle(self, index, battle_btn):  # 正常爬塔：进入战斗、处理结算并返回无限之塔界面。
+    def _climb_battle(self, index, battle_btn):  # 正常爬塔：进入战斗、连续挑战下一关直到无下一关，最后返回无限之塔界面。
         self.click_box(battle_btn, after_sleep=10)  # 点击开始战斗按钮进入战斗。
-        result, confirm_box = self.wait_battle_finish(time_out=240, check_interval=2)  # 节流等待战斗结束，只检测不点击。
-        if result == "success":  # 战斗胜利。
-            next_stage = self.find_one("battle_finish_next_stage")  # 识别结算界面的下一关按钮。
-            if next_stage is not None:  # 存在下一关按钮。
-                self.click_box(next_stage, after_sleep=1)  # 点击继续挑战下一关。
-            else:  # 无下一关。
-                self.click_box(confirm_box, after_sleep=1)  # 点击结算确认按钮返回塔关卡界面。
-        elif result == "failed":  # 战斗失败。
-            self.failed_towers.append(index)  # 记录本次失败的塔号，供结束时提醒用户。
-            self.click_box(confirm_box, after_sleep=1)  # 点击失败返回按钮。
-        else:  # 等待战斗结束超时。
-            raise WaitFailedException("等待企业塔战斗结束超时")  # 抛异常由 try_step 恢复重试。
+        while True:  # 爬塔循环：每场战斗结束后按结算界面按钮决定继续挑战还是收尾。
+            result, confirm_box = self.wait_battle_finish(time_out=240, check_interval=2)  # 节流等待战斗结束，只检测不点击。
+            if result == "success":  # 战斗胜利。
+                next_stage = self.find_one("battle_finish_next_stage")  # 识别结算界面的下一关按钮。
+                if next_stage is not None:  # 存在下一关按钮。
+                    self.click_box(next_stage, after_sleep=10)  # 点击继续挑战下一关并等待下一场战斗加载。
+                    continue  # 重新进入等待战斗结束的循环。
+                self.click_box(confirm_box, after_sleep=1)  # 无下一关说明已到当前最高层，点击结算确认按钮返回塔关卡界面。
+                break  # 结束爬塔循环。
+            elif result == "failed":  # 战斗失败。
+                self.failed_towers.append(index)  # 记录本次失败的塔号，供结束时提醒用户。
+                self.click_box(confirm_box, after_sleep=1)  # 点击失败返回按钮。
+                break  # 结束爬塔循环。
+            else:  # 等待战斗结束超时。
+                raise WaitFailedException("等待企业塔战斗结束超时")  # 抛异常由 try_step 恢复重试。
+        self.dismiss_all_popups(wait_for_popup=False, time_out=10)  # 清理结算后可能弹出的奖励/公告弹窗。
         self.wait_feature("tribe_tower_stage", raise_if_not_found=True)  # 等待回到塔关卡界面。
         self.wait_click_feature("common_back", raise_if_not_found=True, after_sleep=1)  # 点击返回无限之塔界面。
 

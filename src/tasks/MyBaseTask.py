@@ -8,7 +8,7 @@ import cv2  # OpenCV，模板缩放匹配使用 cv2.resize / cv2.imread。
 
 from ok import BaseTask
 from ok.feature.Box import Box  # 检测框对象，find_red_dot 返回值类型。
-from ok.task.exceptions import WaitFailedException  # 界面断言/失败恢复使用的框架等待失败异常。
+from ok.task.exceptions import TaskDisabledException, WaitFailedException  # 界面断言失败与任务被停止（用户点击中断）时使用的框架异常。
 from ok.util.color import calculate_colorfulness  # 框架颜色工具：计算区域色彩丰富度。
 
 _BEIJING_TZ = datetime.timezone(datetime.timedelta(hours=8))  # 北京时间 UTC+8，无夏令时
@@ -461,7 +461,9 @@ class MyBaseTask(BaseTask):
             return True  # 已关闭横幅弹窗。
         try:  # 遮罩 OCR 异常不应中断统一清理。
             boxes = self.ocr(x=1 / 3, y=0.6, to_x=2 / 3, to_y=1, match=["点击领取奖励", "点击任意处"])  # 中下部区域查找领取奖励/任意处关闭遮罩按钮。
-        except Exception as e:  # OCR 失败。
+        except TaskDisabledException:  # 任务已被用户停止，必须让中断异常继续向上传播。
+            raise  # 重新抛出，交由执行器结束任务。
+        except Exception as e:  # 其它 OCR 失败。
             self.log_warning(f"遮罩 OCR 失败: {e}")  # 记录失败原因。
             return False  # 本帧无遮罩可关。
         if boxes:  # 存在遮罩按钮。
@@ -504,6 +506,8 @@ class MyBaseTask(BaseTask):
                 closed_any = True  # 标记已关闭过弹窗。
                 try:  # 刷新帧后再继续，避免基于旧帧重复匹配。
                     self.next_frame()  # 获取最新屏幕帧。
+                except TaskDisabledException:  # 任务已被用户停止，必须让中断异常继续向上传播。
+                    raise  # 重新抛出，交由执行器结束任务。
                 except Exception:  # 无可用帧时忽略。
                     pass  # 继续下一轮。
                 continue  # 继续清理剩余弹窗。
@@ -623,6 +627,8 @@ class MyBaseTask(BaseTask):
             self.log_warning(f"recover next_frame failed: {e}")  # 记录帧刷新失败。
         try:
             self.dismiss_all_popups(clear_condition=lambda: self.is_screen("lobby"), time_out=10)  # 先统一清理可能遮挡后续操作的弹窗，容错：没有弹窗也继续恢复。
+        except TaskDisabledException:  # 任务已被用户停止，必须让中断异常继续向上传播。
+            raise  # 重新抛出，交由执行器结束任务，避免恢复流程变成停不下来的僵尸任务。
         except Exception as e:  # 清理弹窗异常不中断恢复。
             self.log_warning(f"recover dismiss_all_popups failed: {e}")  # 记录清理弹窗失败。
         if self.is_screen("lobby"):  # 已在大厅则无需额外操作。
@@ -632,6 +638,8 @@ class MyBaseTask(BaseTask):
                 home = self.find_one("common_home")  # 查找大厅按钮。
                 if home is not None:  # 找到才点击。
                     self.click_box(home, after_sleep=1)  # 点击大厅按钮返回大厅。
+        except TaskDisabledException:  # 任务已被用户停止，必须让中断异常继续向上传播。
+            raise  # 重新抛出，交由执行器结束任务。
         except Exception as e:  # 回大厅操作异常不中断恢复。
             self.log_warning(f"recover common_home failed: {e}")  # 记录回大厅失败。
         return self.wait_for_lobby(time_out=time_out, raise_if_not_found=False)  # 等待确认回到大厅。

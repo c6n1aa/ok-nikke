@@ -67,8 +67,7 @@ class OutpostDefenseTask(MyBaseTask):  # 定义歼灭子任务类。
         if free:  # 存在免费歼灭按钮则点击。
             self.click_box(free, after_sleep=1)  # 点击免费歼灭确认。
             self.dismiss_all_popups(time_out=10);
-        else:  # 找不到免费歼灭按钮则关闭弹窗。
-            self.wait_click_feature("wipe_out_close", time_out=10, raise_if_not_found=True, after_sleep=1)  # 点击关闭按钮。
+        self.wait_click_feature("wipe_out_close", time_out=10, raise_if_not_found=True, after_sleep=1)  # 点击关闭按钮。
         self.wait_feature("outpost_defense_wipe_out", time_out=10, raise_if_not_found=True)  # 等待回到歼灭页。
 
     def _wipe_out_with_gem(self):  # 珠宝歼灭子流程。
