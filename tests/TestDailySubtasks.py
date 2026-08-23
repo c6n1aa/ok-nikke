@@ -174,7 +174,8 @@ class TestOutpostDefenseTask(_DebugOffTestCase):
 
     def test_click_entry_raises_when_region_missing(self):
         from ok.task.exceptions import WaitFailedException
-        with patch.object(self.task, 'get_box_by_name', return_value=None):
+        with patch.object(self.task, 'get_box_by_name', return_value=None), \
+                patch.object(self.task, 'sleep'):
             with self.assertRaises(WaitFailedException):
                 self.task._click_outpost_defense(time_out=1)
 

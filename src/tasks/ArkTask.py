@@ -45,7 +45,7 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
             },
         })
         # 界面注册：方舟需同时命中 coco 特征与标题 OCR；无限之塔以塔徽特征判定；模拟室以室徽特征判定。
-        self.register_screen("ark", features=["ark_tribe_tower", "ark_ranking"])
+        self.register_screen("ark", features=["ark_tribe_tower", "ark_simulation_room"])
         self.register_screen("tribe_tower", features=["tribe_tower_mark"])
         self.register_screen("simulation_room", features=["simulation_mark"])
 
@@ -145,9 +145,11 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
 
     def _do_tribe_tower_flow(self):  # 企业塔整体流程：确保在方舟→无限之塔→逐塔挑战→返回方舟。
         self._nav_to_ark()  # 确保处于方舟界面（正常已就位；失败恢复回大厅后由此重新进入）。
-        self._enter_tribe_tower()  # 从方舟进入无限之塔界面。
+        self._enter_tribe_tower()  # 从方舟进入无限之塔界面（首塔入口已断言本界面）。
         abandoned = False  # 自动撤退模式是否已处理并返回方舟。
         for index in range(1, 5):  # 依次处理 1-4 号塔。
+            if index > 1:  # 非首塔：上一塔返回后必须先重新识别到无限之塔界面（结算动画可能未收尾），再判断下一塔是否开放。
+                self.assert_screen("tribe_tower")  # 轮询等待界面特征命中；超时抛 WaitFailedException 由 try_step 恢复重跑。
             handled = self._try_tower(index)  # 处理单号塔，返回是否进入过塔。
             if handled and self.config.get("关闭自动爬塔"):  # 自动撤退模式下进入一次即结束流程。
                 abandoned = True  # 标记已结束。
@@ -203,13 +205,13 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
     def _climb_battle(self, index, battle_btn):  # 正常爬塔：进入战斗、连续挑战下一关直到无下一关，最后返回无限之塔界面。
         self.click_box(battle_btn, after_sleep=10)  # 点击开始战斗按钮进入战斗。
         while True:  # 爬塔循环：每场战斗结束后按结算界面按钮决定继续挑战还是收尾。
-            result, confirm_box = self.wait_battle_finish(time_out=240, check_interval=2)  # 节流等待战斗结束，只检测不点击。
+            result, confirm_box = self.wait_battle_finish(time_out=240)  # 节流等待战斗结束，只检测不点击。
             if result == "success":  # 战斗胜利。
                 next_stage = self.find_one("battle_finish_next_stage")  # 识别结算界面的下一关按钮。
                 if next_stage is not None:  # 存在下一关按钮。
                     self.click_box(next_stage, after_sleep=10)  # 点击继续挑战下一关并等待下一场战斗加载。
                     continue  # 重新进入等待战斗结束的循环。
-                self.click_box(confirm_box, after_sleep=1)  # 无下一关说明已到当前最高层，点击结算确认按钮返回塔关卡界面。
+                self.click_box(confirm_box, after_sleep=10)  # 无下一关说明已到当前最高层，点击结算确认按钮返回塔关卡界面（wait_battle_finish 已等结算稳定后返回坐标）。
                 break  # 结束爬塔循环。
             elif result == "failed":  # 战斗失败。
                 self.failed_towers.append(index)  # 记录本次失败的塔号，供结束时提醒用户。
@@ -219,7 +221,7 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
                 raise WaitFailedException("等待企业塔战斗结束超时")  # 抛异常由 try_step 恢复重试。
         self.dismiss_all_popups(wait_for_popup=False, time_out=10)  # 清理结算后可能弹出的奖励/公告弹窗。
         self.wait_feature("tribe_tower_stage", raise_if_not_found=True)  # 等待回到塔关卡界面。
-        self.wait_click_feature("common_back", raise_if_not_found=True, after_sleep=1)  # 点击返回无限之塔界面。
+        self.wait_click_feature("common_back", raise_if_not_found=True, after_sleep=1)  # 点击返回无限之塔界面（下一塔开始前由流程断言该界面）。
 
     def _abandon_battle(self, battle_btn):  # 关闭自动爬塔模式：进入战斗后暂停撤退，消耗一次次数后返回方舟。
         self.click_box(battle_btn, after_sleep=10)  # 点击开始战斗并等待战斗加载约 10 秒。

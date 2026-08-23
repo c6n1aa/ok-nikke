@@ -208,12 +208,12 @@ class TestArkTask(_DebugOffTestCase):
             with self.assertRaises(WaitFailedException):
                 self.task._enter_tower("box_tribe_tower1")
 
-    def test_enter_infinite_tower(self):
+    def test_enter_tribe_tower(self):
         with patch.object(self.task, "wait_click_feature") as click_mock, \
                 patch.object(self.task, "assert_screen") as assert_mock:
-            self.task._enter_infinite_tower()
+            self.task._enter_tribe_tower()
         self.assertEqual([("ark_tribe_tower",)], [c.args for c in click_mock.call_args_list])
-        self.assertEqual([("infinite_tower",)], [c.args for c in assert_mock.call_args_list])
+        self.assertEqual([("tribe_tower",)], [c.args for c in assert_mock.call_args_list])
 
     def test_try_tower_skips_when_not_open(self):
         with patch.object(self.task, "_tower_is_open", return_value=False), \
@@ -289,13 +289,14 @@ class TestArkTask(_DebugOffTestCase):
         battle_btn = Box(10, 10, 5, 5, confidence=1, name="battle_btn")
         with patch.object(self.task, "click_box") as click_mock, \
                 patch.object(self.task, "wait_battle_finish",
-                            return_value=("success", esc_box)), \
-                patch.object(self.task, "find_one", return_value=next_box), \
+                            side_effect=[("success", esc_box), ("success", esc_box)]), \
+                patch.object(self.task, "find_one", side_effect=[next_box, None]), \
                 patch.object(self.task, "wait_feature"), \
-                patch.object(self.task, "wait_click_feature"):
+                patch.object(self.task, "wait_click_feature"), \
+                patch.object(self.task, "dismiss_all_popups"):
             self.task._climb_battle(1, battle_btn)
         clicked = [c.args[0].name for c in click_mock.call_args_list]
-        self.assertEqual(["battle_btn", "battile_finish_next_stage"], clicked)
+        self.assertEqual(["battle_btn", "battile_finish_next_stage", "battle_finish_esc"], clicked)
         self.assertEqual([], self.task.failed_towers)
 
     def test_climb_battle_success_click_esc_when_no_next_stage(self):
@@ -306,10 +307,13 @@ class TestArkTask(_DebugOffTestCase):
                             return_value=("success", esc_box)), \
                 patch.object(self.task, "find_one", return_value=None), \
                 patch.object(self.task, "wait_feature"), \
-                patch.object(self.task, "wait_click_feature"):
+                patch.object(self.task, "wait_click_feature") as back_mock, \
+                patch.object(self.task, "dismiss_all_popups"):
             self.task._climb_battle(1, battle_btn)
         clicked = [c.args[0].name for c in click_mock.call_args_list]
         self.assertEqual(["battle_btn", "battle_finish_esc"], clicked)
+        back_mock.assert_called_once_with("common_back", raise_if_not_found=True,
+                                          after_sleep=1)  # 返回后不再固定等待，由流程在下一塔前断言无限之塔界面。
         self.assertEqual([], self.task.failed_towers)
 
     def test_climb_battle_failure_records_tower(self):
@@ -318,9 +322,10 @@ class TestArkTask(_DebugOffTestCase):
         with patch.object(self.task, "click_box") as click_mock, \
                 patch.object(self.task, "wait_battle_finish",
                             return_value=("failed", back_box)), \
-                patch.object(self.task, "find_one"), \
+                patch.object(self.task, "find_one", return_value=None), \
                 patch.object(self.task, "wait_feature"), \
-                patch.object(self.task, "wait_click_feature"):
+                patch.object(self.task, "wait_click_feature"), \
+                patch.object(self.task, "dismiss_all_popups"):
             self.task._climb_battle(3, battle_btn)
         clicked = [c.args[0].name for c in click_mock.call_args_list]
         self.assertEqual(["battle_btn", "battle_finish_failed_back"], clicked)
@@ -356,30 +361,38 @@ class TestArkTask(_DebugOffTestCase):
 
     def test_flow_all_towers_skipped_returns_ark(self):
         with patch.object(self.task, "_nav_to_ark"), \
-                patch.object(self.task, "_enter_infinite_tower"), \
+                patch.object(self.task, "_enter_tribe_tower"), \
+                patch.object(self.task, "assert_screen") as assert_mock, \
                 patch.object(self.task, "_try_tower", return_value=False) as try_mock, \
                 patch.object(self.task, "wait_click_feature") as back_mock:
             self.task._do_tribe_tower_flow()
         self.assertEqual(4, try_mock.call_count)
+        self.assertEqual(3, assert_mock.call_count)  # 塔 2-4 开始前必须先识别到无限之塔界面。
+        self.assertEqual([("tribe_tower",), ("tribe_tower",), ("tribe_tower",)],
+                         [c.args for c in assert_mock.call_args_list])
         back_mock.assert_called_once_with("common_back", raise_if_not_found=False, after_sleep=1)
 
     def test_flow_abandon_mode_ends_after_first_battle(self):
         self.task.config["关闭自动爬塔"] = True
         with patch.object(self.task, "_nav_to_ark"), \
-                patch.object(self.task, "_enter_infinite_tower"), \
+                patch.object(self.task, "_enter_tribe_tower"), \
+                patch.object(self.task, "assert_screen") as assert_mock, \
                 patch.object(self.task, "_try_tower", side_effect=[False, True]) as try_mock, \
                 patch.object(self.task, "wait_click_feature") as back_mock:
             self.task._do_tribe_tower_flow()
         self.assertEqual(2, try_mock.call_count)
+        assert_mock.assert_called_once_with("tribe_tower")  # 仅第 2 塔前做一次界面识别门控。
         back_mock.assert_not_called()
 
     def test_flow_normal_mode_processes_all_towers(self):
         with patch.object(self.task, "_nav_to_ark"), \
-                patch.object(self.task, "_enter_infinite_tower"), \
+                patch.object(self.task, "_enter_tribe_tower"), \
+                patch.object(self.task, "assert_screen") as assert_mock, \
                 patch.object(self.task, "_try_tower", return_value=True) as try_mock, \
                 patch.object(self.task, "wait_click_feature") as back_mock:
             self.task._do_tribe_tower_flow()
         self.assertEqual(4, try_mock.call_count)
+        self.assertEqual(3, assert_mock.call_count)  # 打完一塔返回后先识别到无限之塔界面再判断下一塔。
         back_mock.assert_called_once()
 
 
@@ -469,9 +482,9 @@ class TestArkTaskSimulation(_DebugOffTestCase):
                 patch.object(self.task, "dismiss_all_popups") as dismiss_mock:
             self.task._do_simulation_flow()
         clicked = [c.args[0] for c in click_mock.call_args_list]
-        self.assertEqual(["ark_simulation_room", "box_simulation_region_selector",
-                          "simulation_quick_battle_finishi", "simulation_close"], clicked)
-        self.assertEqual([red_dot, quick], [c.args[0] for c in click_box_mock.call_args_list])
+        self.assertEqual(["ark_simulation_room", "simulation_quick_battle_finishi", "simulation_close"], clicked)
+        self.assertEqual([red_dot, "box_simulation_region_selector", quick],
+                         [c.args[0] for c in click_box_mock.call_args_list])
         dismiss_mock.assert_called_once()
 
     def test_flow_selects_level5_and_activates_quick_complete(self):
@@ -489,9 +502,10 @@ class TestArkTaskSimulation(_DebugOffTestCase):
                 patch.object(self.task, "dismiss_all_popups"):
             self.task._do_simulation_flow()
         clicked = [c.args[0] for c in click_mock.call_args_list]
-        self.assertEqual(["ark_simulation_room", "simulation_level5", "box_simulation_region_selector",
-                          "simulation_quick_battle_finishi", "simulation_close"], clicked)
-        self.assertEqual([red_dot, toggle, quick], [c.args[0] for c in click_box_mock.call_args_list])
+        self.assertEqual(["ark_simulation_room", "simulation_level5", "simulation_quick_battle_finishi",
+                          "simulation_close"], clicked)
+        self.assertEqual([red_dot, "box_simulation_region_selector", toggle, quick],
+                         [c.args[0] for c in click_box_mock.call_args_list])
 
     def test_flow_no_quick_battle_closes(self):
         red_dot = Box(1387, 804, 36, 45, confidence=1, name="red_dot")  # 徽标红点。
@@ -508,9 +522,9 @@ class TestArkTaskSimulation(_DebugOffTestCase):
                 patch.object(self.task, "dismiss_all_popups") as dismiss_mock:
             self.task._do_simulation_flow()
         clicked = [c.args[0] for c in click_mock.call_args_list]
-        self.assertEqual(["ark_simulation_room", "box_simulation_region_selector", "simulation_close"],
-                         clicked)
-        self.assertEqual([red_dot], [c.args[0] for c in click_box_mock.call_args_list])
+        self.assertEqual(["ark_simulation_room", "simulation_close"], clicked)
+        self.assertEqual([red_dot, "box_simulation_region_selector"],
+                         [c.args[0] for c in click_box_mock.call_args_list])
         dismiss_mock.assert_not_called()
 
     def test_simulation_screen_registered(self):

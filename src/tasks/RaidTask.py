@@ -20,9 +20,12 @@ class RaidTask(NikkeBaseTask):  # 定义讨伐任务类，包含协同作战与�
             "协同作战": "自动匹配协同作战-普通难度",  # 协同作战开关说明。
             "个人突袭": "自动执行个人突袭任务",  # 个人突袭开关说明。
         })  # 结束帮助文本更新。
-        # 界面注册：协同作战首页以 coop_page 特征判定（文档写 solo_raid_page，实测应为 coop_page）；NIKKE 选择页以 coop_nikke_select_page 判定。
+        # 界面注册：协同作战首页以 coop_page 特征判定（文档写 solo_raid_page，实测应为 coop_page）；NIKKE 选择页以 coop_nikke_select_page 判定；
+        # 个人突袭首页以 solo_raid_page 判定；个人突袭队伍选择界面以 solo_raid_battle_team_select_page 判定。
         self.register_screen("coop_page", features=["coop_page"])  # 注册协同作战首页，已按当前分辨率缩放的 coco 特征判定。
         self.register_screen("coop_nikke_select_page", features=["coop_nikke_select_page"])  # 注册协同作战 NIKKE 选择界面。
+        self.register_screen("solo_raid_page", features=["solo_raid_page"])  # 注册个人突袭首页。
+        self.register_screen("solo_raid_battle_team_select_page", features=["solo_raid_battle_team_select_page"])  # 注册个人突袭队伍选择界面。
 
     # ---- 协同作战 helpers ----
 
@@ -35,10 +38,22 @@ class RaidTask(NikkeBaseTask):  # 定义讨伐任务类，包含协同作战与�
             raise WaitFailedException("缺少区域特征: box_lobby_left_side_panel")  # 抛异常由 try_step 捕获恢复。
         return box  # 返回面板区域框。
 
-    def _find_coop_entry(self, panel):  # 在左侧面板内灰度识别协同作战入口，命中返回 Box 否则 None。
-        return self.find_one("coop", box=panel, use_gray_scale=True)  # 在面板区域内灰度匹配 coop 入口（灰度可弱化颜色干扰）。
+    def _find_panel_entry(self, name, panel):  # 在左侧面板内灰度识别指定入口（coop/solo_raid），命中返回 Box 否则 None。
+        return self.find_one(name, box=panel, use_gray_scale=True)  # 在面板区域内灰度匹配目标入口（灰度可弱化颜色干扰）。
 
     def _is_coop_finished(self):  # 判断协同作战次数是否已用尽（OCR 识别 0/3）。
+        try:  # 先判断协同作战功能入口是否可用（灰白禁用视为已完成）。
+            feature_box = self.get_box_by_name("box_coop_feature")  # 获取协同作战功能区域（已按当前分辨率缩放）。
+        except ValueError:  # 特征缺失。
+            feature_box = None  # 置空由后续 OCR 逻辑兜底。
+        if feature_box is not None:  # 区域有效时才做可用性判断。
+            try:  # is_feature_enabled 内部访问 frame，执行器已退出时会抛 SystemExit。
+                if not self.is_feature_enabled(feature_box):  # 功能入口为灰白禁用态说明次数用尽或未开放。
+                    return True  # 视为已完成。
+            except SystemExit:  # 执行器已退出（单测 teardown 后访问 frame 会直接 sys.exit）。
+                pass  # 保守视为可用，交由后续 OCR 兜底。
+            except Exception:  # 其他颜色检测异常同样保守处理。
+                pass  # 交由后续 OCR 兜底。
         try:  # 区域特征可能缺失。
             count_box = self.get_box_by_name("box_coop_count")  # 获取次数标注区域（已按当前分辨率缩放）。
         except ValueError:  # 特征缺失。
@@ -64,7 +79,7 @@ class RaidTask(NikkeBaseTask):  # 定义讨伐任务类，包含协同作战与�
                 raise WaitFailedException("未能进入游戏大厅")  # 抛异常由 try_step 恢复重试。
             self.dismiss_all_popups(wait_for_popup=False, time_out=10)  # 统一清理大厅残留弹窗，无弹窗立即返回。
             panel = self._get_panel_box()  # 获取左侧面板区域。
-            coop_box = self._find_coop_entry(panel)  # B 在 box_lobby_left_side_panel 识别 coop 使用灰度识别。
+            coop_box = self._find_panel_entry("coop", panel)  # B 在 box_lobby_left_side_panel 识别 coop 使用灰度识别。
             if coop_box is None:  # B -- false 分支：未找到协同作战入口。
                 self.log_info("未找到协同作战入口，视为已完成。")  # 记录跳过原因。
                 return  # 直接返回，由调用方标记完成。
@@ -89,7 +104,7 @@ class RaidTask(NikkeBaseTask):  # 定义讨伐任务类，包含协同作战与�
             self.assert_screen("coop_nikke_select_page")  # J 识别 coop_nikke_select_page 确认当前处于 NIKKE 选择界面。
             self.sleep(3)  # J 等待 3 秒（界面动画稳定）。
             self.click_box("box_coop_ready", after_sleep=1)  # K 点击 box_coop_ready 准备就绪。
-            result, confirm_box = self.wait_battle_finish(time_out=240, check_interval=2)  # L 等待战斗结束 wait_battle_finish（节流轮询，只检测不点击）。
+            result, confirm_box = self.wait_battle_finish(time_out=240)  # L 等待战斗结束 wait_battle_finish（节流轮询，只检测不点击）。
             if result is None:  # 超时未检测到结算界面。
                 raise WaitFailedException("等待协同作战战斗结束超时")  # 抛异常由 try_step 恢复。
             if confirm_box is not None:  # 命中结算确认框。
@@ -124,12 +139,94 @@ class RaidTask(NikkeBaseTask):  # 定义讨伐任务类，包含协同作战与�
         self.mark_done("coop", "day")  # 记录本周期已完成。
         self.log_info("协同作战任务完成。")  # 记录子流程完成。
 
-    # ---- 个人突袭（占位，后续补充） ----
+    # ---- 个人突袭 ----
 
-    def _do_solo_raid_flow(self):  # 个人突袭主流程占位：后续补充具体实现，当前仅日志占位。
-        self.log_info("个人突袭流程暂未实现，跳过。")  # 记录占位跳过。
-        # 后续在此补充：进入个人突袭页 → 关卡选择 → 战斗 → 结算等流程。
-        return  # 结束占位流程。
+    def _is_solo_raid_option_enabled(self, box_name):  # 判断个人突袭出战方式按钮是否可用（高亮彩色），区域缺失一律视为禁用。
+        try:  # 区域特征可能缺失。
+            box = self.get_box_by_name(box_name)  # 获取按钮标注区域（已按当前分辨率缩放）。
+        except ValueError:  # 特征缺失。
+            return False  # 无法判定时视为禁用，避免误点不可用按钮。
+        if box is None:  # 区域无效。
+            return False  # 同样视为禁用。
+        return self.is_feature_enabled(box, after_sleep=2)  # 用色彩丰富度区分可用（彩色）与禁用（灰白）状态。
+
+    def _check_battle_result_once(self):  # 单帧判定战斗结束画面：判据与 wait_battle_finish 一致，但不做轮询等待（用于快速战斗即时结算）。
+        self.next_frame()  # 刷新一帧，避免使用旧帧误判。
+        v_variance = 100 / 1440  # 与 wait_battle_finish 相同的纵向扩展比例（不同结算界面的 ESC 位置可能上下偏移）。
+        esc = self.find_one("battle_finish_esc", vertical_variance=v_variance)  # 匹配正常结束确认按钮特征（粗壮图标，跨分辨率可靠）。
+        if esc is not None:  # 正常战斗结束。
+            return "success", esc  # 返回结果与确认按钮框。
+        failed = self.find_one("battle_finish_failed")  # 单帧匹配战斗失败特征。
+        failed_back = self.find_one("battle_finish_failed_back")  # 单帧匹配失败返回按钮特征。
+        if failed is not None and failed_back is not None:  # 战斗失败。
+            return "failed", failed_back  # 返回结果与返回按钮框。
+        return None, None  # 当前帧未检测到结算画面。
+
+    def _do_solo_raid_battle(self):  # 个人突袭普通出战分支：F→N 从点击出战到结算返回首页（由主流程 try_step 包裹）。
+        self.click_box("box_solo_raid_battle_feature", after_sleep=1)  # F 点击出战按钮，弹出出战确认弹窗。
+        self.wait_click_feature("solo_raid_battle_confirm", time_out=10, raise_if_not_found=True, after_sleep=1)  # G 等待识别出战确认弹窗并点击。
+        self.assert_screen("solo_raid_battle_team_select_page")  # H 断言已进入队伍选择界面。
+        self.click_box("box_solo_raid_battle_start", after_sleep=1)  # I 点击开始战斗。
+        result, confirm_box = self.wait_battle_finish(time_out=240)  # J 节流轮询等待自动战斗结束（只检测不点击）。
+        if result is None:  # 超时未检测到结算界面。
+            raise WaitFailedException("等待个人突袭战斗结束超时")  # 抛异常由 try_step 捕获恢复。
+        if confirm_box is not None:  # 命中结算确认框。
+            self.click_box(confirm_box, after_sleep=1)  # M 点击战斗结束后的 esc（或失败返回框）。
+        else:  # 兜底：未返回确认框。
+            self.wait_click_feature("battle_finish_esc", time_out=10, raise_if_not_found=True, after_sleep=1)  # 兜底点击胜利确认。
+        self.wait_feature("solo_raid_battle_finish", time_out=15, raise_if_not_found=True)  # R 等待识别战斗结果页出现。
+        self.wait_click_feature("solo_raid_battle_finish_confirm", time_out=10, raise_if_not_found=True, after_sleep=1)  # N 识别并点击结果确认，返回个人突袭首页。
+        self.assert_screen("solo_raid_page")  # 回到 C：确认已回到个人突袭首页。
+
+    def _do_solo_raid_quick_battle(self):  # 个人突袭快速战斗分支：K→P 扫荡剩余次数并确认即时结算（由主流程 try_step 包裹）。
+        self.click_box("box_solo_raid_quick_battle_feature", after_sleep=1); # 点击快速战斗按钮
+        self.wait_feature("solo_raid_quick_battle_page", time_out=10, raise_if_not_found=True)  # S 识别快速战斗界面已出现。
+        max_btn = self.find_one("solo_raid_quick_battle_max")  # L 识别次数拉满按钮是否存在。
+        if max_btn is not None:  # L -- true 分支。
+            self.click_box(max_btn, after_sleep=1)  # O 点击拉满剩余次数。
+        self.click_box("box_solo_raid_quick_battle", after_sleep=1)  # Q 点击开始快速战斗（L -- false 时直接走到这里）。
+        self.sleep(3)  # 等待快速战斗结算界面稳定出现（快速战斗直接展示结果）。
+        result, confirm_box = self._check_battle_result_once()  # P 单帧识别战斗结束画面（判据同 wait_battle_finish，不轮询）。
+        if confirm_box is None:  # 未识别到结算画面。
+            raise WaitFailedException("未识别到个人突袭快速战斗结算画面")  # 抛异常由 try_step 捕获恢复。
+        self.log_info(f"个人突袭快速战斗结束: {result}")  # 记录结算结果。
+        self.click_box(confirm_box, after_sleep=1)  # 点击结算确认关闭结果画面。
+
+    def _do_solo_raid_flow(self):  # 个人突袭主流程：从大厅出发，优先快速战斗扫荡，否则逐次普通出战直到全部不可用（re-entrant，由 try_step 包裹）。
+        # A 识别当前在大厅：若已在个人突袭页则无需再从大厅进入；否则确保在大厅。
+        if not self.is_screen("solo_raid_page"):  # 当前不在个人突袭页。
+            if not self.wait_until_lobby_after_start(time_out=30):  # 确保进入游戏大厅（处理公告弹窗与 TOUCH TO CONTINUE）。
+                raise WaitFailedException("未能进入游戏大厅")  # 抛异常由 try_step 捕获恢复重试。
+            self.dismiss_all_popups(wait_for_popup=False, time_out=10)  # 统一清理大厅残留弹窗，无弹窗立即返回。
+            panel = self._get_panel_box()  # 获取左侧面板区域。
+            raid_box = self._find_panel_entry("solo_raid", panel)  # B 在 box_lobby_left_side_panel 识别 solo_raid 使用灰度识别。
+            if raid_box is None:  # B -- false 分支：未找到个人突袭入口。
+                self.log_info("未找到个人突袭入口，视为已完成。")  # 记录跳过原因。
+                return  # 直接返回，由调用方标记完成。
+            self.click_box(raid_box, after_sleep=1)  # 点击个人突袭入口进入个人突袭首页。
+        self.assert_screen("solo_raid_page")  # C 断言当前处于个人突袭首页。
+        rounds = 0  # 出战轮次保护计数，防止按钮状态误判导致死循环。
+        while True:  # 循环直到没有可用的出战方式。
+            rounds += 1  # 轮次加一。
+            if rounds > 5:  # 超过安全上限仍未自然结束。
+                self.log_warning("个人突袭出战轮次超过上限，停止。")  # 记录异常并停止，避免死循环。
+                break  # 结束循环。
+            if self._is_solo_raid_option_enabled("box_solo_raid_quick_battle_feature"):  # D 快速战斗按钮可用（高亮彩色）。
+                self._do_solo_raid_quick_battle()  # K→S→L/O→Q→P 快速战斗一次扫荡全部剩余次数。
+                break  # P --> END 快速战斗已覆盖全部次数，直接结束。
+            if self._is_solo_raid_option_enabled("box_solo_raid_battle_feature"):  # E 普通出战按钮可用（高亮彩色）。
+                self._do_solo_raid_battle()  # F→G→H→I→J→M→R→N 完整出战一轮。
+                continue  # N --> C 回到首页重新判断剩余次数。
+            self.log_info("个人突袭无可用出战方式，结束。")  # D/E 均 false：当日次数已用尽或功能未解锁。
+            break  # E -- false --> END。
+        # 循环结束，尝试返回大厅。
+        try:  # 返回大厅容错。
+            home = self.find_one("common_home")  # 查找大厅按钮。
+            if home is not None:  # 找到大厅按钮。
+                self.click_box(home, after_sleep=1)  # 点击大厅按钮返回大厅。
+            self.wait_for_lobby(time_out=10, raise_if_not_found=False)  # 等待确认回到大厅，超时不抛异常。
+        except Exception as e:  # 返回大厅异常不影响标记完成。
+            self.log_warning(f"返回大厅失败: {e}")  # 记录异常。
 
     def _do_solo_raid(self):  # 个人突袭子流程：开关与完成状态检查后以恢复协议执行主流程。
         if not self.config.get("个人突袭"):  # 用户未启用个人突袭。

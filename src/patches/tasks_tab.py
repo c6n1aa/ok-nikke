@@ -86,7 +86,7 @@ def _patch_tasks_tab_daily_pin():
         base_height = card_header.maximumHeight() or 50  # _compact_header 已 setFixedHeight，min==max 即基准高。
         if base_height <= 0:
             return
-        height = round(base_height * 1.25)  # 放大后的目标高度。
+        height = round(base_height * 1.5)  # 放大后的目标高度。
         card._daily_height_base = base_height
         card_header.setFixedHeight(height)  # 头部卡片本身加高。
         card.setViewportMargins(0, height, 0, 0)  # 滚动区视口顶部让出新的头部高度（展开动画依赖该值）。

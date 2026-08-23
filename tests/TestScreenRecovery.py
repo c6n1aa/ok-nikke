@@ -29,11 +29,11 @@ class TestScreenRecovery(TaskTestCase):
     def test_current_screen_none_when_no_screen_matches(self):
         # 只注册一个当前帧上不存在的界面，验证未命中时返回 None。
         self.task.screens = {}
-        self.task.register_screen("好友页", features=["friend_gift"])
+        self.task.register_screen("好友页", features=["simulation_mark"])
         self.assertIsNone(self.task.current_screen())
 
     def test_register_screen_features_negative(self):
-        self.task.register_screen("好友页", features=["friend_gift"])
+        self.task.register_screen("好友页", features=["simulation_mark"])
         self.assertFalse(self.task.is_screen("好友页"))
 
     def test_unregistered_screen_warns_and_returns_false(self):

@@ -51,6 +51,10 @@ class TestRaidTaskConfig(_DebugOffTestCase):
         self.assertIn("coop_nikke_select_page", self.task.screens)
         self.assertEqual(["coop_page"], self.task.screens["coop_page"]["features"])
         self.assertEqual(["coop_nikke_select_page"], self.task.screens["coop_nikke_select_page"]["features"])
+        self.assertIn("solo_raid_page", self.task.screens)
+        self.assertIn("solo_raid_battle_team_select_page", self.task.screens)
+        self.assertEqual(["solo_raid_page"], self.task.screens["solo_raid_page"]["features"])
+        self.assertEqual(["solo_raid_battle_team_select_page"], self.task.screens["solo_raid_battle_team_select_page"]["features"])
 
 class TestRaidTaskSkip(_DebugOffTestCase):
     task_class = RaidTask
@@ -136,10 +140,11 @@ class TestRaidTaskCoopFlow(_DebugOffTestCase):
         coop_box = _fake_box("coop", 5, 5, 10, 10)
         count_box = _fake_box("box_coop_count", 20, 20, 30, 10)
         ocr_03 = _fake_box("0/3", 21, 21, 5, 5)
-        with patch.object(self.task, "is_screen", return_value=False), patch.object(self.task, "wait_until_lobby_after_start", return_value=True), patch.object(self.task, "dismiss_all_popups"), patch.object(self.task, "get_box_by_name", side_effect=lambda n: {"box_lobby_left_side_panel": panel, "box_coop_count": count_box}.get(n, _fake_box(n))), patch.object(self.task, "find_one", side_effect=lambda name, **kw: coop_box if name=="coop" else _fake_box(name) if name=="common_home" else None), patch.object(self.task, "click_box") as click_mock, patch.object(self.task, "assert_screen") as assert_mock, patch.object(self.task, "ocr", return_value=[ocr_03]), patch.object(self.task, "wait_feature", side_effect=AssertionError("次数已用尽不应进入匹配")):
+        with patch.object(self.task, "is_screen", return_value=False), patch.object(self.task, "wait_until_lobby_after_start", return_value=True), patch.object(self.task, "dismiss_all_popups"), patch.object(self.task, "get_box_by_name", side_effect=lambda n: {"box_lobby_left_side_panel": panel, "box_coop_count": count_box}.get(n, _fake_box(n))), patch.object(self.task, "find_one", side_effect=lambda name, **kw: coop_box if name=="coop" else _fake_box(name) if name=="common_home" else None), patch.object(self.task, "click_box") as click_mock, patch.object(self.task, "assert_screen") as assert_mock, patch.object(self.task, "ocr", return_value=[ocr_03]), patch.object(self.task, "wait_feature", side_effect=AssertionError("次数已用尽不应进入匹配")), patch.object(self.task, "wait_for_lobby", return_value=True) as lobby_mock:
             self.task._do_coop_flow()
         self.assertEqual(1, sum(1 for c in click_mock.call_args_list if c.args[0]==coop_box))
         assert_mock.assert_any_call("coop_page")
+        lobby_mock.assert_called_once_with(time_out=10, raise_if_not_found=False)
     def test_coop_is_finished_detection(self):
         count_box = _fake_box("box_coop_count", 0, 0, 50, 20)
         with patch.object(self.task, "get_box_by_name", return_value=count_box), patch.object(self.task, "ocr", return_value=[_fake_box("1/3"), _fake_box("0/3")]):
@@ -182,10 +187,70 @@ class TestRaidTaskSolo(_DebugOffTestCase):
         _isolate_task_config(self.task, 'RaidTask')
         self.task.clear_done("solo_raid")
         self.task.config["个人突袭"] = True
-    def test_solo_flow_placeholder_marks_done(self):
-        with patch.object(self.task, "try_step", side_effect=lambda fn, **kw: fn() or True):
+
+    _PANEL = _fake_box("box_lobby_left_side_panel", 0, 0, 100, 100)
+
+    def test_solo_entry_not_found_marks_done(self):
+        with patch.object(self.task, "is_screen", return_value=False), patch.object(self.task, "wait_until_lobby_after_start", return_value=True), patch.object(self.task, "dismiss_all_popups"), patch.object(self.task, "_get_panel_box", return_value=self._PANEL), patch.object(self.task, "find_one", side_effect=lambda name, **kw: _fake_box(name) if name == "common_home" else None), patch.object(self.task, "click_box", side_effect=AssertionError("未找到入口不应点击")) as click_mock:
             self.task._do_solo_raid()
+        click_mock.assert_not_called()
         self.assertTrue(self.task.is_done("solo_raid", "day"))
+    def test_solo_no_available_option_marks_done_without_battle(self):
+        with patch.object(self.task, "is_screen", return_value=False), patch.object(self.task, "wait_until_lobby_after_start", return_value=True), patch.object(self.task, "dismiss_all_popups"), patch.object(self.task, "_get_panel_box", return_value=self._PANEL), patch.object(self.task, "assert_screen"), patch.object(self.task, "find_one", side_effect=lambda name, **kw: {"solo_raid": _fake_box(name), "common_home": _fake_box(name)}.get(name)), patch.object(self.task, "click_box") as click_mock, patch.object(self.task, "wait_for_lobby"), patch.object(self.task, "_is_solo_raid_option_enabled", return_value=False):
+            self.task._do_solo_raid()
+        clicked = [c.args[0] for c in click_mock.call_args_list]
+        self.assertNotIn("box_solo_raid_quick_battle_feature", clicked)
+        self.assertNotIn("box_solo_raid_battle_feature", clicked)
+        self.assertTrue(self.task.is_done("solo_raid", "day"))
+    def test_solo_quick_battle_branch(self):
+        raid_box = _fake_box("solo_raid", 5, 5, 10, 10)
+        max_btn = _fake_box("solo_raid_quick_battle_max", 30, 30, 10, 10)
+        home_box = _fake_box("common_home", 0, 0, 5, 5)
+        esc_box = _fake_box("battle_finish_esc", 100, 100, 20, 10)
+        find_map = {"solo_raid": raid_box, "solo_raid_quick_battle_max": max_btn, "common_home": home_box}
+        clicks = []
+        with patch.object(self.task, "is_screen", return_value=False), patch.object(self.task, "wait_until_lobby_after_start", return_value=True), patch.object(self.task, "dismiss_all_popups"), patch.object(self.task, "_get_panel_box", return_value=self._PANEL), patch.object(self.task, "assert_screen"), patch.object(self.task, "wait_feature", return_value=_fake_box("page")), patch.object(self.task, "sleep"), patch.object(self.task, "next_frame"), patch.object(self.task, "click_box", side_effect=lambda box, **kw: clicks.append(box)), patch.object(self.task, "wait_for_lobby"), patch.object(self.task, "find_one", side_effect=lambda name, **kw: find_map.get(name)), patch.object(self.task, "_is_solo_raid_option_enabled", side_effect=lambda box_name: box_name == "box_solo_raid_quick_battle_feature"), patch.object(self.task, "_check_battle_result_once", return_value=("success", esc_box)):
+            self.task._do_solo_raid()
+        names = [b if isinstance(b, str) else b.name for b in clicks]
+        self.assertEqual(["solo_raid", "box_solo_raid_quick_battle_feature", "solo_raid_quick_battle_max", "box_solo_raid_quick_battle", "battle_finish_esc", "common_home"], names)
+        self.assertNotIn("box_solo_raid_battle_feature", names)
+        self.assertTrue(self.task.is_done("solo_raid", "day"))
+    def test_solo_quick_battle_result_missing_raises(self):
+        with patch.object(self.task, "is_screen", return_value=True), patch.object(self.task, "assert_screen"), patch.object(self.task, "wait_feature", return_value=_fake_box("page")), patch.object(self.task, "find_one", return_value=None), patch.object(self.task, "click_box"), patch.object(self.task, "sleep"), patch.object(self.task, "next_frame"), patch.object(self.task, "_is_solo_raid_option_enabled", side_effect=lambda box_name: box_name == "box_solo_raid_quick_battle_feature"), patch.object(self.task, "_check_battle_result_once", return_value=(None, None)):
+            with self.assertRaises(WaitFailedException):
+                self.task._do_solo_raid_flow()
+        self.assertFalse(self.task.is_done("solo_raid", "day"))
+    def test_solo_normal_battle_then_exhausted_marks_done(self):
+        raid_box = _fake_box("solo_raid", 5, 5, 10, 10)
+        confirm_box = _fake_box("solo_raid_battle_confirm", 40, 40, 10, 10)
+        finish_confirm = _fake_box("solo_raid_battle_finish_confirm", 50, 50, 10, 10)
+        home_box = _fake_box("common_home", 0, 0, 5, 5)
+        esc_box = _fake_box("battle_finish_esc", 100, 100, 20, 10)
+        enabled_seq = [False, True, False, False]  # 第1轮：快速不可用、出战可用；第2轮：均不可用。
+        wait_clicks = []
+        with patch.object(self.task, "is_screen", side_effect=lambda n: n == "solo_raid_page"), patch.object(self.task, "assert_screen"), patch.object(self.task, "click_box"), patch.object(self.task, "wait_for_lobby"), patch.object(self.task, "find_one", side_effect=lambda name, **kw: home_box if name == "common_home" else None), patch.object(self.task, "wait_click_feature", side_effect=lambda name, **kw: wait_clicks.append(name) or (confirm_box if name == "solo_raid_battle_confirm" else finish_confirm)), patch.object(self.task, "wait_feature", return_value=_fake_box("solo_raid_battle_finish")), patch.object(self.task, "wait_battle_finish", return_value=("success", esc_box)) as battle_mock, patch.object(self.task, "_is_solo_raid_option_enabled", side_effect=lambda box_name: enabled_seq.pop(0)):
+            self.task._do_solo_raid()
+        battle_mock.assert_called_once()
+        self.assertEqual(["solo_raid_battle_confirm", "solo_raid_battle_finish_confirm"], wait_clicks)
+        self.assertTrue(self.task.is_done("solo_raid", "day"))
+    def test_solo_battle_timeout_raises_and_not_marked(self):
+        with patch.object(self.task, "is_screen", return_value=True), patch.object(self.task, "assert_screen"), patch.object(self.task, "click_box"), patch.object(self.task, "wait_click_feature", return_value=_fake_box("confirm")), patch.object(self.task, "_is_solo_raid_option_enabled", side_effect=lambda box_name: box_name == "box_solo_raid_battle_feature"), patch.object(self.task, "wait_battle_finish", return_value=(None, None)):
+            with self.assertRaises(WaitFailedException):
+                self.task._do_solo_raid_flow()
+        self.assertFalse(self.task.is_done("solo_raid", "day"))
+    def test_solo_option_disabled_when_region_missing(self):
+        with patch.object(self.task, "get_box_by_name", side_effect=ValueError("missing")):
+            self.assertFalse(self.task._is_solo_raid_option_enabled("box_solo_raid_battle_feature"))
+    def test_check_battle_result_once_matches_wait_battle_finish_criteria(self):
+        v_variance = 100 / 1440
+        esc_box = _fake_box("battle_finish_esc", 100, 100, 20, 10)
+        failed_back = _fake_box("battle_finish_failed_back", 90, 90, 20, 10)
+        with patch.object(self.task, "next_frame"), patch.object(self.task, "find_one", side_effect=lambda name, **kw: esc_box if name == "battle_finish_esc" and kw.get("vertical_variance") == v_variance else None):
+            self.assertEqual(("success", esc_box), self.task._check_battle_result_once())
+        with patch.object(self.task, "next_frame"), patch.object(self.task, "find_one", side_effect=lambda name, **kw: failed_back if name == "battle_finish_failed_back" else _fake_box(name) if name == "battle_finish_failed" else None):
+            result = self.task._check_battle_result_once()
+        self.assertEqual("failed", result[0])
+        self.assertEqual(failed_back, result[1])
     def test_solo_failure_not_marked(self):
         with patch.object(self.task, "try_step", return_value=False):
             self.task._do_solo_raid()
@@ -205,23 +270,21 @@ class TestDailyTaskRaidIntegration(_DebugOffTestCase):
         daily = DailyTask(og.executor, None)
         daily.after_init(executor=ok.task_executor, scene=ok.task_executor.scene)
         _isolate_task_config(daily, 'DailyTask')
-        daily.config["讨伐"] = True
+        daily.config["收获"] = False
+        daily.config["歼灭"] = False
+        daily.config["商店"] = False
+        daily.config["付费商店"] = False
+        daily.config["方舟"] = True
+        daily.config["Raid"] = True  # 与 DailyTask.default_config 的键名一致，验证讨伐开关真正生效。
         raid_ran = []
-        real_run = self.task.run
-
-        def fake_run():
-            raid_ran.append("raid")
-            return real_run()
 
         with patch.object(daily, "wait_until_lobby_after_start", return_value=True), \
-                patch.object(daily, "run_task_by_class") as run_mock, \
-                patch.object(self.task, "run", side_effect=fake_run):
+                patch.object(daily, "run_task_by_class") as run_mock:
             # 拦截 run_task_by_class：仅验证调用顺序与开关判断，不真正执行子任务。
             run_mock.side_effect = lambda cls: raid_ran.append(cls.__name__) if cls is RaidTask else None
             daily.run()
         run_calls = [c.args[0] for c in run_mock.call_args_list]
-        self.assertIn(RaidTask, run_calls)
-        self.assertLess(run_calls.index(ArkTask), run_calls.index(RaidTask))  # 讨伐排在方舟之后。
+        self.assertEqual([ArkTask, RaidTask], run_calls)  # 只调度方舟与讨伐，且讨伐排在方舟之后。
         self.assertIn("RaidTask", raid_ran)
 
 if __name__ == '__main__':

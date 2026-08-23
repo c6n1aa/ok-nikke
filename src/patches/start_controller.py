@@ -22,7 +22,7 @@ LAUNCHER_BUTTON_TEXT = '启动'
 LAUNCHER_BUTTON_REGION = (0.05, 0.83, 0.30, 0.93)
 
 # 游戏窗口最小尺寸(客户端区域)，低于此尺寸会自动调整为该尺寸，保证后续识别正常
-MIN_GAME_WINDOW_SIZE = (1280, 720)
+MIN_GAME_WINDOW_SIZE = (1600, 900)
 
 
 class _CaptureContext:
@@ -83,7 +83,7 @@ class NikkeStartController(start_controller_module.StartController):
         return None
 
     def _ensure_min_game_window_size(self):
-        # 检测游戏主进程窗口尺寸，若小于 1280x720(客户端区域) 则自动调整为 1280x720
+        # 检测游戏主进程窗口尺寸，若小于 1600x900(客户端区域) 则自动调整为 1600x900
         try:
             capture_method = getattr(og.device_manager, 'capture_method', None)
             hwnd_window = getattr(capture_method, 'hwnd_window', None)

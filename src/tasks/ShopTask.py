@@ -200,12 +200,13 @@ class ShopTask(NikkeBaseTask):  # 商店自动兑换任务，继承项目基类�
             if item in _CODE_TEMPLATES:  # 代码类商品，需在前 3 格模板匹配。
                 template_path = _CODE_TEMPLATES[item]  # 取对应模板路径。
                 for col in range(1, 4):  # 依次扫描第一列第 1-3 格。
-                    if self._is_sold_out(self._cell_box(1, col)):  # 已售罄则跳过该格。
+                    if self._is_sold_out(self._cell_box(1, col)):  # 已售罄则跳过该格（含本商品刚在前面格位买完留下的 SOLD OUT）。
                         continue  # 检查下一格。
                     if self.find_scaled_template(item, template_path, box=self._cell_box(1, col)) is not None:  # 在该格区域命中模板。
                         if not self._buy_cell("shop_buy_confirm", row=1, col=col):  # 购买，货币不足则停止。
                             return  # 货币不足，结束竞技场购买。
-                        break  # 已买到该商品，跳出列扫描处理下一个配置项。
+                        # 同一代码可能在多个格位重复出现（如 fire_code 同时出现在 2、3 格），不跳出循环继续扫描，
+                        # 把重复出现的每一份都买掉；已购格位会因 SOLD OUT 被上面检测跳过。
             else:  # 固定列位商品（代码手册/简介礼包/公司武器熔炉）。
                 col = _ARENA_FIXED_SLOT.get(item)  # 取固定列号。
                 if col is None:  # 未知商品名则跳过。

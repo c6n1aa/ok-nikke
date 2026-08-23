@@ -256,12 +256,14 @@ class NikkeBaseTask(BaseTask):
         self.log_warning(f"等待进入游戏大厅超时（{time_out}秒）。")  # 记录超时原因。
         return False  # 返回失败，由调用方决定是否中止后续流程。
 
-    def wait_battle_finish(self, time_out=240, check_interval=2):
+    def wait_battle_finish(self, time_out=240, check_interval=3, settle_time=2):
         """节流轮询等待自动战斗结束，返回 (结果, 确认按钮框)，不自动点击。
 
         战斗时长不确定（约10秒~3分钟）：每 check_interval 秒才刷新一帧做单次
-        模板匹配，命中结算界面即提前返回；超时返回 (None, None)。避免用
-        wait_feature 等忙轮询长时间对游戏窗口持续抓帧/匹配，与游戏抢 CPU。
+        模板匹配；命中结算界面后先等待 settle_time 秒让结算入场动画收尾，再刷新
+        一帧重新定位确认按钮并返回——结算界面刚出现时按钮坐标仍在漂移，直接返回
+        会导致调用方点击落空。超时返回 (None, None)。避免用 wait_feature 等
+        忙轮询长时间对游戏窗口持续抓帧/匹配，与游戏抢 CPU。
 
         正常结束：识别 battle_finish_esc（ESC 确认提示，图标粗壮跨分辨率可靠；
         battle_finish_reward 为细笔画文字，实测在非原生分辨率下缩放后匹配分
@@ -287,16 +289,41 @@ class NikkeBaseTask(BaseTask):
             v_variance = 100 / 1440  # Y 轴上下各扩展约 100 像素（以 2560x1440 为基准的相对比例，随分辨率等比缩放；不同战斗结算界面的 ESC 位置可能上下偏移）。
             esc = self.find_one("battle_finish_esc", vertical_variance=v_variance)  # 纵向扩大搜索范围匹配正常结束确认按钮特征（粗壮图标，跨分辨率可靠）。
             if esc is not None:  # 正常战斗结束。
+                esc = self._stabilize_battle_finish_box(esc, v_variance, settle_time=settle_time)  # 等结算动画收尾后重新定位 esc，避免返回漂移中的坐标。
                 self.log_info("检测到战斗胜利结算界面。")  # 记录正常结束。
                 return "success", esc  # 返回结果与确认按钮框，由调用方决定后续动作。
             failed = self.find_one("battle_finish_failed")  # 单帧匹配战斗失败特征。
             failed_back = self.find_one("battle_finish_failed_back")  # 单帧匹配失败返回按钮特征。
             if failed is not None and failed_back is not None:  # 战斗失败。
+                failed_back = self._stabilize_battle_finish_box(failed_back, None, failed=True, settle_time=settle_time)  # 同样等稳定后重新定位失败返回按钮。
                 self.log_info("检测到战斗失败结算界面。")  # 记录失败结束。
                 return "failed", failed_back  # 返回结果与返回按钮框，由调用方决定后续动作。
         self.save_failure_screenshot("wait_battle_finish")  # 超时保存现场截图便于排查。
         self.log_warning(f"等待战斗结束超时（{time_out}秒）。")  # 记录超时原因。
         return None, None  # 返回超时结果。
+
+    def _stabilize_battle_finish_box(self, box, v_variance, failed=False, settle_time=2):
+        """结算界面命中后的稳定化：等待 settle_time 秒让入场动画收尾，刷新一帧重新定位同一按钮。
+
+        复识别未命中（界面已自动跳转等异常）时退回原检测框，交由调用方的后续动作兜底。
+
+        Args:
+            box: 初次命中的按钮框（动画中，坐标可能漂移）。
+            v_variance: 胜利 esc 特征的纵向扩展比例；失败分支传 None（failed_back 无需扩展）。
+            failed: 是否为失败结算分支（复识别 failed_back 前先复核 failed 特征仍在）。
+            settle_time: 稳定化等待秒数。
+        Returns:
+            稳定后的按钮框；复识别未命中时为原框。
+        """
+        self.sleep(settle_time)  # 等待结算入场动画收尾（时长见 wait_battle_finish 的 settle_time 参数）。
+        self.next_frame()  # 刷新一帧获取稳定后的结算画面。
+        if failed:  # 失败结算：先复核 failed 特征仍在前台。
+            if self.find_one("battle_finish_failed") is None:  # 失败界面已不在。
+                return box  # 退回原检测框兜底。
+            stable = self.find_one("battle_finish_failed_back")  # 重新定位失败返回按钮。
+        else:  # 胜利结算。
+            stable = self.find_one("battle_finish_esc", vertical_variance=v_variance)  # 重新定位 esc 按钮。
+        return stable if stable is not None else box  # 复识别命中则采用稳定坐标，否则退回原框。
 
     def find_scaled_template(self, feature_name: str, template_path: str, ref_width: int = 2560,
                              ref_height: int = 1440, **kwargs):
@@ -380,7 +407,7 @@ class NikkeBaseTask(BaseTask):
                 return Box(x1 + cx, y1 + cy, cw, ch, name="red_dot_color")  # 转回帧坐标返回。
         return None  # 无红点返回未命中。
 
-    def is_feature_enabled(self, box: Box, colorfulness_thresh: float = 0.1) -> bool:
+    def is_feature_enabled(self, box: Box, colorfulness_thresh: float = 0.1, after_sleep: float = 0) -> bool:
         """判断 UI 元素是否处于可用（高亮彩色）状态。
 
         游戏内可用/禁用按钮常用"高亮彩色 vs 灰白"表达（如无限之塔"进入战斗"蓝色
@@ -391,20 +418,28 @@ class NikkeBaseTask(BaseTask):
         Args:
             box: 元素所在区域（coco 特征框或模板匹配结果 Box）。
             colorfulness_thresh: 色彩丰富度阈值（0~1），低于则判定为禁用。
+            after_sleep: 判断后的固定等待时间（秒），参考框架 click/send_key 等方法的 after_sleep 实现。
 
         Returns:
             True 可用；False 禁用（灰白）。无帧/区域越界时保守返回 True。
         """
         frame = self.frame  # 取当前帧；无帧（如单测 mock）时保守视为可用。
         if frame is None:  # 无帧可做颜色检测。
+            if after_sleep > 0:  # 参考框架 click 等方法的 after_sleep 实现：操作后等待。
+                self.sleep(after_sleep)  # 等待指定时间。
             return True  # 返回可用，避免误跳可用功能。
         x1, y1 = max(box.x, 0), max(box.y, 0)  # 裁剪 box 左上角到帧范围内。
         x2, y2 = min(box.x + box.width, frame.shape[1]), min(box.y + box.height, frame.shape[0])  # 裁剪右下角。
         if x2 <= x1 or y2 <= y1:  # 区域越界无效。
+            if after_sleep > 0:  # 参考框架实现。
+                self.sleep(after_sleep)  # 等待指定时间。
             return True  # 保守视为可用。
         roi = frame[y1:y2, x1:x2]  # 取 box 区域子图。
         colorfulness = calculate_colorfulness(roi)  # 用框架颜色工具计算色彩丰富度（0~1）。
-        return colorfulness > colorfulness_thresh  # 超过阈值判定为可用。
+        result = colorfulness > colorfulness_thresh  # 超过阈值判定为可用。
+        if after_sleep > 0:  # 参考框架 click/send_key 的 after_sleep 实现。
+            self.sleep(after_sleep)  # 等待指定时间。
+        return result  # 返回可用性判定结果。
 
     def close_overlay(self, keywords=("点击领取奖励",), time_out=5, after_sleep=1, max_clicks=3,
                       require_click=True):
@@ -551,7 +586,12 @@ class NikkeBaseTask(BaseTask):
         keywords = spec.get("keywords")  # OCR 关键词列表。
         if features:  # 有模板特征则先逐个检测特征。
             for name in features:  # 逐个检测特征。
-                if self.find_one(name) is None:  # 任一特征缺失则不在该界面。
+                try:  # 特征可能已不存在（如 coco 重建后旧特征被移除）。
+                    found = self.find_one(name)  # 查找模板特征。
+                except ValueError:  # 特征缺失时视为未命中，避免因 coco 变更导致异常冒泡。
+                    self.log_warning(f"界面特征缺失: {name}")  # 记录缺失。
+                    return False  # 返回未命中。
+                if found is None:  # 任一特征缺失则不在该界面。
                     return False  # 返回未命中。
             if not keywords:  # 未配置关键词时特征全部命中即判定为该界面。
                 return True  # 返回命中。

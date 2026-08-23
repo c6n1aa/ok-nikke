@@ -35,18 +35,18 @@ class HarvestTask(NikkeBaseTask):  # 定义收获子任务类。
 
     def _collect_friend(self):  # 收取友情点子流程。
         self.wait_click_feature("friend", time_out=10, raise_if_not_found=True, after_sleep=1)  # 点击好友入口进入好友页。
-        gift = self.wait_feature("friend_gift", time_out=5, raise_if_not_found=False)  # 判断送礼按钮是否可用。
-        if gift:  # 存在可用送礼按钮才点击。
-            self.click_box(gift, after_sleep=1)  # 点击送礼按钮。
+        gift_box = self.get_box_by_name("box_friend_gift_feature")  # 获取送礼按钮区域（box_ 前缀特征为纯坐标区域，已按当前分辨率缩放）。
+        if self.wait_until(lambda: self.is_feature_enabled(gift_box), time_out=5, raise_if_not_found=False):  # 等待送礼按钮变为可用（高亮彩色）；超时说明今日已送完或页面异常。
+            self.click_box(gift_box, after_sleep=1)  # 点击送礼按钮。
             self.wait_click_feature("friend_modal_confirm", time_out=10, raise_if_not_found=True, after_sleep=1)  # 点击确认弹窗。
-            self.wait_feature("friend_gift_disable", time_out=10, raise_if_not_found=True)  # 等待送礼变为不可用，即送完。
+            self.wait_until(lambda: not self.is_feature_enabled(gift_box), time_out=10, raise_if_not_found=True)  # 等待送礼按钮变灰禁用，即送完。
         self.wait_click_feature("friend_close", time_out=10, raise_if_not_found=True, after_sleep=1)  # 点击关闭按钮返回。
 
     def _collect_mailbox(self):  # 收取邮箱子流程。
         self.wait_click_feature("mailbox", time_out=10, raise_if_not_found=True, after_sleep=1)  # 点击邮箱入口进入邮箱页。
-        claim = self.wait_feature("mailbox_claim", time_out=5, raise_if_not_found=False)  # 判断是否为可收取状态。
-        if claim:  # 存在可收取按钮才点击。
-            self.click_box(claim, after_sleep=1)  # 点击领取奖励。
+        claim_box = self.get_box_by_name("box_mailbox_claim_feature")  # 获取领取按钮区域（box_ 前缀特征为纯坐标区域，已按当前分辨率缩放）。
+        if self.wait_until(lambda: self.is_feature_enabled(claim_box), time_out=5, raise_if_not_found=False):  # 等待领取按钮变为可用（高亮彩色）；超时说明没有可领奖励。
+            self.click_box(claim_box, after_sleep=1)  # 点击领取奖励。
             self.dismiss_all_popups(time_out=10)  # 统一清理领取奖励弹窗，返回邮箱页（默认等待弹窗出现）。
-            self.wait_feature("mailbox_claim_disable", time_out=10, raise_if_not_found=True)  # 等待领取变为不可用，即全部领完。
+            self.wait_until(lambda: not self.is_feature_enabled(claim_box), time_out=10, raise_if_not_found=True)  # 等待领取按钮变灰禁用，即全部领完。
         self.wait_click_feature("mailbox_close", time_out=10, raise_if_not_found=True, after_sleep=1)  # 点击关闭按钮返回。
