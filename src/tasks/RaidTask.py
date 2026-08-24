@@ -67,17 +67,16 @@ class RaidTask(NikkeBaseTask):  # 定义讨伐任务类，包含协同作战与�
         return False  # 未识别到 0/3，视为未完成。
 
     def _do_coop_flow(self):  # 协同作战主流程：从大厅出发，循环匹配普通难度直到次数用尽（re-entrant，由 try_step 包裹）。
-        # A 识别当前在大厅：若已在协同作战页则无需再从大厅进入；否则确保在大厅。
-        if not self.is_screen("coop_page"):  # 当前不在协同作战页。
-            if not self.wait_until_lobby_after_start(time_out=30):  # 确保进入游戏大厅（处理公告弹窗与 TOUCH TO CONTINUE）。
-                raise WaitFailedException("未能进入游戏大厅")  # 抛异常由 try_step 恢复重试。
-            self.dismiss_all_popups(wait_for_popup=False, time_out=10)  # 统一清理大厅残留弹窗，无弹窗立即返回。
+        def find_coop_entry():  # B 在 box_lobby_left_side_panel 识别 coop 入口（ensure_screen 进入大厅之后才解析）。
             panel = self._get_panel_box()  # 获取左侧面板区域。
-            coop_box = self._find_panel_entry("coop", panel)  # B 在 box_lobby_left_side_panel 识别 coop 使用灰度识别。
-            if coop_box is None:  # B -- false 分支：未找到协同作战入口。
+            coop_box = self._find_panel_entry("coop", panel)  # 使用灰度识别。
+            if coop_box is None:  # 未找到协同作战入口。
                 self.log_info("未找到协同作战入口，视为已完成。")  # 记录跳过原因。
-                return  # 直接返回，由调用方标记完成。
-            self.transition("coop_page", box=coop_box, after_sleep=1)  # 点击协同作战入口进入并确认已进入协同作战页面。
+            return coop_box  # 返回入口框或 None。
+
+        # A 幂等就位协同作战页：已在页面直接返回；否则分流恢复/冷启动后从大厅点入口。
+        if not self.ensure_screen("coop_page", entry=find_coop_entry, wait_confirm=10, after_sleep=1):  # 入口缺失视为已完成，直接返回（由调用方标记完成）。
+            return
         # 已确保在协同作战页面，开始循环处理次数。
         while True:  # 循环直到次数用尽。
             # D 在 box_coop_count 区域进行 OCR 识别 最后的文字是否为 0/3。
@@ -183,17 +182,16 @@ class RaidTask(NikkeBaseTask):  # 定义讨伐任务类，包含协同作战与�
         self.click_box(confirm_box, after_sleep=1)  # 点击结算确认关闭结果画面。
 
     def _do_solo_raid_flow(self):  # 个人突袭主流程：从大厅出发，优先快速战斗扫荡，否则逐次普通出战直到全部不可用（re-entrant，由 try_step 包裹）。
-        # A 识别当前在大厅：若已在个人突袭页则无需再从大厅进入；否则确保在大厅。
-        if not self.is_screen("solo_raid_page"):  # 当前不在个人突袭页。
-            if not self.wait_until_lobby_after_start(time_out=30):  # 确保进入游戏大厅（处理公告弹窗与 TOUCH TO CONTINUE）。
-                raise WaitFailedException("未能进入游戏大厅")  # 抛异常由 try_step 捕获恢复重试。
-            self.dismiss_all_popups(wait_for_popup=False, time_out=10)  # 统一清理大厅残留弹窗，无弹窗立即返回。
+        def find_solo_entry():  # B 在 box_lobby_left_side_panel 识别个人突袭入口（ensure_screen 进入大厅之后才解析）。
             panel = self._get_panel_box()  # 获取左侧面板区域。
-            raid_box = self._find_panel_entry("solo_raid", panel)  # B 在 box_lobby_left_side_panel 识别 solo_raid 使用灰度识别。
-            if raid_box is None:  # B -- false 分支：未找到个人突袭入口。
+            raid_box = self._find_panel_entry("solo_raid", panel)  # 使用灰度识别。
+            if raid_box is None:  # 未找到个人突袭入口。
                 self.log_info("未找到个人突袭入口，视为已完成。")  # 记录跳过原因。
-                return  # 直接返回，由调用方标记完成。
-            self.transition("solo_raid_page", box=raid_box, after_sleep=1)  # 点击个人突袭入口进入并确认已进入个人突袭首页（吞点击原地补点）。
+            return raid_box  # 返回入口框或 None。
+
+        # A 幂等就位个人突袭页：已在页面直接返回；否则分流恢复/冷启动后从大厅点入口。
+        if not self.ensure_screen("solo_raid_page", entry=find_solo_entry, wait_confirm=10, after_sleep=1):  # 入口缺失视为已完成，直接返回（由调用方标记完成）。
+            return
         rounds = 0  # 出战轮次保护计数，防止按钮状态误判导致死循环。
         while True:  # 循环直到没有可用的出战方式。
             rounds += 1  # 轮次加一。

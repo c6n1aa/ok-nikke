@@ -54,20 +54,8 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
         self._do_tribe_tower()  # 执行企业塔子流程。
         self._do_simulation()  # 执行模拟室子流程。
 
-    def _nav_to_ark(self):  # 导航到方舟界面：已在方舟直接返回；否则确保大厅后点击方舟入口（供子流程开头与统一入口复用）。
-        if self.wait_screen("ark", time_out=5):  # 轮询等待方舟界面特征命中：塔→方舟等过场动画期间单帧判定必然失败，需短轮询容忍（实机曾因此走岔分支）。
-            return  # 直接返回，无需导航。
-        self.dismiss_all_popups(wait_for_popup=False, time_out=10)  # 统一清理残留弹窗（爬塔结算奖励等可能遮挡方舟特征导致误判）。
-        if self.wait_screen("ark", time_out=5):  # 弹窗清理后已在方舟界面。
-            return  # 直接返回，无需导航。
-        if (self.find_one("common_back") is not None or self.find_one("common_home") is not None
-                or self.current_screen() is not None):  # 存在返回/主页按钮，或命中任一已注册界面（如方舟页过场动画收尾后）：处于应用内其它界面，而非冷启动加载中——方舟页本身没有返回/主页按钮，仅靠按钮检测会把方舟页误判成冷启动。
-            if not self._recover_to_lobby():  # 走统一失败恢复协议回大厅（有界等待并主动点击主页），避免在冷启动等待里空转。
-                raise WaitFailedException("未能回到游戏大厅")  # 抛异常由 try_step 恢复重试。
-        elif not self.wait_until_lobby_after_start():  # 无应用内特征时才视为冷启动/加载中：循环关公告弹窗并点 TOUCH TO CONTINUE 进入大厅。
-            raise WaitFailedException("未能进入游戏大厅")  # 抛异常由 try_step 恢复重试。
-        self.dismiss_all_popups(wait_for_popup=False, time_out=10)  # 统一清理大厅残留弹窗，无弹窗立即返回。
-        self.transition("ark", click_feature="ark", wait_confirm=10, after_sleep=1)  # 从大厅点击方舟入口并确认已进入方舟界面。
+    def _nav_to_ark(self):  # 导航到方舟界面（幂等入口闸门，供子流程开头与统一入口复用）。
+        self.ensure_screen("ark", click_feature="ark", wait_confirm=10, after_sleep=1)  # 过场动画容忍、弹窗清理与恢复/冷启动分流均在 ensure_screen 内。
 
     def _do_tribe_tower(self):  # 企业塔子流程：方舟→无限之塔→逐塔挑战→返回方舟。
         if not self.config.get("企业塔"):  # 用户未启用企业塔子流程。

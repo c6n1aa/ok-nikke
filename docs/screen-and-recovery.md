@@ -42,7 +42,30 @@ spec 字段（缺省即现状行为）：
 | `wait_screen(name, time_out=10, raise_if_not_found=False)` | 等待进入指定界面；`min_frames` 连续命中语义在此生效 |
 | `assert_screen(name, time_out=10)` | 断言处于指定界面，超时抛 `WaitFailedException`（配合 `try_step`） |
 
-## 导航：`transition()`
+## 导航
+
+### 入口闸门：`ensure_screen()`
+
+子流程开头的「确保自己在某页面」统一用 `ensure_screen()`，不要再手写「`is_screen` 短路 + 等大厅 + 找入口 + 点入口 + 断言」的组合：
+
+```python
+self.ensure_screen("ark", click_feature="ark", wait_confirm=10, after_sleep=1)
+
+# 入口需在进入大厅后动态查找，且入口缺失 = 本周期无可执行内容（如限时玩法）时，提供 entry 解析器：
+def find_entry():
+    box = self._find_panel_entry("coop", panel)
+    if box is None:
+        self.log_info("未找到协同作战入口，视为已完成。")
+    return box
+if not self.ensure_screen("coop_page", entry=find_entry, wait_confirm=10, after_sleep=1):
+    return  # 入口缺失：由调用方标记完成。
+```
+
+内部行为：已在/正在过场进入目标页 → 直接返回（每轮 `wait_enter=5` 秒轮询容忍滑入动画）→ 清弹窗再等一轮 → 按「返回/主页按钮或任一已注册界面」分流（应用内界面恢复回大厅 / 无任何证据走冷启动 `wait_until_lobby_after_start`）→ 清大厅弹窗 → `transition()` 守卫式进入（entry 解析器在到大厅之后才调用，返回 None 则本方法返回 False）。所有失败抛 `WaitFailedException`，由外层 `try_step` 恢复重跑。
+
+### 转换边：`transition()`
+
+任务里「点击入口 → 确认进入目标界面」的转换**一律用 `transition()`**，不再手写 `wait_click_feature(...) + assert_screen(...)` 两行：
 
 任务里「点击入口 → 确认进入目标界面」的转换**一律用 `transition()`**，不再手写 `wait_click_feature(...) + assert_screen(...)` 两行：
 
@@ -129,7 +152,7 @@ if not self.is_screen("我的页面"):
 - 全局界面注册在 `src/screens.py` 的 `SCREENS`；`register_screen` 只用于任务私有界面；大厅 `lobby` 已由基类注册，不要重复注册。
 - 注册界面是**可选**的：仅在确实需要识别/等待某界面（`is_screen`/`wait_screen`/`assert_screen`，或作为恢复目标/分类需求）时才注册。好友、邮箱等临时弹层与只点击几次的简单任务，都不需要注册额外界面。
 - spec 字段语义以本页表格为准：`absent`/`priority`/`min_frames` 缺省即现状行为；不要用它们实现与表格不符的语义。
-- 「点击入口 → 确认进入目标界面」的导航边一律用 `transition()`；例外仅限战斗结算类专用边与循环内重确认断言。
+- 「点击入口 → 确认进入目标界面」的导航边一律用 `transition()`；例外仅限战斗结算类专用边与循环内重确认断言。子流程开头的幂等入口闸门用 `ensure_screen()`，不要手写「`is_screen` 短路 + 等大厅 + 找入口 + 点入口」的组合。
 - `try_step` 的粒度是「入口方法」：每个从大厅出发、自包含导航的子流程在 `run()` 里包**一层**；方法内部步骤不要逐个包；禁止手写临时重试/恢复逻辑。
 - 不要绕过 `_recover_to_lobby` 自行硬编码「按坐标回大厅」等恢复动作。
 - 失败截图统一由 `save_failure_screenshot` 存到 `screenshots/failure/`；`transition`/哨兵内部已统一调用，业务代码不要另存。

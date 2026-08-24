@@ -829,10 +829,62 @@ class NikkeBaseTask(BaseTask):
             if self.wait_screen(to_screen, time_out=min(wait_confirm, remain)):
                 return True  # 已进入目标界面。
             self.log_info(f"transition: {to_screen} 未确认（第 {attempt + 1} 次尝试），原地重试。")
-        self.save_failure_screenshot(to_screen)  # 保存失败现场截图。
+        self.save_failure_screenshot(to_screen)  # 重试耗尽，保存失败现场截图。
         current = self.current_screen()  # 识别当前界面作为异常上下文。
         self.log_warning(f"界面转换失败: 目标 {to_screen}，当前 {current}")  # 记录失败。
         raise WaitFailedException(f"transition to {to_screen} failed (current: {current})")
+
+    def ensure_screen(self, name: str, wait_enter=5, entry=None, **transition_kwargs) -> bool:
+        """幂等进入指定界面的统一闸门：已在（或正在进入）目标界面则直接返回；
+        否则按「返回/主页按钮或任一已注册界面」分流——应用内走恢复回大厅、
+        无任何证据走冷启动等待——最后经 transition 守卫式进入目标界面。
+
+        子流程入口统一用它代替手写的「is_screen 短路 + 等大厅 + 点入口」序列：
+        它内置过场动画容忍（短轮询而非单帧判定）与误分类护栏——单帧判定撞上
+        滑入动画、且目标页又无返回/主页按钮时，会被旧序列误判为冷启动而空等大厅。
+
+        Args:
+            name: 目标界面名（须在 SCREENS 注册）。
+            wait_enter: 每次等待目标界面的秒数（过场动画容忍窗口，默认 5）。
+            entry: 可选入口解析器（callable → Box | 特征名 str | None）。返回 None
+                表示入口不存在（如当期限时玩法已结束）——此时本方法返回 False，
+                由调用方决定「视为已完成」等收尾。解析器在进入大厅之后才调用。
+            transition_kwargs: 透传给 transition（click_feature/box/click、time_out、
+                wait_confirm、retry_click、after_sleep）。entry 返回 Box 时自动作为
+                box= 传入，返回 str 时作为 click_feature= 传入。
+
+        Returns:
+            True 已进入目标界面；False 仅当 entry 解析器返回 None（入口缺失）。
+        Raises:
+            WaitFailedException: 恢复回大厅 / 冷启动等待 / 进入目标界面失败。
+        """
+        if self.wait_screen(name, time_out=wait_enter):  # 已在目标界面或正在过场：轮询容忍滑入动画。
+            return True  # 无需导航。
+        self.dismiss_all_popups(wait_for_popup=False, time_out=10)  # 弹窗可能遮挡目标界面特征。
+        if self.wait_screen(name, time_out=wait_enter):  # 清弹窗后已在目标界面。
+            return True  # 无需导航。
+        if (self.find_one("common_back") is not None  # 存在返回按钮。
+                or self.find_one("common_home") is not None  # 或存在主页按钮。
+                or self.current_screen() is not None):  # 或命中任一已注册界面（如目标页动画收尾后的邻接页）。
+            # 处于应用内其它界面：走统一失败恢复协议回大厅，再重进。目标页本身可能
+            # 没有返回/主页按钮（如方舟顶层页），仅靠按钮检测会把它误判成冷启动。
+            if not self._recover_to_lobby():
+                raise WaitFailedException("未能回到游戏大厅")
+        elif not self.wait_until_lobby_after_start():  # 无任何应用内证据时才视为冷启动/加载中。
+            raise WaitFailedException("未能进入游戏大厅")
+        self.dismiss_all_popups(wait_for_popup=False, time_out=10)  # 统一清理大厅残留弹窗。
+        if entry is not None:  # 入口解析器（进入大厅之后才解析）。
+            resolved = entry()  # 解析入口位置。
+            if resolved is None:  # 入口缺失（如限时玩法已结束）。
+                return False  # 交由调用方收尾。
+            if isinstance(resolved, str):  # 解析结果是特征名。
+                transition_kwargs["click_feature"] = resolved  # 作为特征点击。
+            else:  # 解析结果是 Box。
+                transition_kwargs["box"] = resolved  # 作为框点击。
+        if not any(k in transition_kwargs for k in ("click_feature", "box", "click")):
+            raise ValueError("ensure_screen 需要 click_feature/box/click 之一（或 entry 解析器返回入口）")
+        self.transition(name, **transition_kwargs)  # 守卫式进入目标界面。
+        return True  # 已进入目标界面。
 
     def save_failure_screenshot(self, tag: str):
         """保存失败现场截图到 screenshots/failure/，复用框架截图能力。"""

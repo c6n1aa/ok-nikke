@@ -42,7 +42,29 @@ spec fields (absent fields = current/legacy behavior):
 | `wait_screen(name, time_out=10, raise_if_not_found=False)` | Waits until the screen is reached; `min_frames` consecutive-hit semantics apply here |
 | `assert_screen(name, time_out=10)` | Asserts the screen, raising `WaitFailedException` on timeout (pairs with `try_step`) |
 
-## Navigation: `transition()`
+## Navigation
+
+### Entry gate: `ensure_screen()`
+
+At the start of a sub-flow, "make sure I'm on screen X" is ALWAYS `ensure_screen()` — never hand-roll the "`is_screen` shortcut + wait-for-lobby + find entry + click entry + assert" sequence:
+
+```python
+self.ensure_screen("ark", click_feature="ark", wait_confirm=10, after_sleep=1)
+
+# When the entry must be located dynamically after reaching the lobby, and a missing
+# entry means "nothing to do this cycle" (e.g. limited-time modes), pass an entry resolver:
+def find_entry():
+    box = self._find_panel_entry("coop", panel)
+    if box is None:
+        self.log_info("未找到协同作战入口，视为已完成。")
+    return box
+if not self.ensure_screen("coop_page", entry=find_entry, wait_confirm=10, after_sleep=1):
+    return  # entry missing: caller marks done.
+```
+
+Internals: already on / currently transitioning into the target -> return immediately (polls `wait_enter=5`s per round, tolerating slide-in animations) -> dismiss popups and poll once more -> route by "back/home buttons or any registered screen" (in-app screen -> recover to lobby; zero in-app evidence -> cold-start `wait_until_lobby_after_start`) -> dismiss lobby popups -> guarded `transition()` entry (the `entry` resolver runs only after the lobby is reached; returning None makes this method return False). All failures raise `WaitFailedException` for the outer `try_step` to recover and re-run.
+
+### Transition edges: `transition()`
 
 For any "click the entry -> confirm the target screen" edge, ALWAYS use `transition()` — do not hand-write `wait_click_feature(...) + assert_screen(...)` pairs:
 
@@ -129,7 +151,7 @@ if not self.is_screen("my_page"):
 - Register global screens in `src/screens.py` (`SCREENS`); use `register_screen` only for task-private screens; `lobby` is already registered by the base class — do not re-register it.
 - Screen registration is **optional**: register only when you genuinely need to detect/wait for that screen (`is_screen`/`wait_screen`/`assert_screen`, as a recovery target, or for classification). Transient overlays (friend/mailbox) and click-only tasks need no extra registration.
 - spec field semantics follow the table above: `absent`/`priority`/`min_frames` default to legacy behavior; never repurpose them.
-- "Click entry -> confirm target screen" edges ALWAYS use `transition()`; exceptions limited to battle-settlement edges and in-loop re-confirmation asserts.
+- "Click entry -> confirm target screen" edges ALWAYS use `transition()` — exceptions limited to battle-settlement edges and in-loop re-confirmation asserts. Sub-flow idempotent entry gates use `ensure_screen()`; never hand-roll the "is_screen shortcut + wait-for-lobby + find entry + click entry" sequence.
 - `try_step` granularity is the **entry method**: wrap each lobby-starting self-contained sub-flow **once** in `run()`; never hand-roll ad-hoc retry/recovery logic.
 - Never bypass `_recover_to_lobby` with hard-coded "click home by coordinates" recovery.
 - Failure screenshots are always written by `save_failure_screenshot` to `screenshots/failure/`; `transition` and the sentinel already call it internally — business code must not save elsewhere.

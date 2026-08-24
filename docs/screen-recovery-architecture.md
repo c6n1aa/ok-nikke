@@ -12,7 +12,7 @@
 | 判定（机制） | `_screen_match` / `_check_absent` / `_match_ocr_keywords` | `src/tasks/NikkeBaseTask.py` | 单帧界面判定、扩展字段语义 |
 | 判定（性能） | `_find_feature_cached` / `_region_ocr_cached` / `next_frame` 覆写 | 同上 | 同帧去重：同特征/同区域同帧只真正匹配一次 |
 | 判定（入口） | `is_screen` / `wait_screen` / `assert_screen` / `current_screen` | 同上 | 任务侧四个判定 API |
-| 导航 | `transition()` | 同上 | 「点击入口 → 确认进入目标界面」守卫式转换原语 |
+| 导航 | `ensure_screen()` / `transition()` | 同上 | 幂等入口闸门 / 守卫式转换原语 |
 | 恢复 | `try_step` / `_recover_to_lobby` / `dismiss_all_popups` | 同上 | 失败截图 → 回大厅 → 有限重试 |
 | 长等待 | `wait_battle_finish` + `_hit_interrupt` | 同上 | 节流轮询战斗结算；中断弹窗快速失败 |
 
@@ -80,7 +80,7 @@ features 为空且 keywords 非空 ──> OCR 关键词（或）──命中─
 
 配置相同 `ocr_box` 的界面（如未来的多个标题类页面）同帧只跑一次区域 OCR，各条目的关键词集合对同一次 OCR 结果分别过滤。等价性依据：框架四个 OCR 后端的 `match` 过滤统一为 `fix_texts` 后 `find_boxes_by_name(detected, fix_match_regex(match))`；合并路径对未过滤结果调用同一对函数，语义逐位一致。全屏退化路径按条目隔离，不跨界面合并。
 
-## 2. 导航层：`transition()`
+## 2. 导航层：`ensure_screen()` / `transition()`
 
 ### 2.1 语义
 
@@ -111,6 +111,8 @@ transition(to_screen, click_feature=None, box=None, click=None,
 | RaidTask | → `coop_nikke_select_page` | `click_feature="coop_accpet"`，`time_out=60` |
 | RaidTask | → `solo_raid_battle_team_select_page` / → `solo_raid_page`（结算确认） | `click_feature=...` |
 | RaidTask | → `solo_raid_page`（入口） | `box=`（预查框） |
+
+`ensure_screen(name, wait_enter=5, entry=None, **transition_kwargs)` 是子流程入口的幂等闸门（`ArkTask._nav_to_ark` 与 RaidTask 协同/个人突袭入口已收敛到它）：已就位直接返回 → 清弹窗再判定 → 按「返回/主页按钮或任一已注册界面」分流（应用内恢复回大厅 / 无证据走冷启动）→ 清大厅弹窗 → `transition` 守卫式进入。`entry` 解析器在到大厅之后才调用，返回 `None` 表示入口缺失（限时玩法已结束）→ 方法返回 False，由调用方按「视为已完成」收尾。
 
 有意保留 `assert_screen` 的两处：
 
