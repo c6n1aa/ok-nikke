@@ -406,6 +406,10 @@ class TestArkTaskSimulation(_DebugOffTestCase):
     def setUp(self):
         super().setUp()
         _isolate_task_config(self.task, 'ArkTask')
+        # 配置写穿透到共享临时文件：其他测试类留下的 企业塔/关闭自动爬塔 关闭态会泄漏进来
+        # （典型症状：企业塔分支静默跳过导致 try_step side_effect 错位、顺序断言失败），必须显式钉死三个键。
+        self.task.config["企业塔"] = self.task.default_config["企业塔"]
+        self.task.config["关闭自动爬塔"] = self.task.default_config["关闭自动爬塔"]
         self.task.config["模拟室"] = True  # 模拟室子流程测试统一开启。
         self.task.clear_done("simulation")
         self.task.clear_done("tribe_tower")
@@ -563,6 +567,97 @@ class TestDailyTaskArkIntegration(_DebugOffTestCase):
         self.assertEqual(1, len(notify_calls))
         self.assertIn("极乐净土", notify_calls[0].args[0])
         self.assertIn("朝圣者", notify_calls[0].args[0])
+
+
+class TestNavToArk(_DebugOffTestCase):
+    """_nav_to_ark 分支回归：实机事故（2026-08-25 02:19 日志）——企业塔收尾返回方舟的过场动画期间
+    单帧 is_screen("ark") 失败，且方舟页没有 common_back/common_home 按钮，被误判为冷启动，
+    卡在 wait_until_lobby_after_start 空等大厅 60 秒以上（游戏实际已停在方舟页）。"""
+
+    task_class = ArkTask
+
+    config = config
+
+    def setUp(self):
+        super().setUp()
+        _isolate_task_config(self.task, 'ArkTask')
+
+    def _patch_common(self, wait_screen_side_effect, find_one_box=None, current_screen=None,
+                      recover=True):
+        """统一 mock 导航各判定/动作原语：wait_screen 用 side_effect 序列驱动流程分支。"""
+        stack = ExitStack()
+        stack.enter_context(patch.object(self.task, "wait_screen",
+                                         side_effect=wait_screen_side_effect))
+        stack.enter_context(patch.object(self.task, "dismiss_all_popups", return_value=True))
+        stack.enter_context(patch.object(self.task, "find_one", return_value=find_one_box))
+        stack.enter_context(patch.object(self.task, "current_screen",
+                                         return_value=current_screen))
+        recover_mock = stack.enter_context(patch.object(self.task, "_recover_to_lobby",
+                                                        return_value=recover))
+        lobby_mock = stack.enter_context(
+            patch.object(self.task, "wait_until_lobby_after_start", return_value=True))
+        transition_mock = stack.enter_context(patch.object(self.task, "transition"))
+        return stack, recover_mock, lobby_mock, transition_mock
+
+    def test_animation_tolerance_ark_hit_after_first_wait(self):
+        """过场动画：首次轮询即命中方舟 → 不清弹窗、不导航，直接返回。"""
+        with patch.object(self.task, "wait_screen", return_value=True) as wait_mock, \
+                patch.object(self.task, "dismiss_all_popups") as dismiss_mock, \
+                patch.object(self.task, "transition") as transition_mock:
+            self.task._nav_to_ark()
+        wait_mock.assert_called_once_with("ark", time_out=5)
+        dismiss_mock.assert_not_called()
+        transition_mock.assert_not_called()
+
+    def test_animation_tolerance_ark_hit_after_popup_dismiss(self):
+        """首次未命中 → 清弹窗后第二次轮询命中 → 直接返回，不触发恢复/冷启动分支。"""
+        stack, recover_mock, lobby_mock, transition_mock = self._patch_common([False, True])
+        with stack:
+            self.task._nav_to_ark()
+        recover_mock.assert_not_called()
+        lobby_mock.assert_not_called()
+        transition_mock.assert_not_called()
+
+    def test_in_app_screen_without_back_home_is_not_cold_start(self):
+        """回归本体：无 back/home 按钮但命中其它已注册应用内界面 → 走 _recover_to_lobby，绝不进冷启动等大厅。"""
+        stack, recover_mock, lobby_mock, transition_mock = self._patch_common(
+            [False, False], find_one_box=None, current_screen="simulation_room")
+        with stack:
+            self.task._nav_to_ark()
+        recover_mock.assert_called_once()
+        lobby_mock.assert_not_called()
+        transition_mock.assert_called_once_with("ark", click_feature="ark",
+                                                wait_confirm=10, after_sleep=1)
+
+    def test_true_cold_start_goes_to_lobby_wait(self):
+        """真冷启动（无按钮且无任何已注册界面命中）才进入 wait_until_lobby_after_start。"""
+        stack, recover_mock, lobby_mock, transition_mock = self._patch_common(
+            [False, False], find_one_box=None, current_screen=None)
+        with stack:
+            self.task._nav_to_ark()
+        recover_mock.assert_not_called()
+        lobby_mock.assert_called_once()
+        transition_mock.assert_called_once_with("ark", click_feature="ark",
+                                                wait_confirm=10, after_sleep=1)
+
+    def test_cold_start_lobby_wait_failure_raises(self):
+        """冷启动等大厅失败 → 抛 WaitFailedException 交给 try_step 恢复重试。"""
+        stack, recover_mock, lobby_mock, _ = self._patch_common(
+            [False, False], find_one_box=None, current_screen=None)
+        lobby_mock.return_value = False
+        with stack:
+            with self.assertRaises(WaitFailedException):
+                self.task._nav_to_ark()
+
+    def test_back_or_home_button_takes_recover_path(self):
+        """存在返回/主页按钮 → 恢复回大厅路径（既有行为保持），不进冷启动分支。"""
+        stack, recover_mock, lobby_mock, transition_mock = self._patch_common(
+            [False, False], find_one_box=Box(0, 0, 10, 10), current_screen=None)
+        with stack:
+            self.task._nav_to_ark()
+        recover_mock.assert_called_once()
+        lobby_mock.assert_not_called()
+        transition_mock.assert_called_once()
 
 
 if __name__ == '__main__':
