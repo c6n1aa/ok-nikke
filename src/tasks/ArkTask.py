@@ -44,10 +44,6 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
                 },
             },
         })
-        # 界面注册：方舟需同时命中 coco 特征与标题 OCR；无限之塔以塔徽特征判定；模拟室以室徽特征判定。
-        self.register_screen("ark", features=["ark_tribe_tower", "ark_simulation_room"])
-        self.register_screen("tribe_tower", features=["tribe_tower_mark"])
-        self.register_screen("simulation_room", features=["simulation_mark"])
 
     def run(self):  # 任务执行入口：先统一进入方舟，再依次执行各子流程。
         self.log_info("方舟任务开始。")  # 记录任务开始。

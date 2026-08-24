@@ -1,5 +1,7 @@
 import re  # 正则模块，用于 OCR 文字的部分匹配。
 
+from src.screens import SCREENS  # 集中式界面注册表（src/screens.py），全部界面的单一数据源。
+
 import datetime  # 日期时间模块，处理北京时区与周期刷新。
 import os  # 操作系统路径模块，处理 assets/template/ 下模板文件的绝对路径。
 import time  # 时间模块，处理超时与等待。
@@ -28,8 +30,9 @@ class NikkeBaseTask(BaseTask):
         self._scaled_template_cache = {}
         # 界面识别注册表：界面名 -> 判定描述（features 为 coco 模板特征，keywords 为 OCR 关键词）。
         self.screens = {}
-        # 默认注册大厅界面：以方舟按钮(ark)特征判定已进入游戏大厅。
-        self.register_screen("lobby", features=["ark", "lobby"])
+        # 从集中式注册表加载全部界面；任务仍可用 register_screen 追加私有界面，同名覆盖全局条目（后写者胜）。
+        for _name, _spec in SCREENS.items():
+            self.register_screen(_name, **_spec)
 
     def _now_bj(self) -> datetime.datetime:
         """当前北京时间（带时区）。"""
@@ -563,6 +566,9 @@ class NikkeBaseTask(BaseTask):
 
     def register_screen(self, name: str, features=(), keywords=(), ocr_box=None):
         """注册一个界面及判定条件。
+
+        全局界面已由基类从 src/screens.py 的 SCREENS 加载；本方法是任务的
+        扩展口：可追加任务私有界面，同名调用覆盖全局（或先前）条目。
 
         Args:
             name: 界面名（子任务用 is_screen/wait_screen/assert_screen 时传入的名称）。

@@ -6,6 +6,7 @@ from ok.task.exceptions import WaitFailedException
 from ok.test.TaskTestCase import TaskTestCase
 
 from src.config import config
+from src.screens import SCREENS
 from src.tasks.HarvestTask import HarvestTask
 
 
@@ -19,6 +20,27 @@ class TestScreenRecovery(TaskTestCase):
         # 每个用例从干净的界面注册表开始，避免共享实例上残留其它用例注册的界面。
         self.task.screens = {}
         self.task.register_screen("lobby", features=["ark"])
+
+    def test_global_screens_registry_matches_migrated_specs(self):
+        # 集中式注册表收录全部 9 个界面，顺序与判定描述与迁移前各任务 __init__ 里的注册逐项一致。
+        expected = {
+            "lobby": {"features": ["ark", "lobby"]},
+            "ark": {"features": ["ark_tribe_tower", "ark_simulation_room"]},
+            "tribe_tower": {"features": ["tribe_tower_mark"]},
+            "simulation_room": {"features": ["simulation_mark"]},
+            "付费商店": {"keywords": ["付费商店"], "ocr_box": "box_sub_pages_title"},
+            "coop_page": {"features": ["coop_page"]},
+            "coop_nikke_select_page": {"features": ["coop_nikke_select_page"]},
+            "solo_raid_page": {"features": ["solo_raid_page"]},
+            "solo_raid_battle_team_select_page": {"features": ["solo_raid_battle_team_select_page"]},
+        }
+        self.assertEqual(list(expected), list(SCREENS))  # 顺序敏感：current_screen 按插入顺序首命中。
+        self.assertEqual(expected, SCREENS)
+
+    def test_register_screen_overrides_existing_entry(self):
+        # 同名注册覆盖先前条目：任务私有注册以同样的方式覆盖基类加载的全局条目（后写者胜）。
+        self.task.register_screen("lobby", features=["custom"])  # setUp 刚注册过 lobby，同名覆盖。
+        self.assertEqual(["custom"], self.task.screens["lobby"]["features"])
 
     def test_is_screen_lobby_when_ark_present(self):
         self.assertTrue(self.task.is_screen("lobby"))

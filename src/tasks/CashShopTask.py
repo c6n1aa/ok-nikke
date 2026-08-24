@@ -25,7 +25,6 @@ class CashShopTask(NikkeBaseTask):  # 付费商店免费礼包领取任务，继
         super().__init__(*args, **kwargs)  # 必须先调用父类初始化。
         self.name = "付费商店"  # 任务显示名称。
         self.description = "自动领取付费商店中STEP UP/每日/每周/每月的免费礼包。"  # 任务说明。
-        self.register_screen("付费商店", keywords=["付费商店"], ocr_box="box_sub_pages_title")  # 注册付费商店界面：标题区域 OCR 确认。
 
     def _get_box(self, name):  # 获取标注区域框，特征缺失时抛等待失败异常。
         try:  # coco 特征可能缺失。

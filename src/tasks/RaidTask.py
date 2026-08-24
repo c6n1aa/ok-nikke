@@ -20,12 +20,6 @@ class RaidTask(NikkeBaseTask):  # 定义讨伐任务类，包含协同作战与�
             "协同作战": "自动匹配协同作战-普通难度",  # 协同作战开关说明。
             "个人突袭": "自动执行个人突袭任务",  # 个人突袭开关说明。
         })  # 结束帮助文本更新。
-        # 界面注册：协同作战首页以 coop_page 特征判定（文档写 solo_raid_page，实测应为 coop_page）；NIKKE 选择页以 coop_nikke_select_page 判定；
-        # 个人突袭首页以 solo_raid_page 判定；个人突袭队伍选择界面以 solo_raid_battle_team_select_page 判定。
-        self.register_screen("coop_page", features=["coop_page"])  # 注册协同作战首页，已按当前分辨率缩放的 coco 特征判定。
-        self.register_screen("coop_nikke_select_page", features=["coop_nikke_select_page"])  # 注册协同作战 NIKKE 选择界面。
-        self.register_screen("solo_raid_page", features=["solo_raid_page"])  # 注册个人突袭首页。
-        self.register_screen("solo_raid_battle_team_select_page", features=["solo_raid_battle_team_select_page"])  # 注册个人突袭队伍选择界面。
 
     # ---- 协同作战 helpers ----
 
