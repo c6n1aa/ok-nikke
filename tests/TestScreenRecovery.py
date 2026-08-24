@@ -72,31 +72,32 @@ class TestScreenRecovery(TaskTestCase):
         self.assertTrue(self.task.is_screen("大厅ocr"))
 
     def test_screen_ocr_keywords_with_named_box(self):
-        # ocr_box 传 coco 区域特征名时，按当前分辨率解析后以 box= 传入 ocr。
+        # ocr_box 传 coco 区域特征名时，按当前分辨率解析后以 box= 传入 ocr；
+        # 缓存路径下 ocr 不再带 match（区域结果同帧共享），关键词由判定层等价过滤。
         fake_box = Box(100, 100, 50, 50, confidence=1, name="cash_shop_title")
         with patch.object(self.task, "get_box_by_name", return_value=fake_box), \
-                patch.object(self.task, "ocr", return_value=[fake_box]) as ocr_mock:
+                patch.object(self.task, "ocr", return_value=[Box(100, 100, 50, 50, confidence=1, name="付费商店")]) as ocr_mock:
             self.task.register_screen("付费商店", keywords=["付费商店"], ocr_box="cash_shop_title")
             self.assertTrue(self.task.is_screen("付费商店"))
-        ocr_mock.assert_called_once_with(box=fake_box, match=["付费商店"])
+        ocr_mock.assert_called_once_with(box=fake_box)
 
     def test_screen_ocr_keywords_with_missing_named_box_falls_back_fullscreen(self):
         # 区域特征缺失时退化为全屏 OCR，不抛异常。
         with patch.object(self.task, "get_box_by_name", side_effect=ValueError("missing")), \
-                patch.object(self.task, "ocr", return_value=[Box(1, 1, 5, 5, name="hit")]) as ocr_mock:
+                patch.object(self.task, "ocr", return_value=[Box(1, 1, 5, 5, name="付费商店")]) as ocr_mock:
             self.task.register_screen("付费商店", keywords=["付费商店"], ocr_box="cash_shop_title")
             self.assertTrue(self.task.is_screen("付费商店"))
-        ocr_mock.assert_called_once_with(match=["付费商店"])
+        ocr_mock.assert_called_once_with()
 
     def test_screen_match_features_and_keywords_and(self):
         # features 与 keywords 同时配置时取「与」：特征命中且关键词命中才判定为该界面。
         fake_box = Box(100, 100, 50, 50, confidence=1, name="box_sub_pages_title")
         with patch.object(self.task, "find_one", return_value=Box(1, 1, 5, 5, name="ark_ranking")), \
                 patch.object(self.task, "get_box_by_name", return_value=fake_box), \
-                patch.object(self.task, "ocr", return_value=[fake_box]) as ocr_mock:
+                patch.object(self.task, "ocr", return_value=[Box(100, 100, 50, 50, confidence=1, name="方舟")]) as ocr_mock:
             self.task.register_screen("方舟", features=["ark_ranking"], keywords=["方舟"], ocr_box="box_sub_pages_title")
             self.assertTrue(self.task.is_screen("方舟"))
-        ocr_mock.assert_called_once_with(box=fake_box, match=["方舟"])
+        ocr_mock.assert_called_once_with(box=fake_box)
 
     def test_screen_match_features_and_keywords_fails_when_keyword_missing(self):
         # 特征命中但关键词未命中时判定不在该界面。

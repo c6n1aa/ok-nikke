@@ -7,11 +7,13 @@ import os  # 操作系统路径模块，处理 assets/template/ 下模板文件�
 import time  # 时间模块，处理超时与等待。
 
 import cv2  # OpenCV，模板缩放匹配使用 cv2.resize / cv2.imread。
-
+from ok.feature.Box import Box, find_boxes_by_name  # 检测框对象与按名过滤工具（find_boxes_by_name 用于复刻 ocr(match=...) 的过滤语义）。
 from ok import BaseTask
-from ok.feature.Box import Box  # 检测框对象，find_red_dot 返回值类型。
 from ok.task.exceptions import TaskDisabledException, WaitFailedException  # 界面断言失败与任务被停止（用户点击中断）时使用的框架异常。
 from ok.util.color import calculate_colorfulness  # 框架颜色工具：计算区域色彩丰富度。
+
+
+_CACHE_MISS = object()  # 帧级判定缓存的「未命中」哨兵：与「命中但结果为 None」区分。
 
 _BEIJING_TZ = datetime.timezone(datetime.timedelta(hours=8))  # 北京时间 UTC+8，无夏令时
 
@@ -33,6 +35,9 @@ class NikkeBaseTask(BaseTask):
         # 从集中式注册表加载全部界面；任务仍可用 register_screen 追加私有界面，同名覆盖全局条目（后写者胜）。
         for _name, _spec in SCREENS.items():
             self.register_screen(_name, **_spec)
+        # 帧级判定缓存：同一帧内重复的界面判定（模板匹配/区域 OCR）只真正执行一次。
+        # 条目为 (计算时的帧对象, 结果)，读取时校验帧对象同一性——帧一换即失效，无陈旧风险。
+        self._screen_cache = {}
 
     def _now_bj(self) -> datetime.datetime:
         """当前北京时间（带时区）。"""
@@ -564,6 +569,56 @@ class NikkeBaseTask(BaseTask):
         self.log_info("未发现弹窗，无需清理。")  # 超时未出现任何弹窗。
         return True  # 视为清理完成。
 
+    def next_frame(self):
+        """覆写框架取帧：拿到新帧后清空帧级判定缓存。
+
+        框架抛出的 TaskDisabledException/WaitFailedException 等异常原样向上传播；
+        取帧失败时不清缓存（旧帧未变，缓存仍然有效）。
+        """
+        frame = super().next_frame()  # 框架取新帧。
+        self._screen_cache.clear()  # 新帧已就位，旧帧判定结果全部失效。
+        return frame
+
+    def _cache_get(self, key):
+        entry = self._screen_cache.get(key)  # 条目结构 (帧对象, 结果)。
+        if entry is not None and entry[0] is self.frame:  # 帧对象同一性成立才视为命中。
+            return entry[1]
+        return _CACHE_MISS
+
+    def _cache_put(self, key, value):
+        self._screen_cache[key] = (self.frame, value)  # 记录结果所属的帧。
+
+    def _find_feature_cached(self, name):
+        """带帧级缓存的 find_one：同一帧内同名特征只真正匹配一次。"""
+        key = ("feat", name)
+        cached = self._cache_get(key)
+        if cached is not _CACHE_MISS:
+            return cached
+        found = self.find_one(name)  # ValueError（特征缺失）由调用方处理，不进缓存。
+        self._cache_put(key, found)
+        return found
+
+    @staticmethod
+    def _ocr_box_key(box):
+        if isinstance(box, Box):  # coco 区域框：按坐标归一化，同框不同名也可共享。
+            return ("box", round(box.x, 3), round(box.y, 3), round(box.width, 3), round(box.height, 3))
+        return ("box", tuple(round(v, 3) for v in box))  # 相对坐标列表 [x, y, to_x, to_y]。
+
+    def _region_ocr_cached(self, box_key, box):
+        """带帧级缓存的区域 OCR（不做关键词过滤），同帧同区域只真正 OCR 一次。"""
+        key = ("ocr", box_key)
+        cached = self._cache_get(key)
+        if cached is not _CACHE_MISS:
+            return cached
+        if box is None:  # 全屏 OCR。
+            result = self.ocr()
+        elif isinstance(box, (list, tuple)):  # 相对坐标列表形式。
+            result = self.ocr(*box)
+        else:  # 已解析的区域框。
+            result = self.ocr(box=box)
+        self._cache_put(key, result)
+        return result
+
     def register_screen(self, name: str, features=(), keywords=(), ocr_box=None):
         """注册一个界面及判定条件。
 
@@ -594,7 +649,7 @@ class NikkeBaseTask(BaseTask):
         if features:  # 有模板特征则先逐个检测特征。
             for name in features:  # 逐个检测特征。
                 try:  # 特征可能已不存在（如 coco 重建后旧特征被移除）。
-                    found = self.find_one(name)  # 查找模板特征。
+                    found = self._find_feature_cached(name)  # 查找模板特征（同帧只匹配一次）。
                 except ValueError:  # 特征缺失时视为未命中，避免因 coco 变更导致异常冒泡。
                     self.log_warning(f"界面特征缺失: {name}")  # 记录缺失。
                     return False  # 返回未命中。
@@ -609,21 +664,30 @@ class NikkeBaseTask(BaseTask):
         return False  # 空配置判定为不在该界面。
 
     def _match_ocr_keywords(self, spec: dict) -> bool:
-        """按界面判定描述在当前帧 OCR 匹配关键词，命中任一关键词返回 True。"""
-        box = spec.get("ocr_box")  # 读取可选 OCR 区域。
-        if isinstance(box, str):  # ocr_box 为 coco 区域特征名时解析为当前分辨率的框。
+        """按界面判定描述在当前帧 OCR 匹配关键词，命中任一关键词返回 True。
+
+        同帧内共享同一区域的 OCR 结果（未过滤的全量文本框），各条目的关键词集
+        各自比对——与框架 ocr(match=...) 的过滤语义逐位一致；全屏退化路径按
+        条目隔离，不跨界面合并。
+        """
+        raw_box = spec.get("ocr_box")  # 读取可选 OCR 区域。
+        box = None  # None 表示全屏 OCR。
+        box_key = ("full", id(spec))  # 全屏退化不合并：键带上条目身份互相隔离。
+        if isinstance(raw_box, str):  # ocr_box 为 coco 区域特征名时解析为当前分辨率的框。
             try:  # 特征可能缺失。
-                box = self.get_box_by_name(box)  # 解析区域框。
-            except ValueError:  # 特征缺失时退化为全屏 OCR。
+                box = self.get_box_by_name(raw_box)  # 解析区域框。
+                box_key = self._ocr_box_key(box)
+            except ValueError:  # 特征缺失时退化为全屏 OCR（与现状一致）。
                 box = None  # 置空走全屏逻辑。
-        if box:  # 指定了区域则只在该区域 OCR。
-            if isinstance(box, (list, tuple)):  # 相对坐标列表形式。
-                boxes = self.ocr(*box, match=spec["keywords"])  # 区域内匹配关键词。
-            else:  # 已解析的 Box 对象。
-                boxes = self.ocr(box=box, match=spec["keywords"])  # 区域内匹配关键词。
-        else:  # 未指定区域则全屏 OCR。
-            boxes = self.ocr(match=spec["keywords"])  # 全屏匹配关键词。
-        return bool(boxes)  # 命中任一关键词即判定为该界面。
+        elif isinstance(raw_box, (list, tuple)):  # 相对坐标列表形式。
+            box = raw_box
+            box_key = self._ocr_box_key(raw_box)
+        elif raw_box is not None:  # 直接给了 Box 对象。
+            box = raw_box
+            box_key = self._ocr_box_key(raw_box)
+        boxes = self._region_ocr_cached(box_key, box)  # 同帧同区域只跑一次 OCR。
+        matched = find_boxes_by_name(boxes, self.fix_match_regex(spec["keywords"]))  # 与 ocr(match=...) 相同的过滤。
+        return bool(matched)  # 命中任一关键词即判定为该界面。
 
     def current_screen(self) -> str | None:
         """在当前帧识别所处界面，返回界面名；未命中返回 None（常用于失败日志）。"""
