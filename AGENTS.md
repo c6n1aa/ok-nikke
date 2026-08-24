@@ -4,27 +4,6 @@ ok-nikke-maid 是基于 PyPI `ok-script` 库（ok-script-app 模板）构建的�
 
 ## 环境与命令
 
-pwsh 环境约定：
-
-| 项 | 约定 |
-|---|---|
-| Shell | 一律 PowerShell 7（`pwsh`），不切 cmd |
-| 字符串里的 `\|` | 双引号安全；单引号更佳（零插值） |
-| UTF-8 | `PYTHONUTF8=1` + `PYTHONIOENCODING=utf-8`（Windows 用户级，已设）；乱码先查这两个变量 |
-
-pwsh 工具（优先于 PowerShell 原生 cmdlet，语法 bash 兼容）：
-
-| 用途 | 工具（替代） | 示例 |
-|---|---|---|
-| 文本搜索 | `rg`（不用 `Select-String`） | `rg -n "pattern" src/`；`-H` 隐藏、`-u` 忽略文件 |
-| 查找文件 | `fd`（不用 `Get-ChildItem`） | `fd "\.py$"`；`-t f`/`-t d` |
-| 查看文件 | `bat`（不用 `Get-Content`） | `bat -r 10:50 file`；`-l json` |
-| 文本替换 | `sd`（不用 `sed`） | `sd 'old' 'new' file` |
-| JSON | `jq` | `cmd \| jq '.items[].name'` |
-| YAML/TOML/CSV | `yq` | `yq '.services.web' file.yml` |
-| diff | `delta` | 已配为 git pager |
-
-> 这些工具输出纯文本/JSON，非 PowerShell 对象管道；首次用 `Get-Command` 验证存在，缺失回退原生 cmdlet；非交互 agent 不调用 `fzf`/`zoxide`。
 - 仅支持 Python 3.12。始终使用仓库本地虚拟环境，不要激活或使用全局 Python 或 Python launcher `py`：所有命令一律写 `.\.venv\Scripts\python.exe` 全路径。
 - 安装依赖必须加 `--no-deps`：`.\.venv\Scripts\python.exe -m pip install --no-deps -r requirements.txt --upgrade`。因为 `pyside6-fluent-widgets` 声明了完整的 PySide6 元包，而本项目只需要 `pyside6-essentials`。`pyproject.toml`（`[project.optional-dependencies]`）是依赖源文件；每次 `pip-compile` 后都要再次删掉生成的 `pyside6`、`pyside6-addons` 条目。升级注意点（ok-script 2.x）：`pywin32` 必须保持 `>=306,!=312`（build 312 是坏版本；不要写成 `>=313` —— 该版本不存在，pip 会解析到 build 311，支持 Python 3.12）；`ok-d3dshot` 是新增的传递依赖，因打包用 `--no-deps` 跑 pip，所以必须显式列在 `requirements.txt` 里。
 - 运行测试（在仓库根目录）：`.\.venv\Scripts\python.exe -m unittest tests.TestMain`，或通过 `run_tests.ps1` 运行全部测试。CI 会运行 `tests/` 下每个 `*.py` 文件，新增测试请放到 `tests/` 下。OCR 相关测试需要 onnxocr 模型（首次运行会自动下载）。标准测试写法见下文「测试」一节。
@@ -53,9 +32,9 @@ pwsh 工具（优先于 PowerShell 原生 cmdlet，语法 bash 兼容）：
 - 任务 UI 字符串（`name`、`description`、`default_config` 键与值、`config_description`、`config_type` 选项）目前直接写简体中文，不做 i18n 文本处理。GUI 会对每个显示的字符串调用 `og.app.tr()`，目录中查不到时原样返回，因此中文可直接显示。`i18n/<locale>/LC_MESSAGES/ok.{po,mo}` 目录保留（目前只有 `zh_CN`、`en_US`，模板示例 `MyOneTimeTask` 仍依赖它）；以后若恢复国际化，用 `$ok-script-i18n` 技能同步目录并重新编译 `.mo`。
 - 使用 `.agents/skills/` 下的内置技能：任务类用 `ok-script-tasks`；`run()` 自动化逻辑用 `ok-script-codegen`；翻译目录用 `ok-script-i18n`；运行 Python 命令用 `use-local-venv`。
 - 不要覆写 `click_box`；非必要不要手动调用 `self.sleep(...)`：点击/识别后的固定等待一律优先挂在框架参数上（`click*`/`wait_click_*` 的 `after_sleep`、`wait_*` 的 `time_out` 等），把等待写在产生界面变化的那个调用的挂点处，而不是由调用方在流程里补 sleep；仅当确实没有对应挂点（如无点击动作的纯动画收尾）才允许短 `sleep`。其余 Frame Refresh Rules 详见 `ok-script-codegen` skill。
-- 界面识别与失败恢复（详见 `docs/screen-and-recovery.md`）：`NikkeBaseTask` 提供界面识别注册表（`register_screen`、`current_screen`、`is_screen`、`wait_screen`、`assert_screen`）与失败恢复协议（`save_failure_screenshot`、`_recover_to_lobby`、`try_step`）。注册界面是**可选**的，仅当任务确实需要识别该界面（`is_screen`/`wait_screen`/`assert_screen`）或把它作为恢复目标时才注册；好友、邮箱等临时弹层/弹窗页面以及只点击几次的简单任务一般不需要注册。大厅 `lobby` 已默认注册为恢复目标，不要重复注册。每个「从大厅出发、自行完成导航」的入口方法（子流程）用 `try_step(...)` 包**一层**即可，方法内部步骤不要逐个包（失败会冒泡到外层，回大厅后整个子流程重跑）。禁止手写临时重试/恢复逻辑、绕过 `try_step`，或绕过 `_recover_to_lobby` 硬编码「按坐标回大厅」。界面判定优先用 coco 模板特征；仅在没有稳定模板时才用 OCR 关键词，并尽量限定 `ocr_box`。失败截图统一存到 `screenshots/failure/`。调整恢复协议或判定方式时，同步更新 `tests/TestScreenRecovery.py`。
+- 界面识别、守卫式导航与失败恢复的完整约定见 `docs/screen-and-recovery.md`，红线只有四条：全局界面注册集中在 `src/screens.py` 的 `SCREENS`（新界面加进去，别再在任务 `__init__` 里 `register_screen`；`lobby` 已注册）；「点击入口 → 确认目标界面」的导航边一律用基类 `transition()`；子流程失败恢复用 `try_step` 包入口方法**一层**（内部步骤不逐个包；禁止手写临时重试/恢复逻辑、绕过 `_recover_to_lobby` 硬编码回大厅）；判定优先 coco 模板特征、OCR 关键词需配 `ocr_box`。注册可选原则、spec 字段（`absent`/`priority`/`min_frames`）、弹窗与临时子页面约定、判据几何约束等细节一律以该文档为准。
 - 完成状态：任务需要记录「本周期已完成」状态（用 `is_done`/`mark_done`/`clear_done`）时，声明类属性 `done_keys = {key: period}`（例如 `HarvestTask.done_keys = {"harvest": "day"}`、`ShopTask.done_keys = {"shop_general": "day", "shop_arena": "day", "shop_recycling": "week"}`）。基类据此提供 `is_completed()`（所有 done_keys 都完成才返回 True）与 `clear_done_all()`；完成口径特殊时覆盖 `is_completed()`（例如 `ShopTask` 只统计用户开启的子商店）。这两个方法自动接入 UI：「日常设置」tab 每个子任务卡片头部显示状态图标（切 tab 时刷新，完成→`FluentIcon.COMPLETED`，未完成→卡片默认图标）；`src/patches/tasks_tab.py` 会给所有 `done_keys` 非空的 `NikkeBaseTask` 卡片在 Operation 行、`Reset Config` 前注入固定的「重置完成状态」按钮（点击调用 `clear_done_all()`；该补丁还负责日常卡片置顶、`HorizontalSeparator` 分割线、日常卡片展开区行过滤，完整职责见 `src/patches/README.md`）。纯编排任务（自身从不 `mark_done`，如 `DailyTask`）不定义 `done_keys`。
-- 自动战斗等待：需要进入自动战斗并等待结果的任务使用基类 `wait_battle_finish`。它采用节流轮询（每 `check_interval` 秒才抓一帧做单次模板匹配），战斗时长约 10 秒~3 分钟不定，不会用忙轮询长时间与游戏抢 CPU；命中结算界面后先等 `settle_time`（默认 2 秒）让结算入场动画收尾、刷新一帧重新定位按钮再返回（结算刚出现时按钮坐标仍在漂移，直接返回会导致调用方点击落空）；且**只检测不点击**，返回 `("success", esc_box)` / `("failed", failed_back_box)` / `(None, None)`，战斗结束后的动作（点 `esc` 确认、连续战斗的胜利界面点「下一关」等）由调用方决定。长时间等战斗不要用 `wait_feature`/`wait_ocr` 忙轮询。新增战斗结果界面时，核对 `assets/coco_annotations.json` 里的 `battle_finish_*` 特征。
+- 自动战斗等待：进入自动战斗后等结果一律用基类 `wait_battle_finish`（节流轮询、**只检测不点击**，返回 `("success"/"failed"/None, box)`，结算后动作由调用方决定）；长等待期间遇断线/维护等弹窗由 `src/screens.py` 的 `INTERRUPTS` 哨兵快速失败。新增战斗结果界面时核对 coco 里的 `battle_finish_*` 特征；中断弹窗的标注与激活流程见 `docs/screen-and-recovery.md`「长等待与中断哨兵」。禁止用 `wait_feature`/`wait_ocr` 忙轮询长等战斗。
 - 提交信息一律使用 Conventional Commits 格式：`type(scope): 英文主题`（type 取 feat/fix/refactor/docs/chore/build/test；scope 在能明确时用任务或模块名），非琐碎改动附英文正文。不要从历史提交推断语言或风格 —— 本条规则是权威约定。
 
 ## 测试
@@ -66,7 +45,7 @@ pwsh 工具（优先于 PowerShell 原生 cmdlet，语法 bash 兼容）：
 - **mock 必须保证被测循环可终止**。对 `while True` 型流程（如 `ArkTask._climb_battle` 爬塔循环），`wait_battle_finish`/`find_one` 用 `return_value` 固定返回「胜利+存在下一关」会让循环永不结束、测试挂死；用 `side_effect` 提供有限序列驱动流程走到收尾分支。
 - **一切引用以源码为准，防改名漂移**。`patch.object` 的目标方法、`register_screen` 名与 `assert_screen` 参数必须与当前源码逐一核对；给任务 config 设值时键名必须与 `default_config` 完全一致。
 - **保持快速确定**。被测流程内的 `self.sleep(...)` 一律 patch 掉；仅当用例本身就是在验证超时行为时才允许真实的短等待。
-- **按影响面选择测试范围，避免动辄全量**。细小改动只跑直接相关的单个测试文件：改 `src/tasks/XxxTask.py` 跑对应 `tests.TestXxxTask`，改 `NikkeBaseTask` 的恢复协议跑 `tests.TestScreenRecovery` 与 `tests.TestBattleWait`，以此类推；一次一条命令只跑一个文件，通过即可继续下一步工作。仅当改动触及共享层（`src/config.py`、`src/patches/`、`assets/coco_annotations.json`、自定义 tab 等被多个任务依赖的部分），或在提交前做整体回归时，才需要全量验证。
+- **按影响面选择测试范围，避免动辄全量**。细小改动只跑直接相关的单个测试文件：改 `src/tasks/XxxTask.py` 跑对应 `tests.TestXxxTask`，改 `NikkeBaseTask` 的恢复协议跑 `tests.TestScreenRecovery` 与 `tests.TestBattleWait`，改判定层/注册表（`src/screens.py`、缓存、spec 语义）再加跑 `tests.TestFrameCache` 与 `tests.TestScreenRegistryIntegrity`，以此类推；一次一条命令只跑一个文件，通过即可继续下一步工作。仅当改动触及共享层（`src/config.py`、`src/patches/`、`assets/coco_annotations.json`、自定义 tab 等被多个任务依赖的部分），或在提交前做整体回归时，才需要全量验证。
 - **全量验证必须逐文件独立进程**。CI 与 `run_tests.ps1` 都按「每个 `tests/*.py` 一个 Python 进程」运行；ok 单例 quit 后无法在同一进程内重建，一条命令连跑多个测试文件会产生大量假错误（典型如 `set_image` 报 `'NoneType' object has no attribute 'set_images'`），不能作为通过依据。
 
 
