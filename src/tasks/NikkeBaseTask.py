@@ -518,7 +518,8 @@ class NikkeBaseTask(BaseTask):
 
         Args:
             clear_condition: 可选完成条件（返回 True 表示清理完成/已回到目标界面）；
-                优先于其它判断，条件满足即返回。
+                每轮先尝试关弹窗，仅当本轮未关到任何弹窗时才检查该条件——遮罩压暗下
+                目标界面特征可能仍命中，若先查条件会误报清理完成而留下未关弹窗。
             time_out: 清理的总超时（秒）。
             after_sleep: 每次点击后的固定等待（秒）。
             max_passes: 最大清理轮数上限，防止异常画面下死循环。
@@ -535,8 +536,6 @@ class NikkeBaseTask(BaseTask):
             if passes > max_passes:  # 超过轮次上限。
                 self.log_warning(f"清理弹窗达到轮次上限（{max_passes}），停止。")  # 记录异常并停止。
                 return False  # 返回失败。
-            if clear_condition is not None and clear_condition():  # 完成条件已满足。
-                return True  # 清理完成。
             if self._try_close_one_popup(after_sleep=after_sleep):  # 关掉了一个弹窗。
                 closed_any = True  # 标记已关闭过弹窗。
                 try:  # 刷新帧后再继续，避免基于旧帧重复匹配。
@@ -546,6 +545,8 @@ class NikkeBaseTask(BaseTask):
                 except Exception:  # 无可用帧时忽略。
                     pass  # 继续下一轮。
                 continue  # 继续清理剩余弹窗。
+            if clear_condition is not None and clear_condition():  # 本轮已无弹窗可关且完成条件满足。
+                return True  # 清理完成。
             if clear_condition is not None:  # 有完成条件但尚未满足。
                 self.sleep(1)  # 等待界面变化后重试。
                 continue  # 继续等待。

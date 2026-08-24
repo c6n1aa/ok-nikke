@@ -259,6 +259,17 @@ class TestScreenRecovery(TaskTestCase):
                 clear_condition=lambda: self.task.is_screen("lobby"), time_out=5)
         self.assertTrue(result)
 
+    def test_dismiss_all_popups_closes_popup_before_honoring_clear_condition(self):
+        # 遮罩下 lobby 特征可能仍命中：即使完成条件已满足，也必须先关完弹窗再返回。
+        with patch.object(self.task, "_try_close_one_popup", side_effect=[True, False]) as close_mock, \
+                patch.object(self.task, "next_frame"), \
+                patch.object(self.task, "is_screen", return_value=True), \
+                patch.object(self.task, "sleep"):
+            result = self.task.dismiss_all_popups(
+                clear_condition=lambda: self.task.is_screen("lobby"), time_out=5)
+        self.assertTrue(result)
+        self.assertEqual(2, close_mock.call_count)  # 第一轮先关弹窗，第二轮确认无弹窗后才认条件。
+
 
 if __name__ == '__main__':
     unittest.main()
