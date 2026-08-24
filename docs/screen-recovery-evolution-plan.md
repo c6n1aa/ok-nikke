@@ -3,7 +3,7 @@
 > 创建日期：2026-08-24
 > 性质：调研结论 + 实施路线（本文不含代码改动）
 > 关联文档：`docs/screen-and-recovery.md`（现行机制说明与开发约束；本文各阶段落地时同步更新它）
-> 文档状态：结论已评审，按 §6 阶段排期执行
+> 文档状态：Phase 0/1/2 已实施完成并经终检（分支 feature/screen-recovery-evolution）；Phase 3 维持条件触发、暂不启动
 
 ---
 
@@ -25,6 +25,8 @@
 ---
 
 ## 2. 现状摘要
+
+> 本节与 §3 记录的是改造前（2026-08-24）基线，行号以当时代码为准；实现落地后行号已漂移，查阅时以提交 `30f02de` 之前的版本为基线。
 
 ### 2.1 判定：按任务实例的声明式注册表
 
@@ -218,4 +220,4 @@
 
 - 按仓库约定：调整恢复协议或判定方式时同步更新 `tests/TestScreenRecovery.py`；新关注点（coco 校验、帧缓存、transition、哨兵）各配独立测试文件，全量验证逐文件独立进程执行。
 - 每个 Phase 落地时同步更新 `docs/screen-and-recovery.md`（机制变化部分）与本文档状态行。
-- 提交信息遵循 Conventional Commits；文档构建以 `python -m mkdocs build --strict` 为准（本文未注册进 `mkdocs.yml` nav，沿用 `framework-upgrade-plan.md` 先例，已通过 strict 构建验证）。
+- 提交信息遵循 Conventional Commits；文档构建以 `python -m mkdocs build --strict` 为准（本文与执行 Prompt 目录经 `mkdocs.yml` 的 `exclude_docs` 排除出发布站点，strict 构建已验证通过）。
