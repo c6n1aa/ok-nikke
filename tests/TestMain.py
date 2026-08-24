@@ -4,13 +4,13 @@ import unittest
 from PySide6.QtGui import QFontMetrics
 
 from src.config import config
-from ok.gui.common.design_system import control_width
+from ok.ui.qt.common.design_system import control_width
 from ok.test.TaskTestCase import TaskTestCase
-from ok.gui.tasks.ConfigItemFactory import config_widget
-from ok.gui.tasks.LabelAndButtons import LabelAndButtons
-from ok.gui.tasks.LabelAndFileSelector import LabelAndFileSelector
-from ok.gui.tasks.ModifyListDialog import ModifyListDialog
-from ok.gui.tasks.ModifyListItem import ModifyListItem
+from ok.ui.qt.tasks.ConfigItemFactory import config_widget
+from ok.ui.qt.tasks.LabelAndButtons import LabelAndButtons
+from ok.ui.qt.tasks.LabelAndFileSelector import LabelAndFileSelector
+from ok.ui.qt.tasks.ModifyListDialog import ModifyListDialog
+from ok.ui.qt.tasks.ModifyListItem import ModifyListItem
 from qfluentwidgets import PushButton
 
 from src.tasks.MyOneTimeTask import MyOneTimeTask
