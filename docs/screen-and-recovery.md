@@ -25,6 +25,7 @@ self.register_screen(name, features=(), keywords=(), ocr_box=None)
 `NikkeBaseTask.__init__` 默认注册了大厅界面：`register_screen("lobby", features=["ark"])`，即「识别到方舟按钮 = 已回到大厅」。
 
 > 注册是**可选**的：只在确实需要识别/等待该界面（`is_screen`/`wait_screen`/`assert_screen`）或把它作为恢复目标时才注册。好友、邮箱等临时弹层/弹窗页面，以及只点击几次的简单任务，都不需要注册额外界面。
+> 判据特征的几何选取有额外约束：优先选择顶栏/底栏/边缘元素，避免把全部判据特征放进模态弹窗覆盖区，详见文末「约束」一节的「判据特征几何约束」条款。
 
 ### 判断接口
 
@@ -94,6 +95,9 @@ self.assert_screen("方舟塔", time_out=10)
 - `close_overlay` 默认 `require_click=True`：显式调用它时必定要成功关闭（点击）至少一次遮罩，超时未点到抛 `WaitFailedException`（可被 `try_step` 捕获重试）。恢复流程等容错场景调用时必须传 `require_click=False`，避免"没有遮罩可关"阻断恢复。
 - 素材分辨率基准：调试截图、coco 标注、手动裁剪模板一律以 2560x1440 为基准（见上文「素材分辨率基准」一节），不要拿低分辨率截图调试或标注。
 - 调整恢复协议或新增判定方式时，同步更新 `tests/TestScreenRecovery.py`。
+- 判据特征几何约束：新注册界面的判据特征优先选择顶栏/底栏/边缘元素；避免全部判据特征的 bbox 落入典型模态覆盖区（x∈[400,2160]、y∈[200,1150]，2560×1440 基准，经验值待实机以好友/邮箱弹窗校准）。适用对象：
+    - (a) 今后新注册的界面；(b) 将参与全局分类或恢复期判定的界面。流程内部、导航后立即执行的 `assert_screen`（断言点前已由 `_nav_*` 确保无弹窗）不受此约束；
+    - Backlog 登记：`simulation_mark`（1172,680，正中心）当前唯一使用点是 `ArkTask.py:119`（`_nav_to_ark` 导航后立即断言），不在适用范围内，现状无问题；仅当 simulation_room 日后参与恢复期/全局分类判定时才更换判据。
 
 ## 测试
 

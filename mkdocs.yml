@@ -14,6 +14,13 @@ theme:
 
 plugins:
   - search
+exclude_docs: |
+  screen-recovery-evolution/
+  screen-recovery-evolution-plan.md
+  framework-upgrade-plan.md
+  framework-upgrade-impact-and-risks.md
+  after_quick_start/
+  api_doc/
 
 markdown_extensions:
   - admonition

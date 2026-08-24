@@ -25,6 +25,7 @@ self.register_screen(name, features=(), keywords=(), ocr_box=None)
 `NikkeBaseTask.__init__` registers the lobby by default: `register_screen("lobby", features=["ark"])` — "ark button visible = back in the lobby".
 
 > Registration is **optional**: only register a screen when the task actually needs to detect it (`is_screen`/`wait_screen`/`assert_screen`) or needs it as a recovery target. Transient overlay pages (friend/mailbox), popups, and simple click-through tasks need no extra registration.
+> Criterion features carry an extra geometric constraint: prefer top-bar/bottom-bar/edge elements and avoid putting all criterion features inside the typical modal-overlay region — see the "Criterion feature geometry" clause in the Constraints section below.
 
 ### Detection API
 
@@ -91,8 +92,12 @@ self.assert_screen("方舟塔", time_out=10)
 - Do not bypass `_recover_to_lobby` with hard-coded "click home by coordinates" recovery.
 - Failure screenshots are always written by `save_failure_screenshot` to `screenshots/failure/`; do not save them elsewhere.
 - Prefer coco template features for screen detection; use OCR keywords only when no stable template exists, and bound the region with `ocr_box`.
+- `close_overlay` defaults to `require_click=True`: an explicit call must succeed in clicking away at least one overlay and raises `WaitFailedException` on timeout (catchable by `try_step`). Fault-tolerant callers such as recovery flows must pass `require_click=False` so a missing overlay does not block recovery.
 - Asset resolution baseline: debugging screenshots, coco annotations, and manually cropped templates all use 2560x1440 as the baseline (see "Asset Resolution Baseline" above); do not debug or annotate against low-resolution screenshots.
 - When changing the recovery protocol or adding detection methods, update `tests/TestScreenRecovery.py` accordingly.
+- Criterion feature geometry: prefer top-bar/bottom-bar/edge elements for newly registered screens' criterion features; do not put all criterion-feature bboxes inside the typical modal-overlay region (x∈[400,2160], y∈[200,1150], based on 2560×1440; empirical values pending on-device calibration with friend/mailbox popups). Applies to:
+    - (a) screens registered from now on; (b) screens that will join global classification or recovery-phase detection. In-flow `assert_screen` calls executed right after navigation are exempt (`_nav_*` already guarantees no popups before the assertion);
+    - Backlog: `simulation_mark` (1172,680, dead center) has a single call site today at `ArkTask.py:119` (asserted immediately after `_nav_to_ark` navigation), outside this constraint's scope — no problem as-is; change its criterion only if simulation_room later joins recovery-phase/global-classification detection.
 
 ## Tests
 
