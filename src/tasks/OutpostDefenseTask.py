@@ -59,14 +59,14 @@ class OutpostDefenseTask(NikkeBaseTask):  # 定义歼灭子任务类。
             for _ in range(times):  # 按配置次数循环。
                 self._wipe_out_with_gem()  # 使用珠宝歼灭一次。
         self.wait_click_feature("outpost_defense_claim", time_out=10, raise_if_not_found=True, after_sleep=1)  # 点击领取歼灭奖励，弹窗未关会抛异常被 try_step 捕获。
-        self.dismiss_all_popups(time_out=10);  # 统一清理可能残留的领取弹窗，等待弹窗出现并关闭后再继续。
+        self.dismiss_all_popups(time_out=5);  # 统一清理可能残留的领取弹窗，等待弹窗出现并关闭后再继续。
 
     def _wipe_out_free(self):  # 免费歼灭子流程。
         self.wait_click_feature("outpost_defense_wipe_out", time_out=10, raise_if_not_found=True, after_sleep=1)  # 点击歼灭按钮弹出确认框。
         free = self.wait_feature("wipe_out", time_out=5, raise_if_not_found=False)  # 尝试查找免费歼灭按钮，若存在则点击。
         if free:  # 存在免费歼灭按钮则点击。
             self.click_box(free, after_sleep=1)  # 点击免费歼灭确认。
-            self.dismiss_all_popups(time_out=10);
+            self.dismiss_all_popups(time_out=5);
         self.click_box("box_wipe_out_close", raise_if_not_found=True, after_sleep=1)  # 点击关闭按钮。
         self.wait_feature("outpost_defense_wipe_out", time_out=10, raise_if_not_found=True)  # 等待回到歼灭页。
 
@@ -75,6 +75,7 @@ class OutpostDefenseTask(NikkeBaseTask):  # 定义歼灭子任务类。
         free = self.wait_feature("wipe_out", time_out=5, raise_if_not_found=False)  # 尝试查找免费歼灭按钮，若存在则点击。
         if free:  # 若存在免费歼灭按钮则点击。
             self.click_box(free, after_sleep=1)  # 点击免费歼灭确认。
+            self.dismiss_all_popups(time_out=5);
             self.wait_feature("outpost_defense_wipe_out", time_out=10, raise_if_not_found=True)  # 等待回到歼灭页。
             return  # 免费歼灭后直接返回，不再使用珠宝。
         self.wait_click_feature("wipe_out_with_gem", time_out=10, raise_if_not_found=True, after_sleep=1)  # 点击使用珠宝歼灭。
