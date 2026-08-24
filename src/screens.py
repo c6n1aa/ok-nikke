@@ -35,3 +35,12 @@ SCREENS = {
     "solo_raid_page": {"features": ["solo_raid_page"]},
     "solo_raid_battle_team_select_page": {"features": ["solo_raid_battle_team_select_page"]},
 }
+
+# 长等待中断哨兵：断线/维护/登录过期等致命中断弹窗的特征清单。
+# 本期为空（哨兵未激活）：实机遇到对应弹窗并标注进 coco 后，把特征名加入
+# features 即激活。激活后 wait_battle_finish 等长轮询会在每轮先查本清单
+# （复用帧级缓存、不新增抓帧频率），命中即保存现场并快速失败，不再空转等满超时。
+INTERRUPTS = {
+    "screens": [],
+    "features": [],
+}

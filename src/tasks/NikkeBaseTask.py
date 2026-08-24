@@ -1,6 +1,6 @@
 import re  # 正则模块，用于 OCR 文字的部分匹配。
 
-from src.screens import SCREENS  # 集中式界面注册表（src/screens.py），全部界面的单一数据源。
+from src.screens import SCREENS, INTERRUPTS  # 集中式界面注册表与中断哨兵清单。
 
 import datetime  # 日期时间模块，处理北京时区与周期刷新。
 import os  # 操作系统路径模块，处理 assets/template/ 下模板文件的绝对路径。
@@ -14,6 +14,14 @@ from ok.util.color import calculate_colorfulness  # 框架颜色工具：计算�
 
 
 _CACHE_MISS = object()  # 帧级判定缓存的「未命中」哨兵：与「命中但结果为 None」区分。
+
+class InterruptedByDialogException(WaitFailedException):
+    """长等待期间命中致命中断弹窗（断线/维护/登录过期等）时抛出。
+
+    继承 WaitFailedException：try_step/_recover_to_lobby 的现有捕获与
+    恢复路径自动兼容，无需任何改动。
+    """
+
 
 _BEIJING_TZ = datetime.timezone(datetime.timedelta(hours=8))  # 北京时间 UTC+8，无夏令时
 
@@ -294,6 +302,10 @@ class NikkeBaseTask(BaseTask):
             self.next_frame()  # 刷新一帧，避免使用旧帧。
             polls += 1  # 轮询次数加一。
             self.log_debug(f"战斗轮询第 {polls} 次（每 {check_interval} 秒一帧），已耗时 {time.time() - (deadline - time_out):.0f} 秒。")  # debug 日志确认轮询节奏。
+            if self._hit_interrupt() is not None:  # 先查中断哨兵：断线/维护/登录过期弹窗会让后续匹配全部落空，快速失败优于空转等满超时。
+                self.save_failure_screenshot("interrupt")  # 保存中断现场截图便于排查。
+                self.log_warning("检测到致命中断弹窗，中止长等待。")  # 记录中断原因。
+                raise InterruptedByDialogException("long wait interrupted by dialog")  # 由 try_step 按等待失败恢复。
             v_variance = 100 / 1440  # Y 轴上下各扩展约 100 像素（以 2560x1440 为基准的相对比例，随分辨率等比缩放；不同战斗结算界面的 ESC 位置可能上下偏移）。
             esc = self.find_one("battle_finish_esc", vertical_variance=v_variance)  # 纵向扩大搜索范围匹配正常结束确认按钮特征（粗壮图标，跨分辨率可靠）。
             if esc is not None:  # 正常战斗结束。
@@ -332,6 +344,22 @@ class NikkeBaseTask(BaseTask):
         else:  # 胜利结算。
             stable = self.find_one("battle_finish_esc", vertical_variance=v_variance)  # 重新定位 esc 按钮。
         return stable if stable is not None else box  # 复识别命中则采用稳定坐标，否则退回原框。
+
+    def _hit_interrupt(self):
+        """检查当前帧是否命中致命中断弹窗特征（src/screens.py 的 INTERRUPTS 清单）。
+
+        返回命中的 Box，未命中返回 None。清单为空 = 哨兵未激活，零开销直接跳过；
+        复用 P1.2 帧级缓存路径，检测不新增抓帧频率。特征未标注进 coco（ValueError）
+        时按未命中处理。
+        """
+        for name in INTERRUPTS.get("features", ()):  # 遍历中断特征清单。
+            try:  # 特征可能尚未标注进 coco。
+                box = self._find_feature_cached(name)  # 同帧只匹配一次。
+            except ValueError:  # 未标注视为未命中。
+                continue
+            if box is not None:  # 命中断线/维护/登录过期等弹窗。
+                return box
+        return None
 
     def find_scaled_template(self, feature_name: str, template_path: str, ref_width: int = 2560,
                              ref_height: int = 1440, **kwargs):
