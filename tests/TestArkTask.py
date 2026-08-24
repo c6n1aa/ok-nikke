@@ -210,10 +210,10 @@ class TestArkTask(_DebugOffTestCase):
 
     def test_enter_tribe_tower(self):
         with patch.object(self.task, "wait_click_feature") as click_mock, \
-                patch.object(self.task, "assert_screen") as assert_mock:
+                patch.object(self.task, "wait_screen", return_value=True) as wait_mock:
             self.task._enter_tribe_tower()
         self.assertEqual([("ark_tribe_tower",)], [c.args for c in click_mock.call_args_list])
-        self.assertEqual([("tribe_tower",)], [c.args for c in assert_mock.call_args_list])
+        self.assertEqual([("tribe_tower",)], [c.args for c in wait_mock.call_args_list])  # transition 内部确认目标界面。
 
     def test_try_tower_skips_when_not_open(self):
         with patch.object(self.task, "_tower_is_open", return_value=False), \
@@ -458,7 +458,7 @@ class TestArkTaskSimulation(_DebugOffTestCase):
     def test_flow_no_red_dot_closes(self):
         with patch.object(self.task, "_nav_to_ark"), \
                 patch.object(self.task, "wait_click_feature") as click_mock, \
-                patch.object(self.task, "assert_screen"), \
+                patch.object(self.task, "wait_screen", return_value=True), \
                 patch.object(self.task, "find_red_dot", return_value=None), \
                 patch.object(self.task, "find_one", side_effect=AssertionError("无红点时不应继续")), \
                 patch.object(self.task, "click_box", side_effect=AssertionError("无红点时不应点击")):
@@ -475,7 +475,7 @@ class TestArkTaskSimulation(_DebugOffTestCase):
                     "simulation_quick_battle": quick}  # 按特征名返回识别结果。
         with patch.object(self.task, "_nav_to_ark"), \
                 patch.object(self.task, "wait_click_feature") as click_mock, \
-                patch.object(self.task, "assert_screen"), \
+                patch.object(self.task, "wait_screen", return_value=True), \
                 patch.object(self.task, "find_red_dot", return_value=red_dot), \
                 patch.object(self.task, "find_one", side_effect=lambda name, *a, **k: find_map.get(name)), \
                 patch.object(self.task, "click_box") as click_box_mock, \
@@ -495,7 +495,7 @@ class TestArkTaskSimulation(_DebugOffTestCase):
                     "simulation_quick_complete_disable": toggle, "simulation_quick_battle": quick}  # Lv.5 未选、开关未激活。
         with patch.object(self.task, "_nav_to_ark"), \
                 patch.object(self.task, "wait_click_feature") as click_mock, \
-                patch.object(self.task, "assert_screen"), \
+                patch.object(self.task, "wait_screen", return_value=True), \
                 patch.object(self.task, "find_red_dot", return_value=red_dot), \
                 patch.object(self.task, "find_one", side_effect=lambda name, *a, **k: find_map.get(name)), \
                 patch.object(self.task, "click_box") as click_box_mock, \
@@ -515,7 +515,7 @@ class TestArkTaskSimulation(_DebugOffTestCase):
                     "simulation_quick_battle": None}  # 无快速战斗按钮。
         with patch.object(self.task, "_nav_to_ark"), \
                 patch.object(self.task, "wait_click_feature") as click_mock, \
-                patch.object(self.task, "assert_screen"), \
+                patch.object(self.task, "wait_screen", return_value=True), \
                 patch.object(self.task, "find_red_dot", return_value=red_dot), \
                 patch.object(self.task, "find_one", side_effect=lambda name, *a, **k: find_map.get(name)), \
                 patch.object(self.task, "click_box") as click_box_mock, \

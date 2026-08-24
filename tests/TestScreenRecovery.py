@@ -151,6 +151,32 @@ class TestScreenRecovery(TaskTestCase):
             self.assertTrue(self.task.wait_screen("抖动页", time_out=30))
         self.assertGreaterEqual(len(evals), 3)  # 至少经历 False→True→True 三轮才通过。
 
+    def test_transition_reclicks_when_swallowed(self):
+        # 吞点击：第一次确认未命中时原地补点，第二次确认命中 → 不抛异常且点击了两次。
+        attempts = {"n": 0}
+
+        def fake_wait_screen(name, time_out=10, **kw):
+            attempts["n"] += 1
+            return attempts["n"] >= 2  # 第一次 False（动画吞点击），第二次 True。
+
+        with patch.object(self.task, "wait_click_feature") as click_mock, \
+                patch.object(self.task, "wait_screen", side_effect=fake_wait_screen):
+            self.assertTrue(self.task.transition("目标页", click_feature="入口特征", retry_click=2))
+        self.assertEqual(2, click_mock.call_count)  # 首次点击 + 一次原地补点。
+
+    def test_transition_raises_with_context_after_exhausted(self):
+        # 重试耗尽：每次确认都不命中 → 补满 retry_click 次后抛 WaitFailedException，消息含目标界面与当前识别结果，且保存失败截图。
+        with patch.object(self.task, "wait_click_feature"), \
+                patch.object(self.task, "wait_screen", return_value=False), \
+                patch.object(self.task, "current_screen", return_value="别的界面") as cur_mock, \
+                patch.object(self.task, "save_failure_screenshot") as shot_mock:
+            with self.assertRaises(WaitFailedException) as ctx:
+                self.task.transition("目标页", click_feature="入口特征", retry_click=2)
+        self.assertIn("transition to 目标页 failed", str(ctx.exception))
+        self.assertIn("current: 别的界面", str(ctx.exception))
+        cur_mock.assert_called_once()  # 异常上下文里的当前界面识别只做一次。
+        shot_mock.assert_called_once_with("目标页")
+
     def test_screen_match_features_and_keywords_fails_when_feature_missing(self):
         # 特征缺失时不进入 OCR 判定，直接判定不在该界面。
         with patch.object(self.task, "find_one", return_value=None), \

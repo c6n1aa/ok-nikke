@@ -762,6 +762,50 @@ class NikkeBaseTask(BaseTask):
             self.log_warning(f"界面断言失败: 期望 {name}，当前 {cur}")  # 记录断言失败。
             raise WaitFailedException(f"not on screen: {name} (current: {cur})")  # 抛等待失败异常。
 
+    def transition(self, to_screen, click_feature=None, box=None, click=None,
+                   time_out=10, wait_confirm=3, retry_click=2, after_sleep=1):
+        """守卫式转换原语：点击入口 → 等待目标界面 → 未命中原地补点 → 带上下文抛错。
+
+        就地消化「动画期吞点击」这类瞬时故障，避免一次误点触发整段回大厅重跑；
+        重试耗尽后保存失败现场并抛 WaitFailedException（消息含目标界面与当前
+        识别结果），由外层 try_step 捕获恢复。战斗结算确认等非典型边不使用本原语。
+
+        Args:
+            to_screen: 目标界面名（须已注册）。
+            click_feature: 点击的 coco 特征名，走 wait_click_feature（raise_if_not_found=True）。
+            box: 点击的框/区域/区域特征名，走 click_box；与 click_feature 二选一。
+            click: 自定义无参可调用对象；提供时忽略前两者。
+            time_out: 点击动作的等待超时（秒），即 wait_click_feature 的 time_out。
+            wait_confirm: 每次点击后等待确认的单次超时（秒）；长加载边调大它。
+            retry_click: 确认未命中时原地补点的最大次数（总尝试 = 1 + retry_click）。
+            after_sleep: 每次点击后的固定等待（秒）。
+        """
+
+        def _click_once():  # 单次点击动作：三种形态之一。
+            if click is not None:  # 自定义点击。
+                click()
+            elif click_feature is not None:  # coco 特征入口。
+                self.wait_click_feature(click_feature, time_out=time_out,
+                                        raise_if_not_found=True, after_sleep=after_sleep)
+            elif box is not None:  # 框/区域入口。
+                self.click_box(box, after_sleep=after_sleep)
+            else:
+                raise ValueError("transition 需要提供 click_feature/box/click 之一")
+
+        deadline = time.time() + time_out  # 整个转换的总预算。
+        for attempt in range(1 + max(0, retry_click)):  # 首次点击 + 至多 retry_click 次补点。
+            if attempt > 0 and time.time() >= deadline:  # 总超时后不再补点。
+                break
+            _click_once()
+            remain = max(1, int(deadline - time.time()))  # 确认等待不超过总预算剩余。
+            if self.wait_screen(to_screen, time_out=min(wait_confirm, remain)):
+                return True  # 已进入目标界面。
+            self.log_info(f"transition: {to_screen} 未确认（第 {attempt + 1} 次尝试），原地重试。")
+        self.save_failure_screenshot(to_screen)  # 保存失败现场截图。
+        current = self.current_screen()  # 识别当前界面作为异常上下文。
+        self.log_warning(f"界面转换失败: 目标 {to_screen}，当前 {current}")  # 记录失败。
+        raise WaitFailedException(f"transition to {to_screen} failed (current: {current})")
+
     def save_failure_screenshot(self, tag: str):
         """保存失败现场截图到 screenshots/failure/，复用框架截图能力。"""
         try:  # 截图失败不应影响主流程。

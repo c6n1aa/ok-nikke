@@ -68,8 +68,7 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
         elif not self.wait_until_lobby_after_start():  # 无应用内特征时才视为冷启动/加载中：循环关公告弹窗并点 TOUCH TO CONTINUE 进入大厅。
             raise WaitFailedException("未能进入游戏大厅")  # 抛异常由 try_step 恢复重试。
         self.dismiss_all_popups(wait_for_popup=False, time_out=10)  # 统一清理大厅残留弹窗，无弹窗立即返回。
-        self.wait_click_feature("ark", raise_if_not_found=True, after_sleep=1)  # 从大厅点击方舟入口。
-        self.assert_screen("ark")  # 确认已进入方舟界面。
+        self.transition("ark", click_feature="ark", wait_confirm=10, after_sleep=1)  # 从大厅点击方舟入口并确认已进入方舟界面。
 
     def _do_tribe_tower(self):  # 企业塔子流程：方舟→无限之塔→逐塔挑战→返回方舟。
         if not self.config.get("企业塔"):  # 用户未启用企业塔子流程。
@@ -111,8 +110,7 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
 
     def _do_simulation_flow(self):  # 模拟室整体流程：确保在方舟→模拟室→红点判断→快速模拟→关闭返回方舟。
         self._nav_to_ark()  # 确保处于方舟界面（正常已就位；失败恢复回大厅后由此重新进入）。
-        self.wait_click_feature("ark_simulation_room", raise_if_not_found=True, after_sleep=1)  # 点击模拟室入口。
-        self.assert_screen("simulation_room")  # 确认已进入模拟室界面。
+        self.transition("simulation_room", click_feature="ark_simulation_room", wait_confirm=10, after_sleep=1)  # 点击模拟室入口并确认已进入模拟室界面。
         red_dot = self.find_red_dot("box_simulation_badge")  # 在模拟室徽标区域检测通知红点。
         if red_dot is None:  # 无红点说明今日模拟室已完成或不可挑战。
             self._click_simulation_close()  # 点击关闭按钮返回方舟。
@@ -184,8 +182,7 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
         return True  # 已进入过塔。
 
     def _enter_tribe_tower(self):  # 从方舟进入无限之塔界面（调用时已确保处于方舟界面）。
-        self.wait_click_feature("ark_tribe_tower", raise_if_not_found=True, after_sleep=1)  # 点击企业塔入口。
-        self.assert_screen("tribe_tower")  # 确认已进入无限之塔界面。
+        self.transition("tribe_tower", click_feature="ark_tribe_tower", wait_confirm=10, after_sleep=1)  # 点击企业塔入口并确认已进入无限之塔界面。
 
     def _enter_tower(self, box_key):  # 点击塔卡进入该塔。
         try:  # 区域特征可能缺失。

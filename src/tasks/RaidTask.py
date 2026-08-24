@@ -77,8 +77,7 @@ class RaidTask(NikkeBaseTask):  # 定义讨伐任务类，包含协同作战与�
             if coop_box is None:  # B -- false 分支：未找到协同作战入口。
                 self.log_info("未找到协同作战入口，视为已完成。")  # 记录跳过原因。
                 return  # 直接返回，由调用方标记完成。
-            self.click_box(coop_box, after_sleep=1)  # 点击协同作战入口进入协同作战页面。
-            self.assert_screen("coop_page")  # C 识别 coop_page 判别当前处在协同作战页面。
+            self.transition("coop_page", box=coop_box, after_sleep=1)  # 点击协同作战入口进入并确认已进入协同作战页面。
         # 已确保在协同作战页面，开始循环处理次数。
         while True:  # 循环直到次数用尽。
             # D 在 box_coop_count 区域进行 OCR 识别 最后的文字是否为 0/3。
@@ -94,8 +93,7 @@ class RaidTask(NikkeBaseTask):  # 定义讨伐任务类，包含协同作战与�
             self.wait_feature("coop_match_page", time_out=10, raise_if_not_found=True)  # F 识别 coop_match_page 确认匹配弹窗已出现。
             self.click_box("box_coop_normal", after_sleep=1)  # G 点击 box_coop_normal（文档写 box_normal，实际为 box_coop_normal）选择普通难度。
             self.click_box("box_coop_confirm", after_sleep=1)  # H 点击 box_coop_confirm 确认匹配。
-            self.wait_click_feature("coop_accpet", time_out=60, raise_if_not_found=True, after_sleep=1)  # I 等待识别 coop_accpet 并点击接受匹配。
-            self.assert_screen("coop_nikke_select_page")  # J 识别 coop_nikke_select_page 确认当前处于 NIKKE 选择界面。
+            self.transition("coop_nikke_select_page", click_feature="coop_accpet", time_out=60, wait_confirm=10, after_sleep=1)  # I 等待识别 coop_accpet 并点击接受匹配，确认进入 NIKKE 选择界面。
             self.sleep(3)  # J 等待 3 秒（界面动画稳定）。
             self.click_box("box_coop_ready", after_sleep=1)  # K 点击 box_coop_ready 准备就绪。
             result, confirm_box = self.wait_battle_finish(time_out=240)  # L 等待战斗结束 wait_battle_finish（节流轮询，只检测不点击）。
@@ -158,8 +156,7 @@ class RaidTask(NikkeBaseTask):  # 定义讨伐任务类，包含协同作战与�
 
     def _do_solo_raid_battle(self):  # 个人突袭普通出战分支：F→N 从点击出战到结算返回首页（由主流程 try_step 包裹）。
         self.click_box("box_solo_raid_battle_feature", after_sleep=1)  # F 点击出战按钮，弹出出战确认弹窗。
-        self.wait_click_feature("solo_raid_battle_confirm", time_out=10, raise_if_not_found=True, after_sleep=1)  # G 等待识别出战确认弹窗并点击。
-        self.assert_screen("solo_raid_battle_team_select_page")  # H 断言已进入队伍选择界面。
+        self.transition("solo_raid_battle_team_select_page", click_feature="solo_raid_battle_confirm", time_out=10, wait_confirm=10, after_sleep=1)  # G 等待识别出战确认弹窗并点击，断言已进入队伍选择界面。
         self.click_box("box_solo_raid_battle_start", after_sleep=1)  # I 点击开始战斗。
         result, confirm_box = self.wait_battle_finish(time_out=240)  # J 节流轮询等待自动战斗结束（只检测不点击）。
         if result is None:  # 超时未检测到结算界面。
@@ -169,8 +166,7 @@ class RaidTask(NikkeBaseTask):  # 定义讨伐任务类，包含协同作战与�
         else:  # 兜底：未返回确认框。
             self.wait_click_feature("battle_finish_esc", time_out=10, raise_if_not_found=True, after_sleep=1)  # 兜底点击胜利确认。
         self.wait_feature("solo_raid_battle_finish", time_out=15, raise_if_not_found=True)  # R 等待识别战斗结果页出现。
-        self.wait_click_feature("solo_raid_battle_finish_confirm", time_out=10, raise_if_not_found=True, after_sleep=1)  # N 识别并点击结果确认，返回个人突袭首页。
-        self.assert_screen("solo_raid_page")  # 回到 C：确认已回到个人突袭首页。
+        self.transition("solo_raid_page", click_feature="solo_raid_battle_finish_confirm", time_out=10, wait_confirm=10, after_sleep=1)  # N 识别并点击结果确认，确认回到个人突袭首页。
 
     def _do_solo_raid_quick_battle(self):  # 个人突袭快速战斗分支：K→P 扫荡剩余次数并确认即时结算（由主流程 try_step 包裹）。
         self.click_box("box_solo_raid_quick_battle_feature", after_sleep=1); # 点击快速战斗按钮
