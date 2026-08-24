@@ -193,8 +193,7 @@ class RaidTask(NikkeBaseTask):  # 定义讨伐任务类，包含协同作战与�
             if raid_box is None:  # B -- false 分支：未找到个人突袭入口。
                 self.log_info("未找到个人突袭入口，视为已完成。")  # 记录跳过原因。
                 return  # 直接返回，由调用方标记完成。
-            self.click_box(raid_box, after_sleep=1)  # 点击个人突袭入口进入个人突袭首页。
-        self.assert_screen("solo_raid_page")  # C 断言当前处于个人突袭首页。
+            self.transition("solo_raid_page", box=raid_box, after_sleep=1)  # 点击个人突袭入口进入并确认已进入个人突袭首页（吞点击原地补点）。
         rounds = 0  # 出战轮次保护计数，防止按钮状态误判导致死循环。
         while True:  # 循环直到没有可用的出战方式。
             rounds += 1  # 轮次加一。
