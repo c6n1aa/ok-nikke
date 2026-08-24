@@ -21,8 +21,11 @@ self.register_screen(name, features=(), keywords=(), ocr_box=None)
 - `features`: list of coco-annotated template feature names; all must match for the screen to count. Prefer template features — matching is cheaper and more stable than OCR (e.g. `"ark"`, `"friend"`).
 - `keywords`: list of OCR keywords; any hit identifies the screen. Use only for pages without a stable template.
 - `ocr_box`: optional OCR region to keep OCR cost down. Either relative coordinates `[x, y, to_x, to_y]`, or a coco-annotated region feature name (string) resolved to the current resolution at match time (e.g. `"box_sub_pages_title"`); falls back to full-screen OCR when the feature is missing.
+- `absent`: disambiguation feature names (default empty). If any `absent` feature matches on the current frame, the screen fails immediately — used to distinguish adjacent screens whose feature sets overlap (one being a subset of the other).
+- `priority`: integer, default 0. Only affects `current_screen()` ordering: iterates in descending priority, ties keep registration order; does not affect `is_screen`/`wait_screen`/`assert_screen`.
+- `min_frames`: integer, default 1. Only applies to `wait_screen`/`assert_screen` polling: N consecutive hits are required to count as entering the screen (each poll takes a fresh frame; a miss resets the counter). **`is_screen` is always single-frame** and ignores this field. All three default to no-op behavior, and none of the 9 globally registered screens uses them yet.
 
-`NikkeBaseTask.__init__` registers the lobby by default: `register_screen("lobby", features=["ark"])` — "ark button visible = back in the lobby".
+`NikkeBaseTask.__init__` loads all screens from the centralized registry `src/screens.py`; the lobby screen is defined as `{"features": ["ark", "lobby"]}` — "lobby features such as the ark button visible = back in the lobby".
 
 > Registration is **optional**: only register a screen when the task actually needs to detect it (`is_screen`/`wait_screen`/`assert_screen`) or needs it as a recovery target. Transient overlay pages (friend/mailbox), popups, and simple click-through tasks need no extra registration.
 > Criterion features carry an extra geometric constraint: prefer top-bar/bottom-bar/edge elements and avoid putting all criterion features inside the typical modal-overlay region — see the "Criterion feature geometry" clause in the Constraints section below.

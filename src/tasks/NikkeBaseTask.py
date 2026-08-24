@@ -619,11 +619,12 @@ class NikkeBaseTask(BaseTask):
         self._cache_put(key, result)
         return result
 
-    def register_screen(self, name: str, features=(), keywords=(), ocr_box=None):
+    def register_screen(self, name: str, features=(), keywords=(), ocr_box=None, **extra):
         """注册一个界面及判定条件。
 
         全局界面已由基类从 src/screens.py 的 SCREENS 加载；本方法是任务的
         扩展口：可追加任务私有界面，同名调用覆盖全局（或先前）条目。
+        扩展字段（absent/priority/min_frames 等）经 **extra 原样并入判定描述。
 
         Args:
             name: 界面名（子任务用 is_screen/wait_screen/assert_screen 时传入的名称）。
@@ -633,19 +634,22 @@ class NikkeBaseTask(BaseTask):
                 [x, y, to_x, to_y]，也可为 coco 标注的区域特征名（字符串），
                 匹配时按当前分辨率解析。
         """
-        self.screens[name] = {  # 保存界面判定描述到注册表。
+        self.screens[name] = {  # 保存界面判定描述到注册表；扩展字段（absent/priority/min_frames）原样并入。
             "features": list(features),  # 模板特征名列表。
             "keywords": list(keywords),  # OCR 关键词列表。
             "ocr_box": ocr_box,  # OCR 区域相对坐标。
+            **extra,  # 扩展字段：缺省时为空，不改变既有条目结构。
         }
 
     def _screen_match(self, spec: dict) -> bool:
         """按判定描述在当前帧检测是否处于该界面。
 
         features 与 keywords 同时配置时取「与」：所有特征命中 且 命中任一关键词。
+        absent 中的特征（消歧字段，默认空）任一命中则直接判负，作用于两条命中路径。
         """
         features = spec.get("features")  # 模板特征名列表。
         keywords = spec.get("keywords")  # OCR 关键词列表。
+        absent = spec.get("absent") or []  # 消歧特征：任一命中即否定该界面。
         if features:  # 有模板特征则先逐个检测特征。
             for name in features:  # 逐个检测特征。
                 try:  # 特征可能已不存在（如 coco 重建后旧特征被移除）。
@@ -656,12 +660,26 @@ class NikkeBaseTask(BaseTask):
                 if found is None:  # 任一特征缺失则不在该界面。
                     return False  # 返回未命中。
             if not keywords:  # 未配置关键词时特征全部命中即判定为该界面。
-                return True  # 返回命中。
-            return self._match_ocr_keywords(spec)  # 同时配置了关键词则还需命中任一关键词。
+                return self._check_absent(absent)  # absent 检查后返回。
+            if not self._match_ocr_keywords(spec):  # 同时配置了关键词则还需命中任一关键词。
+                return False  # 关键词未命中。
+            return self._check_absent(absent)  # 关键词命中后再做 absent 检查。
         if keywords:  # 无模板特征时退化为 OCR 关键词判定。
-            return self._match_ocr_keywords(spec)  # 按关键词判定。
+            if not self._match_ocr_keywords(spec):  # 按关键词判定。
+                return False  # 关键词未命中。
+            return self._check_absent(absent)  # 关键词命中后再做 absent 检查。
         self.log_warning(f"界面 {spec} 未配置判定条件")  # 记录空配置。
         return False  # 空配置判定为不在该界面。
+
+    def _check_absent(self, absent) -> bool:
+        """absent 消歧检查：列表中任一特征在当前帧命中则返回 False。走与 features 相同的缓存查找路径。"""
+        for name in absent:  # 逐个检测消歧特征。
+            try:  # 与 features 相同的容错：特征缺失视为未命中。
+                if self._find_feature_cached(name) is not None:  # 消歧特征命中。
+                    return False  # 该界面判定失败。
+            except ValueError:  # coco 变更导致特征缺失时按未命中处理。
+                self.log_warning(f"界面 absent 特征缺失: {name}")  # 记录缺失。
+        return True  # 无消歧特征命中。
 
     def _match_ocr_keywords(self, spec: dict) -> bool:
         """按界面判定描述在当前帧 OCR 匹配关键词，命中任一关键词返回 True。
@@ -690,14 +708,23 @@ class NikkeBaseTask(BaseTask):
         return bool(matched)  # 命中任一关键词即判定为该界面。
 
     def current_screen(self) -> str | None:
-        """在当前帧识别所处界面，返回界面名；未命中返回 None（常用于失败日志）。"""
-        for name, spec in self.screens.items():  # 遍历所有已注册界面。
+        """在当前帧识别所处界面，返回界面名；未命中返回 None（常用于失败日志）。
+
+        按 spec 的 priority 降序遍历（默认 0）；同优先级保持注册顺序
+        （sorted 稳定排序），消除对注册先后顺序的隐性依赖。
+        """
+        ordered = sorted(self.screens.items(), key=lambda item: -item[1].get("priority", 0))  # 降序且稳定。
+        for name, spec in ordered:  # 遍历所有已注册界面。
             if self._screen_match(spec):  # 命中则返回该界面名。
                 return name  # 返回界面名。
         return None  # 全部未命中返回 None。
 
     def is_screen(self, name: str) -> bool:
-        """单帧检测当前是否处于指定界面。"""
+        """单帧检测当前是否处于指定界面。
+
+        恒为单帧语义：即使 spec 配置了 min_frames，本方法也不做多帧确认；
+        连续帧确认仅作用于 wait_screen/assert_screen 的轮询判定。
+        """
         spec = self.screens.get(name)  # 读取界面判定描述。
         if spec is None:  # 界面未注册。
             self.log_warning(f"未注册界面: {name}")  # 记录未注册。
@@ -705,11 +732,26 @@ class NikkeBaseTask(BaseTask):
         return self._screen_match(spec)  # 按判定描述检测。
 
     def wait_screen(self, name: str, time_out=10, raise_if_not_found=False):
-        """等待进入指定界面，复用 wait_until 的轮询与超时机制。"""
+        """等待进入指定界面，复用 wait_until 的轮询与超时机制。
+
+        spec 的 min_frames（默认 1）表示需连续多少次轮询命中才算进入：
+        轮询条件每轮在不同帧上求值，连续命中计数天然逐帧；未命中即清零。
+        默认值下与原单帧判定行为一致。
+        """
         spec = self.screens.get(name)  # 读取界面判定描述。
         if spec is None:  # 界面未注册。
             raise ValueError(f"未注册界面: {name}")  # 未注册直接报错。
-        return self.wait_until(lambda: self._screen_match(spec),  # 轮询界面判定条件。
+        min_frames = max(1, int(spec.get("min_frames", 1)))  # 缺省退化为单帧语义。
+        consecutive = {"hits": 0}  # 实例级计数状态：跨轮次递增，未命中清零。
+
+        def condition():  # 轮询条件：wait_until 每轮取新帧后调用一次。
+            if self._screen_match(spec):  # 本轮命中。
+                consecutive["hits"] += 1  # 连续命中数递增。
+            else:  # 本轮未命中。
+                consecutive["hits"] = 0  # 清零重来。
+            return consecutive["hits"] >= min_frames  # 达到连续帧要求才算进入。
+
+        return self.wait_until(condition,  # 轮询界面判定条件。
                                time_out=time_out,  # 超时时间。
                                raise_if_not_found=raise_if_not_found)  # 超时是否抛异常。
 

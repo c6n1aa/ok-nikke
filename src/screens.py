@@ -11,11 +11,17 @@ current_screen() 能看到全量界面，后续方案也以本表为准。
 keywords 任一命中即命中（或）；两者同时配置时再取「与」；ocr_box 仅用于
 限定 keywords 的 OCR 区域。条目只写真实存在的键，缺省键省略不补空列表。
 
-顺序即注册顺序：NikkeBaseTask 按本字典顺序灌入 self.screens，而
-current_screen() 按插入顺序首命中返回，因此必须保持 lobby 在前的既有次序。
+顺序即注册顺序：NikkeBaseTask 按本字典顺序灌入 self.screens；
+current_screen() 按 priority 降序、同优先级按插入顺序遍历，
+因此必须保持 lobby 在前的既有次序。
 
-本模块必须是纯数据模块：仅用 stdlib、不 import ok、不依赖任何框架对象，
-以便 coco 完整性测试等工具低成本导入。
+扩展字段（缺省 = 现状行为，现有条目未填充）：
+- absent: list[str]，消歧特征，任一在当前帧命中则该界面判定失败
+  （用于特征子集重叠的相邻界面互斥）。
+- priority: int，默认 0。仅影响 current_screen() 的遍历顺序：
+  按其降序、同优先级保持注册顺序；is_screen/wait_screen/assert_screen 不受影响。
+- min_frames: int，默认 1。仅作用于 wait_screen/assert_screen 的轮询判定，
+  需连续 N 轮命中才算进入（轮询每轮取新帧）；is_screen 恒为单帧语义。
 """
 
 SCREENS = {

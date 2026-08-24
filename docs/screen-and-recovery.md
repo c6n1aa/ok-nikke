@@ -21,8 +21,11 @@ self.register_screen(name, features=(), keywords=(), ocr_box=None)
 - `features`：coco 标注的模板特征名列表，全部命中才判定为该界面。优先使用模板特征——匹配比 OCR 便宜且稳定（如 `"ark"`、`"friend"`）。
 - `keywords`：OCR 关键词列表，任一命中即判定为该界面，用于没有稳定模板的页面。
 - `ocr_box`：可选 OCR 区域，缩小 OCR 范围以降低开销。可为相对坐标 `[x, y, to_x, to_y]`，也可为 coco 标注的区域特征名（字符串），匹配时按当前分辨率解析（如 `"box_sub_pages_title"`）；特征缺失时退化为全屏 OCR。
+- `absent`：消歧特征名列表（默认空）。任一 `absent` 特征在当前帧命中则该界面直接判负——用于消歧「特征子集重叠」的相邻界面（如某界面是另一界面的子集）。
+- `priority`：整数，默认 0。仅影响 `current_screen()` 的返回顺序：按其降序遍历、同优先级保持注册顺序；不影响 `is_screen`/`wait_screen`/`assert_screen`。
+- `min_frames`：整数，默认 1。仅作用于 `wait_screen`/`assert_screen` 的轮询判定：需连续 N 轮命中才算进入该界面（每轮轮询取新帧，未命中即清零）；**`is_screen` 恒为单帧语义**，不受该字段影响。三个字段缺省即退化为现状行为，现有全局注册的 9 个界面均未使用。
 
-`NikkeBaseTask.__init__` 默认注册了大厅界面：`register_screen("lobby", features=["ark"])`，即「识别到方舟按钮 = 已回到大厅」。
+`NikkeBaseTask.__init__` 从集中式注册表 `src/screens.py` 加载全部界面；大厅界面为 `{"features": ["ark", "lobby"]}`，即「大厅特征（如方舟按钮）可见 = 已回到大厅」。
 
 > 注册是**可选**的：只在确实需要识别/等待该界面（`is_screen`/`wait_screen`/`assert_screen`）或把它作为恢复目标时才注册。好友、邮箱等临时弹层/弹窗页面，以及只点击几次的简单任务，都不需要注册额外界面。
 > 判据特征的几何选取有额外约束：优先选择顶栏/底栏/边缘元素，避免把全部判据特征放进模态弹窗覆盖区，详见文末「约束」一节的「判据特征几何约束」条款。

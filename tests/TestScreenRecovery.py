@@ -108,6 +108,49 @@ class TestScreenRecovery(TaskTestCase):
             self.task.register_screen("方舟", features=["ark_ranking"], keywords=["方舟"], ocr_box="box_sub_pages_title")
             self.assertFalse(self.task.is_screen("方舟"))
 
+    def _hit(self, name):
+        return Box(1, 1, 5, 5, confidence=1, name=name)
+
+    def test_absent_feature_blocks_match(self):
+        # absent 消歧：消歧特征命中时判定失败；未命中时正常命中路径。
+        self.task.register_screen("子集页", features=["simulation_mark"], absent=["ark"])
+        with patch.object(self.task, "find_one", side_effect=lambda name: self._hit(name)):
+            self.assertFalse(self.task.is_screen("子集页"))  # ark 命中 → 判负。
+        self.set_image('tests/images/main.png')  # 换帧：两个场景相互独立（同帧内消歧命中会被缓存，属预期语义）。
+        with patch.object(self.task, "find_one",
+                          side_effect=lambda name: self._hit(name) if name == "simulation_mark" else None):
+            self.assertTrue(self.task.is_screen("子集页"))  # 消歧特征未命中 → 正常判定。
+
+    def test_current_screen_respects_priority(self):
+        # priority 仅影响 current_screen 遍历顺序：高优先级先返回；同优先级保持注册序。
+        self.task.screens = {}
+        self.task.register_screen("甲", features=["不存在A"])
+        self.task.register_screen("乙", features=["不存在B"], priority=5)
+        with patch.object(self.task, "find_one", return_value=Box(1, 1, 5, 5, confidence=1, name="hit")):
+            self.assertEqual("乙", self.task.current_screen())  # 高优先级胜出。
+            self.assertEqual(5, self.task.screens["乙"]["priority"])  # 扩展字段原样保留。
+
+    def test_current_screen_same_priority_keeps_registration_order(self):
+        self.task.screens = {}
+        self.task.register_screen("先注册", features=["特征X"])
+        self.task.register_screen("后注册", features=["特征Y"])
+        with patch.object(self.task, "find_one", return_value=Box(1, 1, 5, 5, confidence=1, name="hit")):
+            self.assertEqual("先注册", self.task.current_screen())  # 同为默认 0，注册序在前者返回。
+
+    def test_wait_screen_min_frames_requires_consecutive_hits(self):
+        # min_frames=2：单次 True 不算进入，需连续两轮 True 才返回。
+        self.task.register_screen("抖动页", features=["特征Z"], min_frames=2)
+        evals = []
+
+        def fake_match(spec):
+            evals.append(1)
+            return [False, True, True, True][min(len(evals) - 1, 3)]
+
+        with patch.object(self.task, "_screen_match", side_effect=fake_match), \
+                patch.object(self.task, "sleep"):
+            self.assertTrue(self.task.wait_screen("抖动页", time_out=30))
+        self.assertGreaterEqual(len(evals), 3)  # 至少经历 False→True→True 三轮才通过。
+
     def test_screen_match_features_and_keywords_fails_when_feature_missing(self):
         # 特征缺失时不进入 OCR 判定，直接判定不在该界面。
         with patch.object(self.task, "find_one", return_value=None), \
