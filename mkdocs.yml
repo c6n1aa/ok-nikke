@@ -16,6 +16,7 @@ plugins:
   - search
 exclude_docs: |
   screen-recovery-evolution/
+    screen-recovery-architecture.md
   screen-recovery-evolution-plan.md
   framework-upgrade-plan.md
   framework-upgrade-impact-and-risks.md

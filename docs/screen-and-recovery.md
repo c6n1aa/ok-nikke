@@ -1,67 +1,99 @@
 # 界面识别与失败恢复
 
-本文介绍 `NikkeBaseTask`（`src/tasks/NikkeBaseTask.py`）提供的通用「界面识别」与「失败恢复」骨架。这是后续任务开发的统一约束，Agent 在开发新任务时必须遵守文末的「约束」一节。
+本文是开发任务的统一约束：`NikkeBaseTask`（`src/tasks/NikkeBaseTask.py`）提供「界面识别 + 守卫式导航 + 失败恢复」三层骨架，全部复用 ok-script 现有 API。Agent 开发新任务必须遵守文末「约束」一节。
 
-## 背景
+- 判定数据集中在 `src/screens.py`（单一数据源），判定/导航/恢复机制在 `NikkeBaseTask`。
+- 机制细节与缓冲/合并的实现原理见内部文档 `docs/screen-recovery-architecture.md`（维护者向）；演进计划见 `docs/screen-recovery-evolution-plan.md`。
+- 帧级判定缓存对使用者完全透明：判定结果与无缓存逐位一致，使用本页 API 无需关心缓存。
 
-早期任务各自用 `wait_feature`/`wait_click_feature`，默认「点完入口就已在目标页面」。一旦遇到弹窗、加载慢、网络波动等意外界面，后续等待会超时并抛出 `WaitFailedException`，任务停在半路且没有任何恢复动作，下一个任务还会基于错误的界面假设继续操作。
-
-为此，`NikkeBaseTask` 沉淀了一套轻量、可抽象、可扩展的通用机制，全部复用 ok-script 现有 API，不引入新的框架概念。
-
-## 方案 A：界面识别
-
-界面注册表 `self.screens` 把「界面名」映射为「判定条件」，判定复用模板特征与 OCR 两类 ok-script 能力。
+## 界面识别
 
 ### 注册界面
 
+全局界面统一注册在 `src/screens.py` 的 `SCREENS`（`NikkeBaseTask.__init__` 自动加载，不要重复注册）。**新增界面一律先加进 `SCREENS`**；`register_screen` 仅用于极少的任务私有界面（同名覆盖全局条目）：
+
 ```python
-self.register_screen(name, features=(), keywords=(), ocr_box=None)
+SCREENS = {
+    "lobby": {"features": ["ark", "lobby"]},
+    ...
+    "新界面": {"features": ["xxx_feature"]},  # 追加在末尾
+}
+# 任务私有扩展（确有需要时）：
+self.register_screen(name, features=(), keywords=(), ocr_box=None, **extra)
 ```
 
-- `features`：coco 标注的模板特征名列表，全部命中才判定为该界面。优先使用模板特征——匹配比 OCR 便宜且稳定（如 `"ark"`、`"friend"`）。
-- `keywords`：OCR 关键词列表，任一命中即判定为该界面，用于没有稳定模板的页面。
-- `ocr_box`：可选 OCR 区域，缩小 OCR 范围以降低开销。可为相对坐标 `[x, y, to_x, to_y]`，也可为 coco 标注的区域特征名（字符串），匹配时按当前分辨率解析（如 `"box_sub_pages_title"`）；特征缺失时退化为全屏 OCR。
-- `absent`：消歧特征名列表（默认空）。任一 `absent` 特征在当前帧命中则该界面直接判负——用于消歧「特征子集重叠」的相邻界面（如某界面是另一界面的子集）。
-- `priority`：整数，默认 0。仅影响 `current_screen()` 的返回顺序：按其降序遍历、同优先级保持注册顺序；不影响 `is_screen`/`wait_screen`/`assert_screen`。
-- `min_frames`：整数，默认 1。仅作用于 `wait_screen`/`assert_screen` 的轮询判定：需连续 N 轮命中才算进入该界面（每轮轮询取新帧，未命中即清零）；**`is_screen` 恒为单帧语义**，不受该字段影响。三个字段缺省即退化为现状行为，现有全局注册的 9 个界面均未使用。
+spec 字段（缺省即现状行为）：
 
-`NikkeBaseTask.__init__` 从集中式注册表 `src/screens.py` 加载全部界面；大厅界面为 `{"features": ["ark", "lobby"]}`，即「大厅特征（如方舟按钮）可见 = 已回到大厅」。
-
-> 注册是**可选**的：只在确实需要识别/等待该界面（`is_screen`/`wait_screen`/`assert_screen`）或把它作为恢复目标时才注册。好友、邮箱等临时弹层/弹窗页面，以及只点击几次的简单任务，都不需要注册额外界面。
-> 判据特征的几何选取有额外约束：优先选择顶栏/底栏/边缘元素，避免把全部判据特征放进模态弹窗覆盖区，详见文末「约束」一节的「判据特征几何约束」条款。
+| 字段 | 默认 | 语义 |
+|---|---|---|
+| `features` | `()` | coco 模板特征名列表，全部命中才算命中（与）。优先使用，匹配比 OCR 便宜且稳定 |
+| `keywords` | `()` | OCR 关键词列表，任一命中即命中（或）；无稳定模板的页面才用 |
+| `ocr_box` | `None` | 可选 OCR 区域：相对坐标 `[x, y, to_x, to_y]` 或 coco 区域特征名（按当前分辨率解析）；特征缺失退化为全屏 OCR |
+| `absent` | `[]` | 消歧特征列表，任一命中则该界面直接判负（消歧特征子集重叠的相邻界面） |
+| `priority` | `0` | 仅影响 `current_screen()` 返回顺序：降序遍历、同级保持注册序 |
+| `min_frames` | `1` | 仅作用于 `wait_screen`/`assert_screen` 轮询：需连续 N 轮命中才判定进入；`is_screen` 恒为单帧语义，不受此字段影响 |
 
 ### 判断接口
 
 | 方法 | 说明 |
 | --- | --- |
-| `current_screen()` | 在当前帧识别所处界面，返回界面名；未命中返回 `None`（常用于失败日志）。 |
-| `is_screen(name)` | 单帧检测当前是否处于指定界面。 |
-| `wait_screen(name, time_out=10, raise_if_not_found=False)` | 等待进入指定界面，复用 `wait_until` 的轮询与超时机制。 |
-| `assert_screen(name, time_out=10)` | 断言处于指定界面，超时抛 `WaitFailedException`（通常配合 `try_step` 使用）。 |
+| `current_screen()` | 在当前帧识别所处界面，按 `priority` 降序遍历，返回首个命中的界面名；未命中返回 `None`（常用于失败日志） |
+| `is_screen(name)` | 单帧检测当前是否处于指定界面 |
+| `wait_screen(name, time_out=10, raise_if_not_found=False)` | 等待进入指定界面；`min_frames` 连续命中语义在此生效 |
+| `assert_screen(name, time_out=10)` | 断言处于指定界面，超时抛 `WaitFailedException`（配合 `try_step`） |
 
-## 方案 B：失败恢复
+## 导航：`transition()`
+
+任务里「点击入口 → 确认进入目标界面」的转换**一律用 `transition()`**，不再手写 `wait_click_feature(...) + assert_screen(...)` 两行：
+
+```python
+self.transition("tribe_tower", click_feature="ark_tribe_tower", wait_confirm=10, after_sleep=1)
+self.transition("coop_page", box=coop_box, after_sleep=1)  # 已预查出的框走 box=
+```
+
+- 点击源三选一：`click_feature`（coco 特征，走 `wait_click_feature`）、`box`（框/区域名，`click_box`）、`click`（自定义可调用）。
+- 点击后未在 `wait_confirm` 秒内进入目标界面就**原地补点**，至多 `retry_click` 次（默认 2）；耗尽则保存失败截图并抛带 from/to 上下文的 `WaitFailedException`（由 `try_step` 捕获恢复）。
+- 点击等待与确认等待共享 `time_out` 总预算；进战斗等长加载边调大 `wait_confirm`/`time_out`。
+
+**不适用于**：战斗结算确认等已带专用语义的边（`wait_battle_finish` 后的确认/返回）、循环头部的「重确认仍在本页」断言（这类保留 `assert_screen`）。
+
+## 失败恢复
 
 ```python
 self.try_step(step_fn, name=None, retries=2, recover=True, raise_on_fail=True) -> bool
 ```
 
-`try_step` 包裹一个从大厅出发的子流程（入口方法），步骤内以 `raise_if_not_found=True` 抛出的 `WaitFailedException` 会触发恢复协议：
+`try_step` 包裹一个从大厅出发的子流程入口方法；步骤内抛出的 `WaitFailedException`（含子类 `InterruptedByDialogException`）触发恢复协议：
 
 1. `save_failure_screenshot(tag)` 保存失败现场截图到 `screenshots/failure/`；
 2. 记录本次失败；
-3. `_recover_to_lobby()` 恢复：刷新帧 → `close_overlay()` 关闭弹窗（恢复场景传 `require_click=False`，无遮罩可关时不报错）→ 按 `common_home` 特征回大厅 → `wait_for_lobby()` 确认已回到大厅；
-4. 有限重试（`retries` 次，默认共尝试 3 次）；
-5. 恢复回大厅失败则提前放弃；重试耗尽后按 `raise_on_fail` 决定抛出异常，或返回 `False` 由调用方决定「跳过继续」。
+3. `_recover_to_lobby()` 恢复：刷新帧 → `dismiss_all_popups(clear_condition=is_screen("lobby"))` 清弹窗 → 按 `common_home` 特征回大厅 → `wait_for_lobby()` 确认；
+4. 有限重试（`retries` 次，默认共尝试 3 次）；恢复失败则提前放弃；重试耗尽后按 `raise_on_fail` 决定抛出异常或返回 `False`。
 
-`_recover_to_lobby` 是普通实例方法，子任务需要额外恢复动作（如额外的关闭按钮）时可覆盖它。
+`dismiss_all_popups` 的语义要点：**每轮先尝试关一个弹窗，仅当本轮一个都关不到时才检查 `clear_condition`**——遮罩压暗下目标界面特征可能仍命中，先查条件会谎报清理完成。`clear_condition` 因此必须配合「条件满足且无弹窗可关」才成立理解。
+
+`_recover_to_lobby` 是普通实例方法，子任务需要额外恢复动作时可覆盖它。
 
 ### 粒度：包「入口方法」，不要逐个包内部步骤
 
 `try_step` 的正确粒度是**入口方法**：一个「从大厅出发、自己完成整段导航与操作」的子流程方法。因为失败后要恢复回大厅再重跑，被包裹的步骤必须能从大厅重入；内部步骤依赖入口方法的前置导航链才能到达目标页面，逐个包裹反而会造成冗余恢复和上下文丢失。
 
 - 每个入口方法在 `run()` 里用 `try_step` 包**一层**。
-- 方法内部的导航/操作步骤**不单独包**：任一步抛 `WaitFailedException` 会冒泡到外层 `try_step`，回大厅后整个入口方法从头重跑，前置步骤链自然重来。
-- 若某个步骤只需原地重试（如瞬时 OCR/模板抖动），可用 `recover=False` 只重试、不恢复回大厅。
+- 方法内部步骤**不单独包**：任一步抛 `WaitFailedException` 会冒泡到外层，回大厅后整个入口方法从头重跑。
+- 某个步骤只需原地重试（如瞬时 OCR/模板抖动）时，用 `recover=False` 只重试、不恢复回大厅。
+
+## 长等待与中断哨兵
+
+- 自动战斗结束等待用 `wait_battle_finish(time_out=240, check_interval=3, settle_time=2)`（节流轮询、只检测不点击，返回 `("success", esc)` / `("failed", back)` / `(None, None)`，后续动作由调用方决定）。长时间等战斗不要用 `wait_feature`/`wait_ocr` 忙轮询。
+- 中断哨兵：`wait_battle_finish` 与 `RaidTask` 的 60s 匹配等待在每轮轮询中先查 `src/screens.py` 的 `INTERRUPTS["features"]`，命中即抛 `InterruptedByDialogException`（继承 `WaitFailedException`，`try_step` 自动兼容）。清单当前为空 = 未激活、零开销。
+- 实机遇到断线/维护/登录过期弹窗：先把弹窗特征标注进 coco，再把特征名加入 `INTERRUPTS["features"]`，并给 `tests/TestBattleWait.py` 加对应用例。
+
+## 弹窗与临时子页面约定
+
+- **不把好友/邮箱/公告等模态弹窗注册为界面**——它们是「什么挡着我」的独立维度，由 `dismiss_all_popups`/`close_overlay` 机制处理。
+- **不把塔卡/关卡选择、队伍编成等流程内顺序子页面注册为界面**——它们顶替父页面、父特征消失，流程内靠特征/坐标推进；做失败恢复时注意这些页面不一定有 `common_home`。
+- 进入流程前先 `dismiss_all_popups` 清弹窗再判定界面；`_nav_*` 型入口沿用「刷新帧 → 判定 → 清弹窗 → 再刷新 → 再判定」的两段式。
+- 判据特征几何约束：判据优先选**顶栏/底栏/边缘**元素，避免全部判据落入典型模态覆盖区（约 x∈[400,2160]、y∈[200,1150]，2560×1440 基准，经验值待实机校准）。适用对象：今后新注册的界面、以及将参与全局分类/恢复期判定的界面；流程内部导航后立即断言的界面不受此约束。
 
 ## 素材分辨率基准（2560x1440）
 
@@ -79,29 +111,39 @@ self.try_step(step_fn, name=None, retries=2, recover=True, raise_on_fail=True) -
 # 每个入口方法（子流程）包一层 try_step，方法内部步骤不逐个包。
 if not self.try_step(self._collect_friend, name="收获友情点", raise_on_fail=False):
     self.log_warning("友情点收取失败，跳过。")
-if not self.try_step(self._collect_mailbox, name="收取邮箱", raise_on_fail=False):
-    self.log_warning("邮箱收取失败，跳过。")
 
-# 只有确实需要识别/等待某个界面时才注册，再配合断言使用。
-self.register_screen("方舟塔", features=["ark_tribe_tower"])
-self.assert_screen("方舟塔", time_out=10)
+# 新界面加到 src/screens.py 的 SCREENS:
+#   "我的页面": {"features": ["my_page_mark"]},
+# 导航边用 transition()：
+self.transition("我的页面", click_feature="my_entry", wait_confirm=10, after_sleep=1)
+
+# 已在目标页则跳过导航的入口模式：
+if not self.is_screen("我的页面"):
+    self.wait_for_lobby()
+    self.dismiss_all_popups(wait_for_popup=False, time_out=10)
+    self.transition("我的页面", click_feature="my_entry")
 ```
 
 ## 约束（Agent 开发必须遵守）
 
-- 注册界面是**可选**的：仅在任务确实需要识别某个界面（`is_screen`/`wait_screen`/`assert_screen`）或把它作为恢复目标时才用 `register_screen` 注册。好友、邮箱等临时弹层/弹窗页面，以及只点击几次的简单任务，都不需要注册额外界面。
-- 大厅 `lobby` 已默认注册，作为 `_recover_to_lobby` 的恢复目标，无需重复注册。
-- `try_step` 的粒度是「入口方法」：每个从大厅出发、自包含导航的子流程方法在 `run()` 里包**一层** `try_step(...)`；方法内部步骤不要逐个包（失败会冒泡到外层，回大厅后整个子流程重跑）。禁止手写临时重试/恢复逻辑。
+- 全局界面注册在 `src/screens.py` 的 `SCREENS`；`register_screen` 只用于任务私有界面；大厅 `lobby` 已由基类注册，不要重复注册。
+- 注册界面是**可选**的：仅在确实需要识别/等待某界面（`is_screen`/`wait_screen`/`assert_screen`，或作为恢复目标/分类需求）时才注册。好友、邮箱等临时弹层与只点击几次的简单任务，都不需要注册额外界面。
+- spec 字段语义以本页表格为准：`absent`/`priority`/`min_frames` 缺省即现状行为；不要用它们实现与表格不符的语义。
+- 「点击入口 → 确认进入目标界面」的导航边一律用 `transition()`；例外仅限战斗结算类专用边与循环内重确认断言。
+- `try_step` 的粒度是「入口方法」：每个从大厅出发、自包含导航的子流程在 `run()` 里包**一层**；方法内部步骤不要逐个包；禁止手写临时重试/恢复逻辑。
 - 不要绕过 `_recover_to_lobby` 自行硬编码「按坐标回大厅」等恢复动作。
-- 失败截图统一由 `save_failure_screenshot` 存到 `screenshots/failure/`，不要在别处另存。
+- 失败截图统一由 `save_failure_screenshot` 存到 `screenshots/failure/`；`transition`/哨兵内部已统一调用，业务代码不要另存。
 - 界面判定优先用 coco 模板特征；只有无稳定模板的页面才用 OCR 关键词，并尽量限定 `ocr_box`。
-- `close_overlay` 默认 `require_click=True`：显式调用它时必定要成功关闭（点击）至少一次遮罩，超时未点到抛 `WaitFailedException`（可被 `try_step` 捕获重试）。恢复流程等容错场景调用时必须传 `require_click=False`，避免"没有遮罩可关"阻断恢复。
-- 素材分辨率基准：调试截图、coco 标注、手动裁剪模板一律以 2560x1440 为基准（见上文「素材分辨率基准」一节），不要拿低分辨率截图调试或标注。
-- 调整恢复协议或新增判定方式时，同步更新 `tests/TestScreenRecovery.py`。
-- 判据特征几何约束：新注册界面的判据特征优先选择顶栏/底栏/边缘元素；避免全部判据特征的 bbox 落入典型模态覆盖区（x∈[400,2160]、y∈[200,1150]，2560×1440 基准，经验值待实机以好友/邮箱弹窗校准）。适用对象：
-    - (a) 今后新注册的界面；(b) 将参与全局分类或恢复期判定的界面。流程内部、导航后立即执行的 `assert_screen`（断言点前已由 `_nav_*` 确保无弹窗）不受此约束；
-    - Backlog 登记：`simulation_mark`（1172,680，正中心）当前唯一使用点是 `ArkTask.py:119`（`_nav_to_ark` 导航后立即断言），不在适用范围内，现状无问题；仅当 simulation_room 日后参与恢复期/全局分类判定时才更换判据。
+- `close_overlay` 默认 `require_click=True`：显式调用它时必定要成功关闭（点击）至少一次遮罩，超时未点到抛 `WaitFailedException`。恢复流程等容错场景调用时必须传 `require_click=False`。
+- 判定特征几何约束：新注册界面的判据特征优先选顶栏/底栏/边缘元素；避免全部判据特征的 bbox 落入典型模态覆盖区（x∈[400,2160]、y∈[200,1150]，2560×1440 基准，经验值待实机以好友/邮箱弹窗校准）。Backlog：`simulation_mark`（正中心）当前唯一使用点是导航后立即断言，不受约束；仅当 simulation_room 参与恢复期/全局分类时才更换判据。
+- 素材分辨率基准：调试截图、coco 标注、手动裁剪模板一律以 2560x1440 为基准（见上文），不要拿低分辨率截图调试或标注。
+- 中断弹窗维护：实机遇到断线/维护/登录过期弹窗 → 标注进 coco → 加入 `INTERRUPTS["features"]` → `TestBattleWait.py` 补用例。
+- 调整恢复协议或判定方式时，同步更新 `tests/TestScreenRecovery.py`；新增关注点（如缓存、注册表完整性）配独立测试文件。
 
 ## 测试
 
-`tests/TestScreenRecovery.py` 覆盖界面识别（模板/OCR 判定、未命中）、`try_step`（成功、重试、跳过、恢复失败提前放弃）、`close_overlay`（命中点击关闭 / 未命中抛异常 / 容错返回 False）以及 `_recover_to_lobby`（已在大厅 / 按 `common_home` 回大厅）等行为。
+- `tests/TestScreenRecovery.py`：界面识别各分支、`absent`/`priority`/`min_frames`、`transition()`、`try_step`、`dismiss_all_popups`、`_recover_to_lobby`。
+- `tests/TestFrameCache.py`：帧级缓存的同帧去重与换帧失效（含 `set_image` 路径）。
+- `tests/TestScreenRegistryIntegrity.py`：静态校验 `SCREENS` 引用的特征都存在于 `assets/coco_annotations.json`（coco 重建删特征会被 CI 拦下）。
+- `tests/TestBattleWait.py`：战斗等待轮询与中断哨兵快速失败。
+- 全量验证必须逐文件独立进程执行（如 `run_tests.ps1`）；严禁一条命令连跑多个测试文件（ok 单例在同一进程内不可重建，会产生假错误）。
