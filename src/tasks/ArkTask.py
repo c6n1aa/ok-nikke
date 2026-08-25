@@ -95,9 +95,13 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
         self.mark_done("simulation", "day")  # 记录本周期已完成。
         self.log_info("模拟室任务完成。")  # 记录子流程完成。
 
-    def _do_simulation_flow(self):  # 模拟室整体流程：确保在方舟→模拟室→红点判断→快速模拟→关闭返回方舟。
+    def _do_simulation_flow(self):  # 模拟室整体流程：确保在方舟→模拟室→更新弹窗处理→红点判断→快速模拟→关闭返回方舟。
         self._nav_to_ark()  # 确保处于方舟界面（正常已就位；失败恢复回大厅后由此重新进入）。
         self.transition("simulation_room", click_feature="ark_simulation_room", wait_confirm=10, after_sleep=1)  # 点击模拟室入口并确认已进入模拟室界面。
+        update_popup = self.find_one("simulation_overclock_update")  # 进入模拟室后识别是否弹出超频更新公告弹窗。
+        if update_popup is not None:  # 弹窗存在时会遮挡界面，必须先关闭再继续后续流程。
+            self.log_info("检测到模拟室更新弹窗，先关闭。")  # 记录弹窗处理。
+            self.wait_click_feature("simulation_overclock_update_close", raise_if_not_found=True, after_sleep=1)  # 点击弹窗关闭按钮，关闭后继续原流程。
         red_dot = self.find_red_dot("box_simulation_badge")  # 在模拟室徽标区域检测通知红点。
         if red_dot is None:  # 无红点说明今日模拟室已完成或不可挑战。
             self._click_simulation_close()  # 点击关闭按钮返回方舟。
@@ -106,12 +110,9 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
         if self.find_one("simulation_level5") is None:  # 当前未选中最高难度 Lv.5。
             self.wait_click_feature("simulation_level5", raise_if_not_found=True, after_sleep=1)  # 选择 Lv.5 难度。
         self.click_box("box_simulation_region_selector", raise_if_not_found=True, after_sleep=1)  # 点击地区选择器确认地区。
-        if self.find_one("simulation_quick_complete_active") is None:  # 立即完成开关尚未激活。
-            toggle = self.find_one("simulation_quick_complete_disable")  # 识别灰色未激活开关以精确定位。
-            if toggle is not None:  # 找到未激活开关。
-                self.click_box(toggle, after_sleep=1)  # 点击开关激活立即完成。
-            else:  # 未识别到开关（样式变化等异常情况）。
-                self.wait_click_feature("simulation_quick_complete_active", raise_if_not_found=True, after_sleep=1)  # 按 active 标注位置等待并点击。
+        switch_box = self.get_box_by_name("box_simulation_quick_complete")  # 开关两态几何位置不变，用纯坐标区域定位，不依赖模板匹配（规避布局横移导致的匹配脱靶）。
+        if switch_box is not None and not self.is_feature_enabled(switch_box):  # 色彩丰富度判态：灰白为未激活。
+            self.click_box(switch_box, after_sleep=1)  # 点击开关激活立即完成；已激活（彩色）直接继续快速模拟。
         quick_battle = self.find_one("simulation_quick_battle")  # 识别快速战斗按钮。
         if quick_battle is None:  # 无快速战斗按钮（今日已完成或不可快速完成）。
             self._click_simulation_close()  # 点击关闭按钮返回方舟。

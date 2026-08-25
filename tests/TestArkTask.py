@@ -460,28 +460,57 @@ class TestArkTaskSimulation(_DebugOffTestCase):
         self.assertEqual(["tower", "simulation"], order)
 
     def test_flow_no_red_dot_closes(self):
+        def find_one_only_update(name, *args, **kwargs):
+            self.assertEqual("simulation_overclock_update", name,
+                             "无红点时除更新弹窗外不应继续识别其他特征")  # 守卫：不得进入红点后的流程识别。
+            return None  # 未弹出超频更新弹窗。
+
         with patch.object(self.task, "_nav_to_ark"), \
                 patch.object(self.task, "wait_click_feature") as click_mock, \
                 patch.object(self.task, "wait_screen", return_value=True), \
                 patch.object(self.task, "find_red_dot", return_value=None), \
-                patch.object(self.task, "find_one", side_effect=AssertionError("无红点时不应继续")), \
+                patch.object(self.task, "find_one", side_effect=find_one_only_update), \
                 patch.object(self.task, "click_box", side_effect=AssertionError("无红点时不应点击")):
             self.task._do_simulation_flow()
         clicked = [c.args[0] for c in click_mock.call_args_list]
         self.assertEqual(["ark_simulation_room", "simulation_close"], clicked)
 
-    def test_flow_full_success_skips_level_and_toggle(self):
+    def test_flow_dismisses_overclock_update_then_continues(self):
         red_dot = Box(1387, 804, 36, 45, confidence=1, name="red_dot")  # 徽标红点。
         level5 = Box(1511, 406, 74, 84, confidence=1, name="simulation_level5")  # 已选中 Lv.5。
-        active = Box(1192, 1116, 76, 38, confidence=1, name="simulation_quick_complete_active")  # 立即完成已激活。
+        switch_box = Box(1192, 1115, 79, 41, confidence=1, name="box_simulation_quick_complete")  # 开关纯坐标区域（已激活）。
         quick = Box(1380, 1208, 49, 47, confidence=1, name="simulation_quick_battle")  # 快速战斗按钮。
-        find_map = {"simulation_level5": level5, "simulation_quick_complete_active": active,
+        update_popup = Box(700, 300, 1160, 800, confidence=1, name="simulation_overclock_update")  # 超频更新弹窗存在。
+        find_map = {"simulation_overclock_update": update_popup, "simulation_level5": level5,
                     "simulation_quick_battle": quick}  # 按特征名返回识别结果。
         with patch.object(self.task, "_nav_to_ark"), \
                 patch.object(self.task, "wait_click_feature") as click_mock, \
                 patch.object(self.task, "wait_screen", return_value=True), \
                 patch.object(self.task, "find_red_dot", return_value=red_dot), \
                 patch.object(self.task, "find_one", side_effect=lambda name, *a, **k: find_map.get(name)), \
+                patch.object(self.task, "get_box_by_name", return_value=switch_box), \
+                patch.object(self.task, "is_feature_enabled", return_value=True), \
+                patch.object(self.task, "click_box"), \
+                patch.object(self.task, "dismiss_all_popups"):
+            self.task._do_simulation_flow()
+        clicked = [c.args[0] for c in click_mock.call_args_list]
+        self.assertEqual(["ark_simulation_room", "simulation_overclock_update_close",
+                          "simulation_quick_battle_finishi", "simulation_close"], clicked)  # 先关更新弹窗再走正常快速模拟流程。
+
+    def test_flow_full_success_skips_level_and_toggle(self):
+        red_dot = Box(1387, 804, 36, 45, confidence=1, name="red_dot")  # 徽标红点。
+        level5 = Box(1511, 406, 74, 84, confidence=1, name="simulation_level5")  # 已选中 Lv.5。
+        switch_box = Box(1192, 1115, 79, 41, confidence=1, name="box_simulation_quick_complete")  # 开关纯坐标区域（已激活）。
+        quick = Box(1380, 1208, 49, 47, confidence=1, name="simulation_quick_battle")  # 快速战斗按钮。
+        find_map = {"simulation_level5": level5,
+                    "simulation_quick_battle": quick}  # 按特征名返回识别结果。
+        with patch.object(self.task, "_nav_to_ark"), \
+                patch.object(self.task, "wait_click_feature") as click_mock, \
+                patch.object(self.task, "wait_screen", return_value=True), \
+                patch.object(self.task, "find_red_dot", return_value=red_dot), \
+                patch.object(self.task, "find_one", side_effect=lambda name, *a, **k: find_map.get(name)), \
+                patch.object(self.task, "get_box_by_name", return_value=switch_box), \
+                patch.object(self.task, "is_feature_enabled", return_value=True), \
                 patch.object(self.task, "click_box") as click_box_mock, \
                 patch.object(self.task, "dismiss_all_popups") as dismiss_mock:
             self.task._do_simulation_flow()
@@ -493,35 +522,39 @@ class TestArkTaskSimulation(_DebugOffTestCase):
 
     def test_flow_selects_level5_and_activates_quick_complete(self):
         red_dot = Box(1387, 804, 36, 45, confidence=1, name="red_dot")  # 徽标红点。
-        toggle = Box(1192, 1116, 76, 38, confidence=1, name="simulation_quick_complete_disable")  # 灰色未激活开关。
+        switch_box = Box(1192, 1115, 79, 41, confidence=1, name="box_simulation_quick_complete")  # 开关纯坐标区域。
         quick = Box(1380, 1208, 49, 47, confidence=1, name="simulation_quick_battle")  # 快速战斗按钮。
-        find_map = {"simulation_level5": None, "simulation_quick_complete_active": None,
-                    "simulation_quick_complete_disable": toggle, "simulation_quick_battle": quick}  # Lv.5 未选、开关未激活。
+        find_map = {"simulation_level5": None,
+                    "simulation_quick_battle": quick}  # Lv.5 未选、开关为灰白未激活态。
         with patch.object(self.task, "_nav_to_ark"), \
                 patch.object(self.task, "wait_click_feature") as click_mock, \
                 patch.object(self.task, "wait_screen", return_value=True), \
                 patch.object(self.task, "find_red_dot", return_value=red_dot), \
                 patch.object(self.task, "find_one", side_effect=lambda name, *a, **k: find_map.get(name)), \
+                patch.object(self.task, "get_box_by_name", return_value=switch_box), \
+                patch.object(self.task, "is_feature_enabled", return_value=False), \
                 patch.object(self.task, "click_box") as click_box_mock, \
                 patch.object(self.task, "dismiss_all_popups"):
             self.task._do_simulation_flow()
         clicked = [c.args[0] for c in click_mock.call_args_list]
         self.assertEqual(["ark_simulation_room", "simulation_level5", "simulation_quick_battle_finishi",
                           "simulation_close"], clicked)
-        self.assertEqual([red_dot, "box_simulation_region_selector", toggle, quick],
+        self.assertEqual([red_dot, "box_simulation_region_selector", switch_box, quick],
                          [c.args[0] for c in click_box_mock.call_args_list])
 
     def test_flow_no_quick_battle_closes(self):
         red_dot = Box(1387, 804, 36, 45, confidence=1, name="red_dot")  # 徽标红点。
         level5 = Box(1511, 406, 74, 84, confidence=1, name="simulation_level5")  # 已选中 Lv.5。
-        active = Box(1192, 1116, 76, 38, confidence=1, name="simulation_quick_complete_active")  # 立即完成已激活。
-        find_map = {"simulation_level5": level5, "simulation_quick_complete_active": active,
+        switch_box = Box(1192, 1115, 79, 41, confidence=1, name="box_simulation_quick_complete")  # 开关纯坐标区域（已激活）。
+        find_map = {"simulation_level5": level5,
                     "simulation_quick_battle": None}  # 无快速战斗按钮。
         with patch.object(self.task, "_nav_to_ark"), \
                 patch.object(self.task, "wait_click_feature") as click_mock, \
                 patch.object(self.task, "wait_screen", return_value=True), \
                 patch.object(self.task, "find_red_dot", return_value=red_dot), \
                 patch.object(self.task, "find_one", side_effect=lambda name, *a, **k: find_map.get(name)), \
+                patch.object(self.task, "get_box_by_name", return_value=switch_box), \
+                patch.object(self.task, "is_feature_enabled", return_value=True), \
                 patch.object(self.task, "click_box") as click_box_mock, \
                 patch.object(self.task, "dismiss_all_popups") as dismiss_mock:
             self.task._do_simulation_flow()
@@ -530,6 +563,47 @@ class TestArkTaskSimulation(_DebugOffTestCase):
         self.assertEqual([red_dot, "box_simulation_region_selector"],
                          [c.args[0] for c in click_box_mock.call_args_list])
         dismiss_mock.assert_not_called()
+
+    def test_flow_switch_disabled_state_gets_clicked(self):
+        """开关为灰白未激活态（colorfulness 低于阈值）时应被点击激活。"""
+        red_dot = Box(1387, 804, 36, 45, confidence=1, name="red_dot")  # 徽标红点。
+        level5 = Box(1511, 406, 74, 84, confidence=1, name="simulation_level5")  # 已选中 Lv.5。
+        switch_box = Box(1192, 1115, 79, 41, confidence=1, name="box_simulation_quick_complete")  # 开关纯坐标区域。
+        quick = Box(1380, 1208, 49, 47, confidence=1, name="simulation_quick_battle")  # 快速战斗按钮。
+        find_map = {"simulation_level5": level5, "simulation_quick_battle": quick}
+        with patch.object(self.task, "_nav_to_ark"), \
+                patch.object(self.task, "wait_click_feature") as click_mock, \
+                patch.object(self.task, "wait_screen", return_value=True), \
+                patch.object(self.task, "find_red_dot", return_value=red_dot), \
+                patch.object(self.task, "find_one", side_effect=lambda name, *a, **k: find_map.get(name)), \
+                patch.object(self.task, "get_box_by_name", return_value=switch_box), \
+                patch.object(self.task, "is_feature_enabled", return_value=False) as enabled_mock, \
+                patch.object(self.task, "click_box") as click_box_mock, \
+                patch.object(self.task, "dismiss_all_popups"):
+            self.task._do_simulation_flow()
+        enabled_mock.assert_called_once_with(switch_box)  # 判态入参应为开关区域。
+        self.assertEqual([red_dot, "box_simulation_region_selector", switch_box, quick],
+                         [c.args[0] for c in click_box_mock.call_args_list])  # 未激活开关应被点击。
+
+    def test_flow_switch_box_missing_skips_toggle(self):
+        """开关区域缺失（coco 特征异常）时不应点击，直接继续快速模拟。"""
+        red_dot = Box(1387, 804, 36, 45, confidence=1, name="red_dot")  # 徽标红点。
+        level5 = Box(1511, 406, 74, 84, confidence=1, name="simulation_level5")  # 已选中 Lv.5。
+        quick = Box(1380, 1208, 49, 47, confidence=1, name="simulation_quick_battle")  # 快速战斗按钮。
+        find_map = {"simulation_level5": level5, "simulation_quick_battle": quick}
+        with patch.object(self.task, "_nav_to_ark"), \
+                patch.object(self.task, "wait_click_feature") as click_mock, \
+                patch.object(self.task, "wait_screen", return_value=True), \
+                patch.object(self.task, "find_red_dot", return_value=red_dot), \
+                patch.object(self.task, "find_one", side_effect=lambda name, *a, **k: find_map.get(name)), \
+                patch.object(self.task, "get_box_by_name", return_value=None), \
+                patch.object(self.task, "is_feature_enabled",
+                             side_effect=AssertionError("区域缺失时不应做判态")), \
+                patch.object(self.task, "click_box") as click_box_mock, \
+                patch.object(self.task, "dismiss_all_popups"):
+            self.task._do_simulation_flow()
+        self.assertEqual([red_dot, "box_simulation_region_selector", quick],
+                         [c.args[0] for c in click_box_mock.call_args_list])  # 跳过开关直接快速模拟。
 
     def test_simulation_screen_registered(self):
         self.assertIn("simulation_room", self.task.screens)  # 模拟室界面已注册。
