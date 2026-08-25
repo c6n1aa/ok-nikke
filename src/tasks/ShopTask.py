@@ -344,15 +344,15 @@ class ShopTask(NikkeBaseTask):  # 商店自动兑换任务，继承项目基类�
             raise WaitFailedException(f"未确认进入商店：{keyword}")  # 抛异常由 try_step 捕获恢复。
 
     def _enter_general_shop(self):  # 从大厅进入普通商店。
-        self.wait_click_feature("shop", time_out=10, raise_if_not_found=True, after_sleep=1)  # 点击大厅商店入口。
-        self._assert_shop_title("普通商店")  # OCR 确认已进入普通商店。
+        self.transition("shop", click_feature="shop", time_out=10, wait_confirm=10, after_sleep=2)  # 点击大厅商店入口，按已注册的 shop 界面确认进入（过场吞点击时原地补点）。
+        self._assert_shop_title("普通商店")  # 页面级确认之外再校验激活标签页是普通商店。
 
     def _switch_to_arena(self):  # 从普通商店切换到竞技场商店。
-        self.wait_click_feature("shop_arena", time_out=10, raise_if_not_found=True, after_sleep=1)  # 点击竞技场商店标签。
+        self.wait_click_feature("shop_arena", time_out=10, raise_if_not_found=True, after_sleep=2)  # 点击竞技场商店标签。
         self._assert_shop_title("竞技场商店")  # OCR 确认已进入竞技场商店。
 
     def _switch_to_recycling(self):  # 从普通商店切换到废铁商店。
-        self.wait_click_feature("shop_recyling", time_out=10, raise_if_not_found=True, after_sleep=1)  # 点击废铁商店标签。
+        self.wait_click_feature("shop_recyling", time_out=10, raise_if_not_found=True, after_sleep=2)  # 点击废铁商店标签。
         self._assert_shop_title("废铁商店")  # OCR 确认已进入废铁商店。
 
     def _exit_to_lobby(self):  # 退出商店返回大厅。

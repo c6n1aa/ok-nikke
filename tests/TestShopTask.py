@@ -87,6 +87,17 @@ class TestShopTask(TaskTestCase):
             with self.assertRaises(WaitFailedException):
                 self.task._do_general_shop()
 
+    def test_enter_general_shop_transitions_then_asserts_tab(self):
+        # 迁移到 transition 原语：点击入口后由原语等待确认进入商店界面，再校验激活标签页是普通商店。
+        with patch.object(self.task, "wait_click_feature") as click_mock, \
+                patch.object(self.task, "wait_screen", return_value=True) as wait_mock, \
+                patch.object(self.task, "_assert_shop_title") as title_mock:
+            self.task._enter_general_shop()
+        click_mock.assert_called_once_with("shop", time_out=10, raise_if_not_found=True, after_sleep=1)
+        self.assertEqual(("shop",), wait_mock.call_args.args)  # transition 内部确认已注册的 shop 界面。
+        self.assertEqual(10, wait_mock.call_args.kwargs["time_out"])
+        title_mock.assert_called_once_with("普通商店")
+
 
 if __name__ == '__main__':
     unittest.main()
