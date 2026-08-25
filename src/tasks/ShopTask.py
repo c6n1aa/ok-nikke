@@ -182,8 +182,12 @@ class ShopTask(NikkeBaseTask):  # 商店自动兑换任务，继承项目基类�
     def _do_general_shop(self):  # 普通商店：第一格未售罄则购买；购买/售罄后还有免费刷新机会则刷新再买，否则跳过。
         if not self._is_sold_out(self._cell_box(1, 1)):  # 第一格商品未售罄。
             self._buy_cell("shop_buy_confirm", row=1, col=1)  # 购买第一列第 1 格商品。
-        # 免费刷新标志会上下小范围浮动，已在 box_shop_general_free 标注区域内框定，直接限定识别。
-        if self.wait_feature("shop_general_free", box=self.get_box_by_name("box_shop_general_free"), time_out=5, raise_if_not_found=False) is None:  # 限定区域内无免费刷新机会。
+        # 免费刷新机会用基类 is_feature_enabled 在 box_shop_general_free 区域做色彩判态：彩色高亮=有免费刷新，灰白=无。
+        try:  # coco 特征可能缺失（含无帧瞬态，get_box_by_name 统一抛 ValueError）。
+            free_box = self.get_box_by_name("box_shop_general_free")  # 免费刷新标志标注区域（已按当前分辨率缩放）。
+        except ValueError:  # 区域缺失时转等待失败异常。
+            raise WaitFailedException("box_shop_general_free 特征缺失")  # 由 try_step 捕获恢复，与 _assert_shop_title 同款兜底。
+        if not self.wait_until(lambda: self.is_feature_enabled(free_box), time_out=5, raise_if_not_found=False):  # 等待区域变为高亮彩色；超时说明无免费刷新（time_out 兼容进店过场动画）。
             self.log_info("普通商店无免费刷新机会，跳过。")  # 记录跳过原因。
             return  # 无免费刷新机会直接结束。
         self.click_box("box_shop_general_refresh", after_sleep=1)  # 有免费刷新机会，点击免费刷新按钮。
