@@ -1,3 +1,5 @@
+import time  # 统计全量特征扫描耗时。
+
 from src.tasks.NikkeBaseTask import NikkeBaseTask  # 导入项目基类，所有任务统一继承它。
 
 
@@ -112,21 +114,29 @@ class DebugTask(NikkeBaseTask):  # 实机调试任务：供「开发工具」tab
     # ---- 特征识别 ----
 
     def debug_find_feature(self):
-        """在当前画面查找所有 coco 特征，返回命中的特征名列表。"""
-        self.next_frame()  # 刷新一帧。
+        """在当前画面查找 coco 注册的全部模板特征，返回命中特征名列表。"""
+        self.next_frame()  # 刷新一帧，确保基于最新画面。
+        feature_set = self.executor.feature_set  # 框架特征集：承载 coco 标注的全部模板。
+        if feature_set is None:  # 特征集未初始化。
+            return '特征集未加载'  # 直接提示，无法扫描。
+        try:  # 全量加载兜底：框架默认按名字惰性加载，这里一次拉齐以便统计总数。
+            feature_set.process_data()
+        except Exception as e:  # 加载失败。
+            return f'特征集加载失败: {e}'  # 返回失败原因。
+        names = sorted(n for n in feature_set.feature_dict if not n.startswith('box_'))  # 排除 box_*：仅 OCR 区域框标记，不是可匹配模板。
         found = []  # 收集命中特征。
-        try:  # 遍历注册表里的所有特征名（各界面判定特征并集）。
-            names = set()
-            for spec in self.screens.values():  # 遍历界面判定描述。
-                names.update(spec.get('features', []))  # 收集特征名。
-            for name in sorted(names):  # 逐个查找。
-                try:  # 单个特征查找异常不中断。
-                    if self.find_one(name) is not None:  # 命中。
-                        found.append(name)  # 加入命中列表。
-                except Exception:  # 查找异常。
-                    pass  # 忽略。
-        except Exception as e:  # 整体异常。
-            return f'特征查找异常: {e}'  # 返回异常。
-        result = f'命中特征({len(found)}): {", ".join(found) if found else "无"}'  # 拼接结果。
+        failed = []  # 收集匹配异常的特征名及原因。
+        start = time.time()  # 计时起点。
+        for name in names:  # 逐个查找。
+            try:  # 单个特征查找异常不中断。
+                if self.find_one(name) is not None:  # 命中。
+                    found.append(name)  # 加入命中列表。
+            except Exception as e:  # 查找异常（如模板缺失、尺寸异常）。
+                failed.append(f'{name}({e})')  # 记录异常而不是静默吞掉。
+        elapsed = time.time() - start  # 全量扫描耗时。
+        result = f'扫描特征({len(names)}) 耗时{elapsed:.1f}s'  # 头部统计行。
+        result += f'\n命中({len(found)}): {", ".join(found) if found else "无"}'  # 命中列表行。
+        if failed:  # 有异常才追加。
+            result += f'\n异常({len(failed)}): {", ".join(failed)}'  # 异常列表行。
         self.log_info(f'debug_find_feature: {result}')  # 记录日志。
-        return result  # 返回给开发工具显示.
+        return result  # 返回给开发工具显示。
