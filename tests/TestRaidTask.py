@@ -219,14 +219,14 @@ class TestRaidTaskSolo(_DebugOffTestCase):
         esc_box = _fake_box("battle_finish_esc", 100, 100, 20, 10)
         find_map = {"solo_raid": raid_box, "solo_raid_quick_battle_max": max_btn, "common_home": home_box}
         clicks = []
-        with patch.object(self.task, "is_screen", return_value=False), patch.object(self.task, "wait_until_lobby_after_start", return_value=True), patch.object(self.task, "dismiss_all_popups"), patch.object(self.task, "_get_panel_box", return_value=self._PANEL), patch.object(self.task, "_recover_to_lobby", return_value=True), patch.object(self.task, "wait_screen", side_effect=_ws_ensure_then_confirm()), patch.object(self.task, "wait_feature", return_value=_fake_box("page")), patch.object(self.task, "sleep"), patch.object(self.task, "next_frame"), patch.object(self.task, "click_box", side_effect=lambda box, **kw: clicks.append(box)), patch.object(self.task, "wait_for_lobby"), patch.object(self.task, "find_one", side_effect=lambda name, **kw: find_map.get(name)), patch.object(self.task, "_is_solo_raid_option_enabled", side_effect=lambda box_name: box_name == "box_solo_raid_quick_battle_feature"), patch.object(self.task, "_check_battle_result_once", return_value=("success", esc_box)):
+        with patch.object(self.task, "is_screen", return_value=False), patch.object(self.task, "wait_until_lobby_after_start", return_value=True), patch.object(self.task, "dismiss_all_popups"), patch.object(self.task, "_get_panel_box", return_value=self._PANEL), patch.object(self.task, "_recover_to_lobby", return_value=True), patch.object(self.task, "wait_screen", side_effect=_ws_ensure_then_confirm()), patch.object(self.task, "wait_feature", return_value=_fake_box("page")), patch.object(self.task, "sleep"), patch.object(self.task, "next_frame"), patch.object(self.task, "click_box", side_effect=lambda box, **kw: clicks.append(box)), patch.object(self.task, "wait_for_lobby"), patch.object(self.task, "find_one", side_effect=lambda name, **kw: find_map.get(name)), patch.object(self.task, "_is_solo_raid_option_enabled", side_effect=lambda box_name: box_name == "box_solo_raid_quick_battle_feature"), patch.object(self.task, "wait_battle_finish", return_value=("success", esc_box)):
             self.task._do_solo_raid()
         names = [b if isinstance(b, str) else b.name for b in clicks]
         self.assertEqual(["solo_raid", "box_solo_raid_quick_battle_feature", "solo_raid_quick_battle_max", "box_solo_raid_quick_battle", "battle_finish_esc", "common_home"], names)
         self.assertNotIn("box_solo_raid_battle_feature", names)
         self.assertTrue(self.task.is_done("solo_raid", "day"))
     def test_solo_quick_battle_result_missing_raises(self):
-        with patch.object(self.task, "is_screen", return_value=True), patch.object(self.task, "wait_screen", return_value=True), patch.object(self.task, "wait_feature", return_value=_fake_box("page")), patch.object(self.task, "find_one", return_value=None), patch.object(self.task, "click_box"), patch.object(self.task, "sleep"), patch.object(self.task, "next_frame"), patch.object(self.task, "_is_solo_raid_option_enabled", side_effect=lambda box_name: box_name == "box_solo_raid_quick_battle_feature"), patch.object(self.task, "_check_battle_result_once", return_value=(None, None)):
+        with patch.object(self.task, "is_screen", return_value=True), patch.object(self.task, "wait_screen", return_value=True), patch.object(self.task, "wait_feature", return_value=_fake_box("page")), patch.object(self.task, "find_one", return_value=None), patch.object(self.task, "click_box"), patch.object(self.task, "sleep"), patch.object(self.task, "next_frame"), patch.object(self.task, "_is_solo_raid_option_enabled", side_effect=lambda box_name: box_name == "box_solo_raid_quick_battle_feature"), patch.object(self.task, "wait_battle_finish", return_value=(None, None)):
             with self.assertRaises(WaitFailedException):
                 self.task._do_solo_raid_flow()
         self.assertFalse(self.task.is_done("solo_raid", "day"))
@@ -251,16 +251,6 @@ class TestRaidTaskSolo(_DebugOffTestCase):
     def test_solo_option_disabled_when_region_missing(self):
         with patch.object(self.task, "get_box_by_name", side_effect=ValueError("missing")):
             self.assertFalse(self.task._is_solo_raid_option_enabled("box_solo_raid_battle_feature"))
-    def test_check_battle_result_once_matches_wait_battle_finish_criteria(self):
-        v_variance = 100 / 1440
-        esc_box = _fake_box("battle_finish_esc", 100, 100, 20, 10)
-        failed_back = _fake_box("battle_finish_failed_back", 90, 90, 20, 10)
-        with patch.object(self.task, "next_frame"), patch.object(self.task, "find_one", side_effect=lambda name, **kw: esc_box if name == "battle_finish_esc" and kw.get("vertical_variance") == v_variance else None):
-            self.assertEqual(("success", esc_box), self.task._check_battle_result_once())
-        with patch.object(self.task, "next_frame"), patch.object(self.task, "find_one", side_effect=lambda name, **kw: failed_back if name == "battle_finish_failed_back" else _fake_box(name) if name == "battle_finish_failed" else None):
-            result = self.task._check_battle_result_once()
-        self.assertEqual("failed", result[0])
-        self.assertEqual(failed_back, result[1])
     def test_solo_failure_not_marked(self):
         with patch.object(self.task, "try_step", return_value=False):
             self.task._do_solo_raid()

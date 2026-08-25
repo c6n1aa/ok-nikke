@@ -141,18 +141,6 @@ class RaidTask(NikkeBaseTask):  # 定义讨伐任务类，包含协同作战与�
             return False  # 同样视为禁用。
         return self.is_feature_enabled(box, after_sleep=2)  # 用色彩丰富度区分可用（彩色）与禁用（灰白）状态。
 
-    def _check_battle_result_once(self):  # 单帧判定战斗结束画面：判据与 wait_battle_finish 一致，但不做轮询等待（用于快速战斗即时结算）。
-        self.next_frame()  # 刷新一帧，避免使用旧帧误判。
-        v_variance = 100 / 1440  # 与 wait_battle_finish 相同的纵向扩展比例（不同结算界面的 ESC 位置可能上下偏移）。
-        esc = self.find_one("battle_finish_esc", vertical_variance=v_variance)  # 匹配正常结束确认按钮特征（粗壮图标，跨分辨率可靠）。
-        if esc is not None:  # 正常战斗结束。
-            return "success", esc  # 返回结果与确认按钮框。
-        failed = self.find_one("battle_finish_failed")  # 单帧匹配战斗失败特征。
-        failed_back = self.find_one("battle_finish_failed_back")  # 单帧匹配失败返回按钮特征。
-        if failed is not None and failed_back is not None:  # 战斗失败。
-            return "failed", failed_back  # 返回结果与返回按钮框。
-        return None, None  # 当前帧未检测到结算画面。
-
     def _do_solo_raid_battle(self):  # 个人突袭普通出战分支：F→N 从点击出战到结算返回首页（由主流程 try_step 包裹）。
         self.click_box("box_solo_raid_battle_feature", after_sleep=1)  # F 点击出战按钮，弹出出战确认弹窗。
         self.transition("solo_raid_battle_team_select_page", click_feature="solo_raid_battle_confirm", time_out=10, wait_confirm=10, after_sleep=1)  # G 等待识别出战确认弹窗并点击，断言已进入队伍选择界面。
@@ -168,14 +156,13 @@ class RaidTask(NikkeBaseTask):  # 定义讨伐任务类，包含协同作战与�
         self.transition("solo_raid_page", click_feature="solo_raid_battle_finish_confirm", time_out=10, wait_confirm=10, after_sleep=1)  # N 识别并点击结果确认，确认回到个人突袭首页。
 
     def _do_solo_raid_quick_battle(self):  # 个人突袭快速战斗分支：K→P 扫荡剩余次数并确认即时结算（由主流程 try_step 包裹）。
-        self.click_box("box_solo_raid_quick_battle_feature", after_sleep=1); # 点击快速战斗按钮
+        self.click_box("box_solo_raid_quick_battle_feature", after_sleep=1)  # 点击快速战斗按钮
         self.wait_feature("solo_raid_quick_battle_page", time_out=10, raise_if_not_found=True)  # S 识别快速战斗界面已出现。
         max_btn = self.find_one("solo_raid_quick_battle_max")  # L 识别次数拉满按钮是否存在。
         if max_btn is not None:  # L -- true 分支。
             self.click_box(max_btn, after_sleep=1)  # O 点击拉满剩余次数。
         self.click_box("box_solo_raid_quick_battle", after_sleep=1)  # Q 点击开始快速战斗（L -- false 时直接走到这里）。
-        self.sleep(3)  # 等待快速战斗结算界面稳定出现（快速战斗直接展示结果）。
-        result, confirm_box = self._check_battle_result_once()  # P 单帧识别战斗结束画面（判据同 wait_battle_finish，不轮询）。
+        result, confirm_box = self.wait_battle_finish(time_out=10)  # P 节流轮询等待快速战斗结算画面（基类方法：含结算动画稳定化与中断哨兵，超时返回 (None, None)）。
         if confirm_box is None:  # 未识别到结算画面。
             raise WaitFailedException("未识别到个人突袭快速战斗结算画面")  # 抛异常由 try_step 捕获恢复。
         self.log_info(f"个人突袭快速战斗结束: {result}")  # 记录结算结果。
