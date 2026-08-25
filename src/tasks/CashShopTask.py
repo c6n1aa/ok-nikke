@@ -25,7 +25,6 @@ class CashShopTask(NikkeBaseTask):  # 付费商店免费礼包领取任务，继
         super().__init__(*args, **kwargs)  # 必须先调用父类初始化。
         self.name = "付费商店"  # 任务显示名称。
         self.description = "自动领取付费商店中STEP UP/每日/每周/每月的免费礼包。"  # 任务说明。
-        self.register_screen("付费商店", keywords=["付费商店"], ocr_box="box_sub_pages_title")  # 注册付费商店界面：标题区域 OCR 确认。
 
     def _get_box(self, name):  # 获取标注区域框，特征缺失时抛等待失败异常。
         try:  # coco 特征可能缺失。
@@ -37,8 +36,7 @@ class CashShopTask(NikkeBaseTask):  # 付费商店免费礼包领取任务，继
         return box  # 返回区域框。
 
     def _enter_cash_shop(self):  # 从大厅进入付费商店。
-        self.wait_click_feature("cash_shop", time_out=10, raise_if_not_found=True, after_sleep=1)  # 点击大厅付费商店入口。
-        self.assert_screen("付费商店", time_out=10)  # 复用屏幕注册表确认已进入付费商店。
+        self.transition("付费商店", click_feature="cash_shop", time_out=10, wait_confirm=10, after_sleep=1)  # 点击大厅付费商店入口并确认已进入。
 
     def _switch_nav(self, feature_name):  # 在 box_cash_shop_nav_bar 区域内点击左侧导航项。
         nav_box = self._get_box("box_cash_shop_nav_bar")  # 获取导航栏标注区域。
@@ -110,7 +108,7 @@ class CashShopTask(NikkeBaseTask):  # 付费商店免费礼包领取任务，继
 
     def run(self):  # 任务执行入口，一次进店连续领取全部免费礼包。
         self.log_info("付费商店任务开始。")  # 记录任务开始。
-        if not self.wait_until_lobby_after_start():  # 启动后等待进入游戏大厅，失败则中止。
+        if not self.ensure_screen("lobby", raise_on_fail=False):  # 启动后就位游戏大厅（幂等闸门：含冷启动引导与弹窗清理），失败则中止。
             self.log_error("未能进入游戏大厅，中止付费商店任务。")  # 记录失败原因。
             return  # 结束本次执行。
         if not self._has_pending_packs():  # 全部免费礼包本周期已完成。

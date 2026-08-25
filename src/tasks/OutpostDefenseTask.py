@@ -42,8 +42,7 @@ class OutpostDefenseTask(NikkeBaseTask):  # 定义歼灭子任务类。
         if times < 0 or times > 10:  # 校验次数是否在合法范围。
             self.log_error(f"歼灭次数 {times} 超出 0-10 范围。")  # 记录非法配置。
             return  # 结束本次执行。
-        self.wait_for_lobby()  # 先确认已进入游戏大厅，避免游戏仍在加载/登录页就按大厅坐标点击。
-        self.dismiss_all_popups(wait_for_popup=False, time_out=10)  # 统一清理进入大厅后残留的公告/活动弹窗，无弹窗时立即返回不等待。
+        self.ensure_screen("lobby")  # 先就位游戏大厅（含冷启动引导与弹窗清理），避免游戏仍在加载/登录页就按大厅坐标点击；失败抛 WaitFailedException。
         if not self.try_step(self._do_outpost_defense, name="歼灭", raise_on_fail=False):  # 从大厅出发完成整个歼灭子流程，失败恢复回大厅重试。
             self.log_warning("歼灭流程失败，跳过。")  # 记录失败并跳过，不中断整个日常。
             return  # 失败时不标记已完成，留待下次重试。
@@ -59,14 +58,14 @@ class OutpostDefenseTask(NikkeBaseTask):  # 定义歼灭子任务类。
             for _ in range(times):  # 按配置次数循环。
                 self._wipe_out_with_gem()  # 使用珠宝歼灭一次。
         self.wait_click_feature("outpost_defense_claim", time_out=10, raise_if_not_found=True, after_sleep=1)  # 点击领取歼灭奖励，弹窗未关会抛异常被 try_step 捕获。
-        self.dismiss_all_popups(time_out=10);  # 统一清理可能残留的领取弹窗，等待弹窗出现并关闭后再继续。
+        self.dismiss_all_popups(time_out=5);  # 统一清理可能残留的领取弹窗，等待弹窗出现并关闭后再继续。
 
     def _wipe_out_free(self):  # 免费歼灭子流程。
         self.wait_click_feature("outpost_defense_wipe_out", time_out=10, raise_if_not_found=True, after_sleep=1)  # 点击歼灭按钮弹出确认框。
         free = self.wait_feature("wipe_out", time_out=5, raise_if_not_found=False)  # 尝试查找免费歼灭按钮，若存在则点击。
         if free:  # 存在免费歼灭按钮则点击。
             self.click_box(free, after_sleep=1)  # 点击免费歼灭确认。
-            self.dismiss_all_popups(time_out=10);
+            self.dismiss_all_popups(time_out=5);
         self.click_box("box_wipe_out_close", raise_if_not_found=True, after_sleep=1)  # 点击关闭按钮。
         self.wait_feature("outpost_defense_wipe_out", time_out=10, raise_if_not_found=True)  # 等待回到歼灭页。
 
@@ -75,6 +74,7 @@ class OutpostDefenseTask(NikkeBaseTask):  # 定义歼灭子任务类。
         free = self.wait_feature("wipe_out", time_out=5, raise_if_not_found=False)  # 尝试查找免费歼灭按钮，若存在则点击。
         if free:  # 若存在免费歼灭按钮则点击。
             self.click_box(free, after_sleep=1)  # 点击免费歼灭确认。
+            self.dismiss_all_popups(time_out=5);
             self.wait_feature("outpost_defense_wipe_out", time_out=10, raise_if_not_found=True)  # 等待回到歼灭页。
             return  # 免费歼灭后直接返回，不再使用珠宝。
         self.wait_click_feature("wipe_out_with_gem", time_out=10, raise_if_not_found=True, after_sleep=1)  # 点击使用珠宝歼灭。

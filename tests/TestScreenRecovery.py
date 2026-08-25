@@ -6,6 +6,7 @@ from ok.task.exceptions import WaitFailedException
 from ok.test.TaskTestCase import TaskTestCase
 
 from src.config import config
+from src.screens import LOGIN_PAGE_PATTERN, SCREENS
 from src.tasks.HarvestTask import HarvestTask
 
 
@@ -19,6 +20,28 @@ class TestScreenRecovery(TaskTestCase):
         # 每个用例从干净的界面注册表开始，避免共享实例上残留其它用例注册的界面。
         self.task.screens = {}
         self.task.register_screen("lobby", features=["ark"])
+
+    def test_global_screens_registry_matches_migrated_specs(self):
+        # 集中式注册表收录全部 10 个界面：9 个迁移自任务 __init__，外加冷启动正向锚点 login_page。
+        expected = {
+            "lobby": {"features": ["ark", "lobby"]},
+            "ark": {"features": ["ark_tribe_tower", "ark_simulation_room"]},
+            "tribe_tower": {"features": ["tribe_tower_mark"]},
+            "simulation_room": {"features": ["simulation_mark"]},
+            "付费商店": {"keywords": ["付费商店"], "ocr_box": "box_sub_pages_title"},
+            "coop_page": {"features": ["coop_page"]},
+            "coop_nikke_select_page": {"features": ["coop_nikke_select_page"]},
+            "solo_raid_page": {"features": ["solo_raid_page"]},
+            "solo_raid_battle_team_select_page": {"features": ["solo_raid_battle_team_select_page"]},
+            "login_page": {"keywords": [LOGIN_PAGE_PATTERN], "ocr_box": "box_enter_game"},
+        }
+        self.assertEqual(list(expected), list(SCREENS))  # 顺序敏感：current_screen 按插入顺序首命中。
+        self.assertEqual(expected, SCREENS)
+
+    def test_register_screen_overrides_existing_entry(self):
+        # 同名注册覆盖先前条目：任务私有注册以同样的方式覆盖基类加载的全局条目（后写者胜）。
+        self.task.register_screen("lobby", features=["custom"])  # setUp 刚注册过 lobby，同名覆盖。
+        self.assertEqual(["custom"], self.task.screens["lobby"]["features"])
 
     def test_is_screen_lobby_when_ark_present(self):
         self.assertTrue(self.task.is_screen("lobby"))
@@ -50,31 +73,32 @@ class TestScreenRecovery(TaskTestCase):
         self.assertTrue(self.task.is_screen("大厅ocr"))
 
     def test_screen_ocr_keywords_with_named_box(self):
-        # ocr_box 传 coco 区域特征名时，按当前分辨率解析后以 box= 传入 ocr。
+        # ocr_box 传 coco 区域特征名时，按当前分辨率解析后以 box= 传入 ocr；
+        # 缓存路径下 ocr 不再带 match（区域结果同帧共享），关键词由判定层等价过滤。
         fake_box = Box(100, 100, 50, 50, confidence=1, name="cash_shop_title")
         with patch.object(self.task, "get_box_by_name", return_value=fake_box), \
-                patch.object(self.task, "ocr", return_value=[fake_box]) as ocr_mock:
+                patch.object(self.task, "ocr", return_value=[Box(100, 100, 50, 50, confidence=1, name="付费商店")]) as ocr_mock:
             self.task.register_screen("付费商店", keywords=["付费商店"], ocr_box="cash_shop_title")
             self.assertTrue(self.task.is_screen("付费商店"))
-        ocr_mock.assert_called_once_with(box=fake_box, match=["付费商店"])
+        ocr_mock.assert_called_once_with(box=fake_box)
 
     def test_screen_ocr_keywords_with_missing_named_box_falls_back_fullscreen(self):
         # 区域特征缺失时退化为全屏 OCR，不抛异常。
         with patch.object(self.task, "get_box_by_name", side_effect=ValueError("missing")), \
-                patch.object(self.task, "ocr", return_value=[Box(1, 1, 5, 5, name="hit")]) as ocr_mock:
+                patch.object(self.task, "ocr", return_value=[Box(1, 1, 5, 5, name="付费商店")]) as ocr_mock:
             self.task.register_screen("付费商店", keywords=["付费商店"], ocr_box="cash_shop_title")
             self.assertTrue(self.task.is_screen("付费商店"))
-        ocr_mock.assert_called_once_with(match=["付费商店"])
+        ocr_mock.assert_called_once_with()
 
     def test_screen_match_features_and_keywords_and(self):
         # features 与 keywords 同时配置时取「与」：特征命中且关键词命中才判定为该界面。
         fake_box = Box(100, 100, 50, 50, confidence=1, name="box_sub_pages_title")
         with patch.object(self.task, "find_one", return_value=Box(1, 1, 5, 5, name="ark_ranking")), \
                 patch.object(self.task, "get_box_by_name", return_value=fake_box), \
-                patch.object(self.task, "ocr", return_value=[fake_box]) as ocr_mock:
+                patch.object(self.task, "ocr", return_value=[Box(100, 100, 50, 50, confidence=1, name="方舟")]) as ocr_mock:
             self.task.register_screen("方舟", features=["ark_ranking"], keywords=["方舟"], ocr_box="box_sub_pages_title")
             self.assertTrue(self.task.is_screen("方舟"))
-        ocr_mock.assert_called_once_with(box=fake_box, match=["方舟"])
+        ocr_mock.assert_called_once_with(box=fake_box)
 
     def test_screen_match_features_and_keywords_fails_when_keyword_missing(self):
         # 特征命中但关键词未命中时判定不在该界面。
@@ -84,6 +108,75 @@ class TestScreenRecovery(TaskTestCase):
                 patch.object(self.task, "ocr", return_value=[]):
             self.task.register_screen("方舟", features=["ark_ranking"], keywords=["方舟"], ocr_box="box_sub_pages_title")
             self.assertFalse(self.task.is_screen("方舟"))
+
+    def _hit(self, name):
+        return Box(1, 1, 5, 5, confidence=1, name=name)
+
+    def test_absent_feature_blocks_match(self):
+        # absent 消歧：消歧特征命中时判定失败；未命中时正常命中路径。
+        self.task.register_screen("子集页", features=["simulation_mark"], absent=["ark"])
+        with patch.object(self.task, "find_one", side_effect=lambda name: self._hit(name)):
+            self.assertFalse(self.task.is_screen("子集页"))  # ark 命中 → 判负。
+        self.set_image('tests/images/main.png')  # 换帧：两个场景相互独立（同帧内消歧命中会被缓存，属预期语义）。
+        with patch.object(self.task, "find_one",
+                          side_effect=lambda name: self._hit(name) if name == "simulation_mark" else None):
+            self.assertTrue(self.task.is_screen("子集页"))  # 消歧特征未命中 → 正常判定。
+
+    def test_current_screen_respects_priority(self):
+        # priority 仅影响 current_screen 遍历顺序：高优先级先返回；同优先级保持注册序。
+        self.task.screens = {}
+        self.task.register_screen("甲", features=["不存在A"])
+        self.task.register_screen("乙", features=["不存在B"], priority=5)
+        with patch.object(self.task, "find_one", return_value=Box(1, 1, 5, 5, confidence=1, name="hit")):
+            self.assertEqual("乙", self.task.current_screen())  # 高优先级胜出。
+            self.assertEqual(5, self.task.screens["乙"]["priority"])  # 扩展字段原样保留。
+
+    def test_current_screen_same_priority_keeps_registration_order(self):
+        self.task.screens = {}
+        self.task.register_screen("先注册", features=["特征X"])
+        self.task.register_screen("后注册", features=["特征Y"])
+        with patch.object(self.task, "find_one", return_value=Box(1, 1, 5, 5, confidence=1, name="hit")):
+            self.assertEqual("先注册", self.task.current_screen())  # 同为默认 0，注册序在前者返回。
+
+    def test_wait_screen_min_frames_requires_consecutive_hits(self):
+        # min_frames=2：单次 True 不算进入，需连续两轮 True 才返回。
+        self.task.register_screen("抖动页", features=["特征Z"], min_frames=2)
+        evals = []
+
+        def fake_match(spec):
+            evals.append(1)
+            return [False, True, True, True][min(len(evals) - 1, 3)]
+
+        with patch.object(self.task, "_screen_match", side_effect=fake_match), \
+                patch.object(self.task, "sleep"):
+            self.assertTrue(self.task.wait_screen("抖动页", time_out=30))
+        self.assertGreaterEqual(len(evals), 3)  # 至少经历 False→True→True 三轮才通过。
+
+    def test_transition_reclicks_when_swallowed(self):
+        # 吞点击：第一次确认未命中时原地补点，第二次确认命中 → 不抛异常且点击了两次。
+        attempts = {"n": 0}
+
+        def fake_wait_screen(name, time_out=10, **kw):
+            attempts["n"] += 1
+            return attempts["n"] >= 2  # 第一次 False（动画吞点击），第二次 True。
+
+        with patch.object(self.task, "wait_click_feature") as click_mock, \
+                patch.object(self.task, "wait_screen", side_effect=fake_wait_screen):
+            self.assertTrue(self.task.transition("目标页", click_feature="入口特征", retry_click=2))
+        self.assertEqual(2, click_mock.call_count)  # 首次点击 + 一次原地补点。
+
+    def test_transition_raises_with_context_after_exhausted(self):
+        # 重试耗尽：每次确认都不命中 → 补满 retry_click 次后抛 WaitFailedException，消息含目标界面与当前识别结果，且保存失败截图。
+        with patch.object(self.task, "wait_click_feature"), \
+                patch.object(self.task, "wait_screen", return_value=False), \
+                patch.object(self.task, "current_screen", return_value="别的界面") as cur_mock, \
+                patch.object(self.task, "save_failure_screenshot") as shot_mock:
+            with self.assertRaises(WaitFailedException) as ctx:
+                self.task.transition("目标页", click_feature="入口特征", retry_click=2)
+        self.assertIn("transition to 目标页 failed", str(ctx.exception))
+        self.assertIn("current: 别的界面", str(ctx.exception))
+        cur_mock.assert_called_once()  # 异常上下文里的当前界面识别只做一次。
+        shot_mock.assert_called_once_with("目标页")
 
     def test_screen_match_features_and_keywords_fails_when_feature_missing(self):
         # 特征缺失时不进入 OCR 判定，直接判定不在该界面。
@@ -258,6 +351,17 @@ class TestScreenRecovery(TaskTestCase):
             result = self.task.dismiss_all_popups(
                 clear_condition=lambda: self.task.is_screen("lobby"), time_out=5)
         self.assertTrue(result)
+
+    def test_dismiss_all_popups_closes_popup_before_honoring_clear_condition(self):
+        # 遮罩下 lobby 特征可能仍命中：即使完成条件已满足，也必须先关完弹窗再返回。
+        with patch.object(self.task, "_try_close_one_popup", side_effect=[True, False]) as close_mock, \
+                patch.object(self.task, "next_frame"), \
+                patch.object(self.task, "is_screen", return_value=True), \
+                patch.object(self.task, "sleep"):
+            result = self.task.dismiss_all_popups(
+                clear_condition=lambda: self.task.is_screen("lobby"), time_out=5)
+        self.assertTrue(result)
+        self.assertEqual(2, close_mock.call_count)  # 第一轮先关弹窗，第二轮确认无弹窗后才认条件。
 
 
 if __name__ == '__main__':

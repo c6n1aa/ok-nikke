@@ -5,6 +5,7 @@ from ok.feature.Box import Box
 from ok.test.TaskTestCase import TaskTestCase
 
 from src.config import config
+import src.tasks.NikkeBaseTask as nbt
 from src.tasks.HarvestTask import HarvestTask
 
 
@@ -61,6 +62,51 @@ class TestBattleWait(TaskTestCase):
         self.assertIsNone(result)
         self.assertIsNone(box)
         shot_mock.assert_called_once_with("wait_battle_finish")
+
+    def test_interrupt_dialog_raises_fast(self):
+        # 中断哨兵：第 2 轮轮询命中断线弹窗特征 → 快速抛 InterruptedByDialogException 并保存现场，而非空转等满超时。
+        interrupt_box = Box(500, 300, 200, 80, confidence=1, name="disconnect_mark")
+
+        def fake_next_frame():
+            self.task._screen_cache.clear()  # 模拟帧推进：与基类覆写的失效语义一致。
+            return None
+        with patch.object(nbt, "INTERRUPTS", {"screens": [], "features": ["disconnect_mark"]}), \
+                patch.object(self.task, "sleep"), \
+                patch.object(self.task, "next_frame", side_effect=fake_next_frame), \
+                patch.object(self.task, "find_one",
+                             side_effect=[None, None, None, None, interrupt_box]), \
+                patch.object(self.task, "save_failure_screenshot") as shot_mock:
+            with self.assertRaises(nbt.InterruptedByDialogException):
+                self.task.wait_battle_finish(time_out=240)
+        shot_mock.assert_called_once_with("interrupt")  # 第 2 轮即命中，远小于 240 秒超时。
+
+    def test_interrupt_sentinel_inactive_by_default(self):
+        # 空清单 = 哨兵未激活：不产生任何额外特征查找，行为与现状逐位一致。
+        esc_box = Box(200, 200, 60, 60, confidence=1, name="battle_finish_esc")
+        stable_box = Box(200, 210, 60, 60, confidence=1, name="battle_finish_esc")
+        with patch.object(self.task, "sleep"), \
+                patch.object(self.task, "next_frame"), \
+                patch.object(self.task, "find_one", side_effect=[esc_box, stable_box]) as find_mock:
+            result, box = self.task.wait_battle_finish(time_out=30)
+        self.assertEqual("success", result)
+        self.assertEqual(2, find_mock.call_count)  # 无中断路径的额外调用。
+
+    def test_try_step_catches_interrupt_and_recovers(self):
+        # try_step 兼容：InterruptedByDialogException 按 WaitFailedException 捕获，恢复后重跑成功。
+        calls = []
+
+        def step():
+            calls.append(1)
+            if len(calls) == 1:
+                raise nbt.InterruptedByDialogException("long wait interrupted by dialog")
+            return True
+
+        with patch.object(self.task, "_recover_to_lobby", return_value=True) as recover_mock, \
+                patch.object(self.task, "save_failure_screenshot"), \
+                patch.object(self.task, "sleep"):
+            self.assertTrue(self.task.try_step(step, name="中断恢复"))
+        self.assertEqual(2, len(calls))  # 首次被中断，恢复后重跑成功。
+        recover_mock.assert_called_once()
 
     def test_real_tower_victory_screenshot_detected(self):
         """回归测试：用户实测 1883x1058 窗口下胜利结算未被识别（REWARD 文字缩放失配）。"""

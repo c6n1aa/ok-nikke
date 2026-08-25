@@ -1,15 +1,27 @@
 import re  # 正则模块，用于 OCR 文字的部分匹配。
 
+from src.screens import SCREENS, INTERRUPTS  # 集中式界面注册表与中断哨兵清单。
+
 import datetime  # 日期时间模块，处理北京时区与周期刷新。
 import os  # 操作系统路径模块，处理 assets/template/ 下模板文件的绝对路径。
 import time  # 时间模块，处理超时与等待。
 
 import cv2  # OpenCV，模板缩放匹配使用 cv2.resize / cv2.imread。
-
+from ok.feature.Box import Box, find_boxes_by_name  # 检测框对象与按名过滤工具（find_boxes_by_name 用于复刻 ocr(match=...) 的过滤语义）。
 from ok import BaseTask
-from ok.feature.Box import Box  # 检测框对象，find_red_dot 返回值类型。
 from ok.task.exceptions import TaskDisabledException, WaitFailedException  # 界面断言失败与任务被停止（用户点击中断）时使用的框架异常。
 from ok.util.color import calculate_colorfulness  # 框架颜色工具：计算区域色彩丰富度。
+
+
+_CACHE_MISS = object()  # 帧级判定缓存的「未命中」哨兵：与「命中但结果为 None」区分。
+
+class InterruptedByDialogException(WaitFailedException):
+    """长等待期间命中致命中断弹窗（断线/维护/登录过期等）时抛出。
+
+    继承 WaitFailedException：try_step/_recover_to_lobby 的现有捕获与
+    恢复路径自动兼容，无需任何改动。
+    """
+
 
 _BEIJING_TZ = datetime.timezone(datetime.timedelta(hours=8))  # 北京时间 UTC+8，无夏令时
 
@@ -28,8 +40,12 @@ class NikkeBaseTask(BaseTask):
         self._scaled_template_cache = {}
         # 界面识别注册表：界面名 -> 判定描述（features 为 coco 模板特征，keywords 为 OCR 关键词）。
         self.screens = {}
-        # 默认注册大厅界面：以方舟按钮(ark)特征判定已进入游戏大厅。
-        self.register_screen("lobby", features=["ark", "lobby"])
+        # 从集中式注册表加载全部界面；任务仍可用 register_screen 追加私有界面，同名覆盖全局条目（后写者胜）。
+        for _name, _spec in SCREENS.items():
+            self.register_screen(_name, **_spec)
+        # 帧级判定缓存：同一帧内重复的界面判定（模板匹配/区域 OCR）只真正执行一次。
+        # 条目为 (计算时的帧对象, 结果)，读取时校验帧对象同一性——帧一换即失效，无陈旧风险。
+        self._screen_cache = {}
 
     def _now_bj(self) -> datetime.datetime:
         """当前北京时间（带时区）。"""
@@ -286,6 +302,10 @@ class NikkeBaseTask(BaseTask):
             self.next_frame()  # 刷新一帧，避免使用旧帧。
             polls += 1  # 轮询次数加一。
             self.log_debug(f"战斗轮询第 {polls} 次（每 {check_interval} 秒一帧），已耗时 {time.time() - (deadline - time_out):.0f} 秒。")  # debug 日志确认轮询节奏。
+            if self._hit_interrupt() is not None:  # 先查中断哨兵：断线/维护/登录过期弹窗会让后续匹配全部落空，快速失败优于空转等满超时。
+                self.save_failure_screenshot("interrupt")  # 保存中断现场截图便于排查。
+                self.log_warning("检测到致命中断弹窗，中止长等待。")  # 记录中断原因。
+                raise InterruptedByDialogException("long wait interrupted by dialog")  # 由 try_step 按等待失败恢复。
             v_variance = 100 / 1440  # Y 轴上下各扩展约 100 像素（以 2560x1440 为基准的相对比例，随分辨率等比缩放；不同战斗结算界面的 ESC 位置可能上下偏移）。
             esc = self.find_one("battle_finish_esc", vertical_variance=v_variance)  # 纵向扩大搜索范围匹配正常结束确认按钮特征（粗壮图标，跨分辨率可靠）。
             if esc is not None:  # 正常战斗结束。
@@ -324,6 +344,22 @@ class NikkeBaseTask(BaseTask):
         else:  # 胜利结算。
             stable = self.find_one("battle_finish_esc", vertical_variance=v_variance)  # 重新定位 esc 按钮。
         return stable if stable is not None else box  # 复识别命中则采用稳定坐标，否则退回原框。
+
+    def _hit_interrupt(self):
+        """检查当前帧是否命中致命中断弹窗特征（src/screens.py 的 INTERRUPTS 清单）。
+
+        返回命中的 Box，未命中返回 None。清单为空 = 哨兵未激活，零开销直接跳过；
+        复用 P1.2 帧级缓存路径，检测不新增抓帧频率。特征未标注进 coco（ValueError）
+        时按未命中处理。
+        """
+        for name in INTERRUPTS.get("features", ()):  # 遍历中断特征清单。
+            try:  # 特征可能尚未标注进 coco。
+                box = self._find_feature_cached(name)  # 同帧只匹配一次。
+            except ValueError:  # 未标注视为未命中。
+                continue
+            if box is not None:  # 命中断线/维护/登录过期等弹窗。
+                return box
+        return None
 
     def find_scaled_template(self, feature_name: str, template_path: str, ref_width: int = 2560,
                              ref_height: int = 1440, **kwargs):
@@ -518,7 +554,8 @@ class NikkeBaseTask(BaseTask):
 
         Args:
             clear_condition: 可选完成条件（返回 True 表示清理完成/已回到目标界面）；
-                优先于其它判断，条件满足即返回。
+                每轮先尝试关弹窗，仅当本轮未关到任何弹窗时才检查该条件——遮罩压暗下
+                目标界面特征可能仍命中，若先查条件会误报清理完成而留下未关弹窗。
             time_out: 清理的总超时（秒）。
             after_sleep: 每次点击后的固定等待（秒）。
             max_passes: 最大清理轮数上限，防止异常画面下死循环。
@@ -535,8 +572,6 @@ class NikkeBaseTask(BaseTask):
             if passes > max_passes:  # 超过轮次上限。
                 self.log_warning(f"清理弹窗达到轮次上限（{max_passes}），停止。")  # 记录异常并停止。
                 return False  # 返回失败。
-            if clear_condition is not None and clear_condition():  # 完成条件已满足。
-                return True  # 清理完成。
             if self._try_close_one_popup(after_sleep=after_sleep):  # 关掉了一个弹窗。
                 closed_any = True  # 标记已关闭过弹窗。
                 try:  # 刷新帧后再继续，避免基于旧帧重复匹配。
@@ -546,6 +581,8 @@ class NikkeBaseTask(BaseTask):
                 except Exception:  # 无可用帧时忽略。
                     pass  # 继续下一轮。
                 continue  # 继续清理剩余弹窗。
+            if clear_condition is not None and clear_condition():  # 本轮已无弹窗可关且完成条件满足。
+                return True  # 清理完成。
             if clear_condition is not None:  # 有完成条件但尚未满足。
                 self.sleep(1)  # 等待界面变化后重试。
                 continue  # 继续等待。
@@ -560,8 +597,62 @@ class NikkeBaseTask(BaseTask):
         self.log_info("未发现弹窗，无需清理。")  # 超时未出现任何弹窗。
         return True  # 视为清理完成。
 
-    def register_screen(self, name: str, features=(), keywords=(), ocr_box=None):
+    def next_frame(self):
+        """覆写框架取帧：拿到新帧后清空帧级判定缓存。
+
+        框架抛出的 TaskDisabledException/WaitFailedException 等异常原样向上传播；
+        取帧失败时不清缓存（旧帧未变，缓存仍然有效）。
+        """
+        frame = super().next_frame()  # 框架取新帧。
+        self._screen_cache.clear()  # 新帧已就位，旧帧判定结果全部失效。
+        return frame
+
+    def _cache_get(self, key):
+        entry = self._screen_cache.get(key)  # 条目结构 (帧对象, 结果)。
+        if entry is not None and entry[0] is self.frame:  # 帧对象同一性成立才视为命中。
+            return entry[1]
+        return _CACHE_MISS
+
+    def _cache_put(self, key, value):
+        self._screen_cache[key] = (self.frame, value)  # 记录结果所属的帧。
+
+    def _find_feature_cached(self, name):
+        """带帧级缓存的 find_one：同一帧内同名特征只真正匹配一次。"""
+        key = ("feat", name)
+        cached = self._cache_get(key)
+        if cached is not _CACHE_MISS:
+            return cached
+        found = self.find_one(name)  # ValueError（特征缺失）由调用方处理，不进缓存。
+        self._cache_put(key, found)
+        return found
+
+    @staticmethod
+    def _ocr_box_key(box):
+        if isinstance(box, Box):  # coco 区域框：按坐标归一化，同框不同名也可共享。
+            return ("box", round(box.x, 3), round(box.y, 3), round(box.width, 3), round(box.height, 3))
+        return ("box", tuple(round(v, 3) for v in box))  # 相对坐标列表 [x, y, to_x, to_y]。
+
+    def _region_ocr_cached(self, box_key, box):
+        """带帧级缓存的区域 OCR（不做关键词过滤），同帧同区域只真正 OCR 一次。"""
+        key = ("ocr", box_key)
+        cached = self._cache_get(key)
+        if cached is not _CACHE_MISS:
+            return cached
+        if box is None:  # 全屏 OCR。
+            result = self.ocr()
+        elif isinstance(box, (list, tuple)):  # 相对坐标列表形式。
+            result = self.ocr(*box)
+        else:  # 已解析的区域框。
+            result = self.ocr(box=box)
+        self._cache_put(key, result)
+        return result
+
+    def register_screen(self, name: str, features=(), keywords=(), ocr_box=None, **extra):
         """注册一个界面及判定条件。
+
+        全局界面已由基类从 src/screens.py 的 SCREENS 加载；本方法是任务的
+        扩展口：可追加任务私有界面，同名调用覆盖全局（或先前）条目。
+        扩展字段（absent/priority/min_frames 等）经 **extra 原样并入判定描述。
 
         Args:
             name: 界面名（子任务用 is_screen/wait_screen/assert_screen 时传入的名称）。
@@ -571,62 +662,97 @@ class NikkeBaseTask(BaseTask):
                 [x, y, to_x, to_y]，也可为 coco 标注的区域特征名（字符串），
                 匹配时按当前分辨率解析。
         """
-        self.screens[name] = {  # 保存界面判定描述到注册表。
+        self.screens[name] = {  # 保存界面判定描述到注册表；扩展字段（absent/priority/min_frames）原样并入。
             "features": list(features),  # 模板特征名列表。
             "keywords": list(keywords),  # OCR 关键词列表。
             "ocr_box": ocr_box,  # OCR 区域相对坐标。
+            **extra,  # 扩展字段：缺省时为空，不改变既有条目结构。
         }
 
     def _screen_match(self, spec: dict) -> bool:
         """按判定描述在当前帧检测是否处于该界面。
 
         features 与 keywords 同时配置时取「与」：所有特征命中 且 命中任一关键词。
+        absent 中的特征（消歧字段，默认空）任一命中则直接判负，作用于两条命中路径。
         """
         features = spec.get("features")  # 模板特征名列表。
         keywords = spec.get("keywords")  # OCR 关键词列表。
+        absent = spec.get("absent") or []  # 消歧特征：任一命中即否定该界面。
         if features:  # 有模板特征则先逐个检测特征。
             for name in features:  # 逐个检测特征。
                 try:  # 特征可能已不存在（如 coco 重建后旧特征被移除）。
-                    found = self.find_one(name)  # 查找模板特征。
+                    found = self._find_feature_cached(name)  # 查找模板特征（同帧只匹配一次）。
                 except ValueError:  # 特征缺失时视为未命中，避免因 coco 变更导致异常冒泡。
                     self.log_warning(f"界面特征缺失: {name}")  # 记录缺失。
                     return False  # 返回未命中。
                 if found is None:  # 任一特征缺失则不在该界面。
                     return False  # 返回未命中。
             if not keywords:  # 未配置关键词时特征全部命中即判定为该界面。
-                return True  # 返回命中。
-            return self._match_ocr_keywords(spec)  # 同时配置了关键词则还需命中任一关键词。
+                return self._check_absent(absent)  # absent 检查后返回。
+            if not self._match_ocr_keywords(spec):  # 同时配置了关键词则还需命中任一关键词。
+                return False  # 关键词未命中。
+            return self._check_absent(absent)  # 关键词命中后再做 absent 检查。
         if keywords:  # 无模板特征时退化为 OCR 关键词判定。
-            return self._match_ocr_keywords(spec)  # 按关键词判定。
+            if not self._match_ocr_keywords(spec):  # 按关键词判定。
+                return False  # 关键词未命中。
+            return self._check_absent(absent)  # 关键词命中后再做 absent 检查。
         self.log_warning(f"界面 {spec} 未配置判定条件")  # 记录空配置。
         return False  # 空配置判定为不在该界面。
 
+    def _check_absent(self, absent) -> bool:
+        """absent 消歧检查：列表中任一特征在当前帧命中则返回 False。走与 features 相同的缓存查找路径。"""
+        for name in absent:  # 逐个检测消歧特征。
+            try:  # 与 features 相同的容错：特征缺失视为未命中。
+                if self._find_feature_cached(name) is not None:  # 消歧特征命中。
+                    return False  # 该界面判定失败。
+            except ValueError:  # coco 变更导致特征缺失时按未命中处理。
+                self.log_warning(f"界面 absent 特征缺失: {name}")  # 记录缺失。
+        return True  # 无消歧特征命中。
+
     def _match_ocr_keywords(self, spec: dict) -> bool:
-        """按界面判定描述在当前帧 OCR 匹配关键词，命中任一关键词返回 True。"""
-        box = spec.get("ocr_box")  # 读取可选 OCR 区域。
-        if isinstance(box, str):  # ocr_box 为 coco 区域特征名时解析为当前分辨率的框。
+        """按界面判定描述在当前帧 OCR 匹配关键词，命中任一关键词返回 True。
+
+        同帧内共享同一区域的 OCR 结果（未过滤的全量文本框），各条目的关键词集
+        各自比对——与框架 ocr(match=...) 的过滤语义逐位一致；全屏退化路径按
+        条目隔离，不跨界面合并。
+        """
+        raw_box = spec.get("ocr_box")  # 读取可选 OCR 区域。
+        box = None  # None 表示全屏 OCR。
+        box_key = ("full", id(spec))  # 全屏退化不合并：键带上条目身份互相隔离。
+        if isinstance(raw_box, str):  # ocr_box 为 coco 区域特征名时解析为当前分辨率的框。
             try:  # 特征可能缺失。
-                box = self.get_box_by_name(box)  # 解析区域框。
-            except ValueError:  # 特征缺失时退化为全屏 OCR。
+                box = self.get_box_by_name(raw_box)  # 解析区域框。
+                box_key = self._ocr_box_key(box)
+            except ValueError:  # 特征缺失时退化为全屏 OCR（与现状一致）。
                 box = None  # 置空走全屏逻辑。
-        if box:  # 指定了区域则只在该区域 OCR。
-            if isinstance(box, (list, tuple)):  # 相对坐标列表形式。
-                boxes = self.ocr(*box, match=spec["keywords"])  # 区域内匹配关键词。
-            else:  # 已解析的 Box 对象。
-                boxes = self.ocr(box=box, match=spec["keywords"])  # 区域内匹配关键词。
-        else:  # 未指定区域则全屏 OCR。
-            boxes = self.ocr(match=spec["keywords"])  # 全屏匹配关键词。
-        return bool(boxes)  # 命中任一关键词即判定为该界面。
+        elif isinstance(raw_box, (list, tuple)):  # 相对坐标列表形式。
+            box = raw_box
+            box_key = self._ocr_box_key(raw_box)
+        elif raw_box is not None:  # 直接给了 Box 对象。
+            box = raw_box
+            box_key = self._ocr_box_key(raw_box)
+        boxes = self._region_ocr_cached(box_key, box)  # 同帧同区域只跑一次 OCR。
+        matched = find_boxes_by_name(boxes, self.fix_match_regex(spec["keywords"]))  # 与 ocr(match=...) 相同的过滤。
+        return bool(matched)  # 命中任一关键词即判定为该界面。
 
     def current_screen(self) -> str | None:
-        """在当前帧识别所处界面，返回界面名；未命中返回 None（常用于失败日志）。"""
-        for name, spec in self.screens.items():  # 遍历所有已注册界面。
+        """在当前帧识别所处界面，返回界面名；未命中返回 None（常用于失败日志）。
+
+        按 spec 的 priority 降序遍历（默认 0）；同优先级保持注册顺序
+        （sorted 稳定排序），消除对注册先后顺序的隐性依赖。
+        """
+        ordered = sorted(self.screens.items(), key=lambda item: -item[1].get("priority", 0))  # 降序且稳定。
+        for name, spec in ordered:  # 遍历所有已注册界面。
             if self._screen_match(spec):  # 命中则返回该界面名。
                 return name  # 返回界面名。
         return None  # 全部未命中返回 None。
 
     def is_screen(self, name: str) -> bool:
-        """单帧检测当前是否处于指定界面。"""
+        """单帧检测当前是否处于指定界面。
+
+        恒为单帧语义：即使 spec 配置了 min_frames，本方法也不做多帧确认；
+        连续帧确认仅作用于 wait_screen/assert_screen 的轮询判定。
+        """
         spec = self.screens.get(name)  # 读取界面判定描述。
         if spec is None:  # 界面未注册。
             self.log_warning(f"未注册界面: {name}")  # 记录未注册。
@@ -634,11 +760,26 @@ class NikkeBaseTask(BaseTask):
         return self._screen_match(spec)  # 按判定描述检测。
 
     def wait_screen(self, name: str, time_out=10, raise_if_not_found=False):
-        """等待进入指定界面，复用 wait_until 的轮询与超时机制。"""
+        """等待进入指定界面，复用 wait_until 的轮询与超时机制。
+
+        spec 的 min_frames（默认 1）表示需连续多少次轮询命中才算进入：
+        轮询条件每轮在不同帧上求值，连续命中计数天然逐帧；未命中即清零。
+        默认值下与原单帧判定行为一致。
+        """
         spec = self.screens.get(name)  # 读取界面判定描述。
         if spec is None:  # 界面未注册。
             raise ValueError(f"未注册界面: {name}")  # 未注册直接报错。
-        return self.wait_until(lambda: self._screen_match(spec),  # 轮询界面判定条件。
+        min_frames = max(1, int(spec.get("min_frames", 1)))  # 缺省退化为单帧语义。
+        consecutive = {"hits": 0}  # 实例级计数状态：跨轮次递增，未命中清零。
+
+        def condition():  # 轮询条件：wait_until 每轮取新帧后调用一次。
+            if self._screen_match(spec):  # 本轮命中。
+                consecutive["hits"] += 1  # 连续命中数递增。
+            else:  # 本轮未命中。
+                consecutive["hits"] = 0  # 清零重来。
+            return consecutive["hits"] >= min_frames  # 达到连续帧要求才算进入。
+
+        return self.wait_until(condition,  # 轮询界面判定条件。
                                time_out=time_out,  # 超时时间。
                                raise_if_not_found=raise_if_not_found)  # 超时是否抛异常。
 
@@ -648,6 +789,127 @@ class NikkeBaseTask(BaseTask):
             cur = self.current_screen()  # 识别当前实际界面用于日志。
             self.log_warning(f"界面断言失败: 期望 {name}，当前 {cur}")  # 记录断言失败。
             raise WaitFailedException(f"not on screen: {name} (current: {cur})")  # 抛等待失败异常。
+
+    def transition(self, to_screen, click_feature=None, box=None, click=None,
+                   time_out=10, wait_confirm=3, retry_click=2, after_sleep=1):
+        """守卫式转换原语：点击入口 → 等待目标界面 → 未命中原地补点 → 带上下文抛错。
+
+        就地消化「动画期吞点击」这类瞬时故障，避免一次误点触发整段回大厅重跑；
+        重试耗尽后保存失败现场并抛 WaitFailedException（消息含目标界面与当前
+        识别结果），由外层 try_step 捕获恢复。战斗结算确认等非典型边不使用本原语。
+
+        Args:
+            to_screen: 目标界面名（须已注册）。
+            click_feature: 点击的 coco 特征名，走 wait_click_feature（raise_if_not_found=True）。
+            box: 点击的框/区域/区域特征名，走 click_box；与 click_feature 二选一。
+            click: 自定义无参可调用对象；提供时忽略前两者。
+            time_out: 点击动作的等待超时（秒），即 wait_click_feature 的 time_out。
+            wait_confirm: 每次点击后等待确认的单次超时（秒）；长加载边调大它。
+            retry_click: 确认未命中时原地补点的最大次数（总尝试 = 1 + retry_click）。
+            after_sleep: 每次点击后的固定等待（秒）。
+        """
+
+        def _click_once():  # 单次点击动作：三种形态之一。
+            if click is not None:  # 自定义点击。
+                click()
+            elif click_feature is not None:  # coco 特征入口。
+                self.wait_click_feature(click_feature, time_out=time_out,
+                                        raise_if_not_found=True, after_sleep=after_sleep)
+            elif box is not None:  # 框/区域入口。
+                self.click_box(box, after_sleep=after_sleep)
+            else:
+                raise ValueError("transition 需要提供 click_feature/box/click 之一")
+
+        deadline = time.time() + time_out  # 整个转换的总预算。
+        for attempt in range(1 + max(0, retry_click)):  # 首次点击 + 至多 retry_click 次补点。
+            if attempt > 0 and time.time() >= deadline:  # 总超时后不再补点。
+                break
+            _click_once()
+            remain = max(1, int(deadline - time.time()))  # 确认等待不超过总预算剩余。
+            if self.wait_screen(to_screen, time_out=min(wait_confirm, remain)):
+                return True  # 已进入目标界面。
+            self.log_info(f"transition: {to_screen} 未确认（第 {attempt + 1} 次尝试），原地重试。")
+        self.save_failure_screenshot(to_screen)  # 重试耗尽，保存失败现场截图。
+        current = self.current_screen()  # 识别当前界面作为异常上下文。
+        self.log_warning(f"界面转换失败: 目标 {to_screen}，当前 {current}")  # 记录失败。
+        raise WaitFailedException(f"transition to {to_screen} failed (current: {current})")
+
+    def ensure_screen(self, name: str, wait_enter=5, entry=None, raise_on_fail=True, **transition_kwargs) -> bool:
+        """幂等进入指定界面的统一闸门：已在（或正在进入）目标界面则直接返回；
+        否则先按「正向命中登录页 / 应用内证据 / 无任何证据」分流——登录页与无证据
+        走冷启动引导（wait_until_lobby_after_start），应用内走恢复回大厅——就位后：
+        有点击源则经 transition 守卫式进入目标，无点击源（目标即锚点大厅）则尾部确认。
+
+        子流程入口统一用它代替手写的「is_screen 短路 + 等大厅 + 点入口」序列；
+        任务开头的就位大厅同理（`ensure_screen("lobby")`——大厅没有指向自己的点击边，
+        它的「入口」是清弹窗 + 点 TOUCH TO CONTINUE 这段冷启动程序化流程，就是第 3 段）。
+        内置过场动画容忍（短轮询而非单帧判定）与误分类护栏——单帧判定撞上过场动画、
+        且目标页又无返回/主页按钮时，旧式序列会把应用内页面误判为冷启动而空等大厅。
+
+        Args:
+            name: 目标界面名（须在 SCREENS 注册）。
+            wait_enter: 每次等待目标界面的秒数（过场动画容忍窗口，默认 5）。
+            entry: 可选入口解析器（callable → Box | 特征名 str | None）。返回 None
+                表示入口不存在（如当期限时玩法已结束）——此时本方法返回 False，
+                由调用方决定「视为已完成」等收尾。解析器在进入大厅之后才调用。
+            raise_on_fail: True（默认）失败抛 WaitFailedException（供 try_step 恢复）；
+                False 时返回 False（任务开头等优雅中止调用点用）。
+            transition_kwargs: 透传给 transition（click_feature/box/click、time_out、
+                wait_confirm、retry_click、after_sleep）。entry 返回 Box 时自动作为
+                box= 传入，返回 str 时作为 click_feature= 传入。
+
+        Returns:
+            True 已进入目标界面；False = 入口缺失（entry 返回 None）或
+                raise_on_fail=False 时失败。
+        Raises:
+            WaitFailedException: raise_on_fail=True 且恢复回大厅 / 冷启动等待 / 进入目标界面失败。
+        """
+        if self.wait_screen(name, time_out=wait_enter):  # 已在目标界面或正在过场：轮询容忍滑入动画。
+            return True  # 无需导航。
+        self.dismiss_all_popups(wait_for_popup=False, time_out=10)  # 弹窗可能遮挡目标界面特征。
+        if self.wait_screen(name, time_out=wait_enter):  # 清弹窗后已在目标界面。
+            return True  # 无需导航。
+        if self.is_screen("login_page"):  # 正向命中登录页：明确冷启动入口，覆盖应用内推定，跳过恢复动作。
+            in_app = False
+        elif self.find_one("common_back") is not None or self.find_one("common_home") is not None:  # 存在返回/主页按钮：处于应用内其它界面。
+            in_app = True
+        else:  # 无按钮：再靠全局分类区分「应用内已注册界面」与「无证据」（登录页命中不计入——它本身就是冷启动入口）。
+            current = self.current_screen()  # 帧级缓存，本轮内不重复匹配。
+            in_app = current is not None and current != "login_page"
+        if in_app:  # 处于应用内其它界面：走统一失败恢复协议回大厅，再重进。
+            # 目标页本身可能没有返回/主页按钮（如方舟顶层页），仅靠按钮检测会把它误判成冷启动。
+            if not self._recover_to_lobby():
+                if raise_on_fail:
+                    raise WaitFailedException("未能回到游戏大厅")
+                return False
+        elif not self.wait_until_lobby_after_start():  # 登录页或无任何应用内证据：冷启动/加载中，走引导流程。
+            if raise_on_fail:
+                raise WaitFailedException("未能进入游戏大厅")
+            return False
+        self.dismiss_all_popups(wait_for_popup=False, time_out=10)  # 统一清理大厅残留弹窗。
+        if entry is not None:  # 入口解析器（进入大厅之后才解析）。
+            resolved = entry()  # 解析入口位置。
+            if resolved is None:  # 入口缺失（如限时玩法已结束）。
+                return False  # 交由调用方收尾。
+            if isinstance(resolved, str):  # 解析结果是特征名。
+                transition_kwargs["click_feature"] = resolved  # 作为特征点击。
+            else:  # 解析结果是 Box。
+                transition_kwargs["box"] = resolved  # 作为框点击。
+        if not any(k in transition_kwargs for k in ("click_feature", "box", "click")):
+            # 无点击源：目标即锚点大厅——其入口是第 3 段的就位/冷启动流程而非点击边，尾部只做确认。
+            if not self.wait_screen(name, time_out=5):
+                self.save_failure_screenshot(name)  # 保存现场便于排查。
+                if raise_on_fail:
+                    raise WaitFailedException(f"ensure_screen {name} 尾部确认失败 (current: {self.current_screen()})")
+                return False
+            return True
+        try:
+            self.transition(name, **transition_kwargs)  # 守卫式进入目标界面。
+        except WaitFailedException:
+            if raise_on_fail:
+                raise
+            return False
+        return True  # 已进入目标界面。
 
     def save_failure_screenshot(self, tag: str):
         """保存失败现场截图到 screenshots/failure/，复用框架截图能力。"""

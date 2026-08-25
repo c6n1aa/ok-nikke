@@ -119,8 +119,33 @@ def _patch_executor_focus_guard():
     logger.info('patched TaskExecutor.next_frame to pause on game window unfocus')
 
 
+def _patch_executor_ocr_init_join():
+    # 包装 TaskExecutor.destroy：退出前等待后台 DefaultOCRInit 线程收尾。
+    # 该守护线程懒初始化 OCR（导入 openvino + 加载模型）。当进程在初始化完成前就
+    # 退出（典型：跑得快的测试文件，如 RaidTask 全部用例 <1s），解释器终结阶段会
+    # 冻结这个仍持有 import 锁的线程，导致进程在退出阶段永久死锁——测试全部通过、
+    # CPU 归零、进程永不结束。先 join 把竞态窗口关掉；正常初始化约 1 秒内完成。
+    from ok.task.TaskExecutor import TaskExecutor
+
+    original_destroy = TaskExecutor.destroy
+
+    def destroy_with_ocr_join(self):
+        original_destroy(self)
+        thread = getattr(self, "_ocr_init_thread", None)
+        if thread is not None and thread.is_alive():
+            logger.info("waiting for DefaultOCRInit thread before shutdown")
+            thread.join(timeout=30)
+            if thread.is_alive():
+                logger.warning("DefaultOCRInit still running after 30s; interpreter shutdown may hang")
+
+    TaskExecutor.destroy = destroy_with_ocr_join
+    logger.info("patched TaskExecutor.destroy to join DefaultOCRInit thread")
+
+
 def apply():
     # 禁用 OpenVINO 遥测，避免无网络时挂死进程退出
     _patch_openvino_telemetry()
     # 一次性任务运行期间，游戏窗口失焦则暂停执行器，回到前台自动恢复
     _patch_executor_focus_guard()
+    # 退出前等待 OCR 初始化线程收尾，避免解释器终结阶段的 import 锁死锁
+    _patch_executor_ocr_init_join()

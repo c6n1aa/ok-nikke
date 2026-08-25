@@ -51,12 +51,13 @@ class TestCashShopTask(_DebugOffTestCase):
         # 标题区域 OCR 判定付费商店界面，供 assert_screen 复用。
         self.assertEqual("box_sub_pages_title", self.task.screens["付费商店"]["ocr_box"])
 
-    def test_enter_cash_shop_asserts_screen(self):
+    def test_enter_cash_shop_transitions_to_screen(self):
+        # 迁移到 transition 原语：点击入口后由原语等待确认进入付费商店界面。
         with patch.object(self.task, "wait_click_feature") as click_mock, \
-                patch.object(self.task, "assert_screen") as assert_mock:
+                patch.object(self.task, "wait_screen", return_value=True) as wait_mock:
             self.task._enter_cash_shop()
-        click_mock.assert_called_once()
-        assert_mock.assert_called_once_with("付费商店", time_out=10)
+        click_mock.assert_called_once_with("cash_shop", time_out=10, raise_if_not_found=True, after_sleep=1)
+        wait_mock.assert_called_once_with("付费商店", time_out=10)
 
     def test_done_keys(self):
         self.assertEqual(
@@ -74,19 +75,19 @@ class TestCashShopTask(_DebugOffTestCase):
         self.task.mark_done("cash_shop_daily", "day")
         self.task.mark_done("cash_shop_weekly", "week")
         self.task.mark_done("cash_shop_monthly", "month")
-        with patch.object(self.task, "wait_until_lobby_after_start", return_value=True), \
+        with patch.object(self.task, "ensure_screen", return_value=True), \
                 patch.object(self.task, "_combined_step", side_effect=AssertionError("不应执行领取流程")):
             self.task.run()
         self.assertTrue(self.task.is_completed())
 
     def test_runs_combined_step_when_not_done(self):
-        with patch.object(self.task, "wait_until_lobby_after_start", return_value=True), \
+        with patch.object(self.task, "ensure_screen", return_value=True), \
                 patch.object(self.task, "_combined_step") as combined_mock:
             self.task.run()
         combined_mock.assert_called_once()
 
     def test_abort_when_lobby_not_found(self):
-        with patch.object(self.task, "wait_until_lobby_after_start", return_value=False), \
+        with patch.object(self.task, "ensure_screen", return_value=False), \
                 patch.object(self.task, "_combined_step", side_effect=AssertionError("不应执行领取流程")):
             self.task.run()
         self.assertFalse(self.task.is_done("cash_shop_stepup", "day"))
