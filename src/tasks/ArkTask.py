@@ -15,11 +15,23 @@ _TOWER_NAMES = {
 
 # 塔卡 OPEN 关键词：OCR 忽略大小写匹配英文 OPEN。
 _OPEN_PATTERN = re.compile(r"OPEN", re.IGNORECASE)
+# 新人竞技场稳定战力压制比例：己方战力 * 0.846 > 对手战力才视为可稳定压制。
+_ROOKIE_ARENA_CP_RATIO = 0.846
+
+# 新人竞技场刷新对手列表的最大次数：用尽后结束子流程（标记完成）。
+_ROOKIE_ARENA_MAX_REFRESH = 10
+
+# 新人竞技场（战力标注区域， 免费挑战区域）对，自上而下对应 1-3 号对手。
+_ROOKIE_CP_ENCOUNTER_PAIRS = (
+    ("box_rookie_arena_o1_cp", "box_rookie_arena_o1_free_encounter"),  # 1号对手。
+    ("box_rookie_arena_o2_cp", "box_rookie_arena_o2_free_encounter"),  # 2号对手。
+    ("box_rookie_arena_o3_cp", "box_rookie_arena_o3_free_encounter"),  # 3号对手。
+)
 
 
 class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截战/竞技场等子流程。
 
-    done_keys = {"tribe_tower": "day", "simulation": "day"}  # 完成状态：企业塔与模拟室（日常刷新）。
+    done_keys = {"tribe_tower": "day", "simulation": "day", "rookie_arena": "day", "special_arena": "day"}  # 完成状态：企业塔/模拟室/新人竞技场/特殊竞技场（日常刷新）。
 
     def __init__(self, *args, **kwargs):  # 初始化任务元数据与配置。
         super().__init__(*args, **kwargs)  # 必须先调用父类初始化。
@@ -30,16 +42,28 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
             "企业塔": True,  # 是否执行企业塔子流程。
             "关闭自动爬塔": False,  # 进入战斗后自动撤退，默认正常爬塔。
             "模拟室": True,  # 使用立即完成-快速模拟，通关模拟室流程。
+            "新人竞技场": True,  # 使用每天5次的免费战斗（启用此功能请先配置好队伍）。
+            "对手选择策略": True,  # 优先选择稳定战力压制的对手；关闭则固定选择最下面的对手。
+            "特殊竞技场": True,  # 收取特殊竞技场累计奖励。
         })
         self.config_description.update({  # 每个配置项的帮助文本。
             "企业塔": "是否执行企业塔（无限之塔）子流程。",
             "关闭自动爬塔": "进入战斗后自动撤退，适合只完成日常任务而不需要爬塔的指挥官。",
             "模拟室": "使用立即完成-快速模拟，通关模拟室流程。",
+            "新人竞技场": "使用每天5次的免费战斗（启用此功能请先配置好队伍）。",
+            "对手选择策略": "优先选择稳定战力压制的对手（己方战力 * 0.846 > 对手战力）；关闭则固定选择最下面的对手。",
+            "特殊竞技场": "收取特殊竞技场累计奖励。",
         })
         self.config_type.update({  # 配置类型与显隐控制：布尔开关联动子配置显隐（参考 ShopTask）。
             "企业塔": {  # 布尔开关，启用时才展开企业塔配置。
                 "sub_configs": {  # 开关联动子配置显隐。
                     True: ["关闭自动爬塔"],  # 启用时显示爬塔模式开关。
+                    False: [],  # 关闭时收起配置。
+                },
+            },
+            "新人竞技场": {  # 布尔开关，启用时才展开对手选择策略配置。
+                "sub_configs": {  # 开关联动子配置显隐。
+                    True: ["对手选择策略"],  # 启用时显示对手选择策略开关。
                     False: [],  # 关闭时收起配置。
                 },
             },
@@ -53,6 +77,8 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
             return  # 结束任务。
         self._do_tribe_tower()  # 执行企业塔子流程。
         self._do_simulation()  # 执行模拟室子流程。
+        self._do_rookie_arena()  # 执行新人竞技场子流程。
+        self._do_special_arena()  # 执行特殊竞技场子流程。
 
     def _nav_to_ark(self):  # 导航到方舟界面（幂等入口闸门，供子流程开头与统一入口复用）。
         self.ensure_screen("ark", click_feature="ark", wait_confirm=10, after_sleep=1)  # 过场动画容忍、弹窗清理与恢复/冷启动分流均在 ensure_screen 内。
@@ -215,6 +241,129 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
         self.wait_feature("tribe_tower_stage", raise_if_not_found=True)  # 等待回到塔关卡界面。
         self.wait_click_feature("common_back", raise_if_not_found=True, after_sleep=1)  # 点击返回无限之塔界面。
         self.wait_click_feature("common_back", raise_if_not_found=True, after_sleep=1)  # 点击返回方舟界面。
+
+    def _do_rookie_arena(self):  # 新人竞技场子流程：竞技场→新人竞技场→免费挑战→返回方舟。
+        if not self.config.get("新人竞技场"):  # 用户未启用新人竞技场子流程。
+            self.log_info("新人竞技场未开启，跳过。")  # 记录跳过原因。
+            return  # 结束本子流程。
+        if self.is_done("rookie_arena", "day"):  # 本周期内已完成则直接跳过。
+            self.log_info("今日新人竞技场已完成，跳过。")  # 记录跳过原因。
+            return  # 结束本子流程。
+        success = self.try_step(  # 新人竞技场整体流程以方舟为起点，用恢复协议包裹。
+            lambda: self._do_rookie_arena_flow(),  # 执行新人竞技场流程。
+            name="新人竞技场",  # 步骤名用于日志与失败截图。
+            raise_on_fail=False,  # 多次失败后跳过而非抛异常。
+        )
+        if not success:  # 流程多次失败。
+            self.log_warning("新人竞技场流程多次失败，跳过。")  # 记录跳过原因。
+            return  # 不标记完成，下次可重试。
+        self.mark_done("rookie_arena", "day")  # 记录本周期已完成。
+        self.log_info("新人竞技场任务完成。")  # 记录子流程完成。
+
+    def _do_special_arena(self):  # 特殊竞技场子流程：竞技场→特殊竞技场→领取累计奖励→返回方舟。
+        if not self.config.get("特殊竞技场"):  # 用户未启用特殊竞技场子流程。
+            self.log_info("特殊竞技场未开启，跳过。")  # 记录跳过原因。
+            return  # 结束本子流程。
+        if self.is_done("special_arena", "day"):  # 本周期内已完成则直接跳过。
+            self.log_info("今日特殊竞技场已完成，跳过。")  # 记录跳过原因。
+            return  # 结束本子流程。
+        success = self.try_step(  # 特殊竞技场整体流程以方舟为起点，用恢复协议包裹。
+            lambda: self._do_special_arena_flow(),  # 执行特殊竞技场流程。
+            name="特殊竞技场",  # 步骤名用于日志与失败截图。
+            raise_on_fail=False,  # 多次失败后跳过而非抛异常。
+        )
+        if not success:  # 流程多次失败。
+            self.log_warning("特殊竞技场流程多次失败，跳过。")  # 记录跳过原因。
+            return  # 不标记完成，下次可重试。
+        self.mark_done("special_arena", "day")  # 记录本周期已完成。
+        self.log_info("特殊竞技场任务完成。")  # 记录子流程完成。
+
+    def _nav_to_arena(self):  # 导航到竞技场界面：先就位方舟，再点击竞技场入口（供竞技场子流程复用）。
+        self._nav_to_ark()  # 确保处于方舟界面（过场动画容忍与恢复/冷启动分流均在 ensure_screen 内）。
+        self.transition("arena", click_feature="ark_pvp", wait_confirm=10, after_sleep=3)  # 点击竞技场入口并确认已进入竞技场界面。
+
+    def _do_rookie_arena_flow(self):  # 新人竞技场整体流程：竞技场→新人竞技场→循环免费挑战→逐级返回方舟。
+        self._nav_to_arena()  # 确保处于竞技场界面（正常已就位；失败恢复回大厅后由此重新进入）。
+        self.transition("rookie_arena", click_feature="rookie_arena", wait_confirm=10, after_sleep=3)  # 点击新人竞技场入口并确认已进入新人竞技场界面。
+        while True:  # 循环使用免费挑战次数（每天5次），直到免费挑战不可用或刷新对手用尽。
+            try:  # box_ 前缀特征为纯坐标区域，无模板可匹配，直接按标注坐标取区域。
+                encounter = self.get_box_by_name("box_rookie_arena_o1_free_encounter")  # 以1号对手免费挑战区域判断免费次数是否还有剩余。
+            except ValueError:  # 特征缺失。
+                encounter = None  # 视为免费次数已用尽。
+            if encounter is None or not self.is_feature_enabled(encounter):  # 特征缺失或灰白禁用态说明免费次数已用尽。
+                self.log_info("新人竞技场免费挑战次数已用尽。")  # 记录结束原因。
+                break  # 结束循环。
+            target = self._rookie_arena_pick_opponent()  # 按对手选择策略确定要挑战的对手免费挑战区域名。
+            if target is None:  # 刷新用尽仍未找到战力压制对手。
+                break  # 结束循环（标记完成由调用方统一处理）。
+            self._rookie_arena_fight(target)  # 挑战所选对手并等待战斗结束，回到新人竞技场界面。
+        self._back_to_ark_via_arena()  # 逐级返回到方舟界面。
+
+    def _rookie_arena_pick_opponent(self):  # 按配置选择对手：策略关闭固定选最下面；开启时选稳定战力压制对手，否则刷新对手列表（最多10次）。
+        if not self.config.get("对手选择策略"):  # 对手选择策略已关闭。
+            self.log_info("对手选择策略已关闭，固定挑战最下面的对手。")  # 记录选择方式。
+            return "box_rookie_arena_o3_free_encounter"  # 固定返回3号（最下面）对手。
+        refresh_count = 0  # 刷新对手列表次数统计。
+        while True:  # 循环读取战力并判断是否存在可稳定压制的对手。
+            player = self._rookie_arena_read_cp("box_rookie_arena_player_cp")  # OCR 读取己方战力。
+            if player is None:  # 己方战力读取失败无法比较。
+                self.log_warning("己方战力读取失败，回退固定挑战最下面的对手。")  # 记录回退原因。
+                return "box_rookie_arena_o3_free_encounter"  # 保守回退固定最下面对手。
+            threshold = player * _ROOKIE_ARENA_CP_RATIO  # 稳定战力压制阈值：己方战力 * 0.846。
+            for cp_name, encounter_name in _ROOKIE_CP_ENCOUNTER_PAIRS:  # 自上而下检查 1-3 号对手。
+                opponent = self._rookie_arena_read_cp(cp_name)  # OCR 读取该对手战力。
+                if opponent is not None and threshold > opponent:  # 找到可稳定压制的对手。
+                    self.log_info(f"选择对手{encounter_name[-5]}：己方 {player} * 0.846 = {threshold:.0f} > 对手 {opponent}。")  # 记录选择依据。
+                    return encounter_name  # 返回该对手的免费挑战区域名。
+            if refresh_count >= _ROOKIE_ARENA_MAX_REFRESH:  # 刷新次数已达上限。
+                self.log_warning(f"刷新 {refresh_count} 次仍未找到战力压制对手，结束新人竞技场。")  # 记录结束原因。
+                return None  # 结束子流程。
+            self.wait_click_feature("rookie_arena_refresh", raise_if_not_found=True, after_sleep=3)  # 点击刷新对手列表并等待刷新完成。
+            refresh_count += 1  # 刷新次数加一。
+            self.log_info(f"未找到战力压制对手，刷新对手（第 {refresh_count} 次）。")  # 记录刷新。
+
+    def _rookie_arena_read_cp(self, feature_name):  # 在指定战力标注区域内 OCR 读数，失败返回 None。
+        try:  # 区域特征可能缺失。
+            box = self.get_box_by_name(feature_name)  # 获取战力标注区域（已按当前分辨率缩放）。
+        except ValueError:  # 特征缺失。
+            return None  # 读取失败。
+        if box is None:  # 区域无效（如无可用帧）。
+            return None  # 读取失败。
+        texts = self.ocr(box=box)  # 区域内 OCR 获取全部文本框。
+        if not texts:  # 无识别结果。
+            return None  # 读取失败。
+        digits = re.sub(r"\D", "", texts[-1].name or "")  # 取最后一段文字并去除非数字字符。
+        return int(digits) if digits else None  # 有数字返回数值，否则视为读取失败。
+
+    def _rookie_arena_fight(self, encounter_feature):  # 挑战所选对手：确认弹窗→快速战斗开关→进入战斗→等待结算→回到新人竞技场界面。
+        self.click_box(encounter_feature, raise_if_not_found=True, after_sleep=2)  # 点击对手的免费挑战区域进确认弹窗（box_ 前缀为纯坐标区域，按坐标点击）。
+        self.wait_feature("rookie_arena_battle_modal", raise_if_not_found=True)  # 等待确认战斗弹窗出现。
+        try:  # 快速战斗开关区域特征可能缺失。
+            quick_toggle = self.get_box_by_name("box_rookie_arena_quick_battle_feature")  # 获取快速战斗开关标注区域（纯坐标区域）。
+        except ValueError:  # 特征缺失。
+            quick_toggle = None  # 置空做兜底处理。
+        if quick_toggle is not None and not self.is_feature_enabled(quick_toggle):  # 开关为灰白未激活态时先点击激活快速战斗。
+            self.click_box(quick_toggle, after_sleep=1)  # 点击开关激活快速战斗。
+        self.click_box("box_rookie_arena_quick_battle", raise_if_not_found=True, after_sleep=10)  # 点击进入战斗并等待战斗加载。
+        result, confirm_box = self.wait_battle_finish(time_out=240)  # 节流等待战斗结束，只检测不点击。
+        if result is None:  # 等待战斗结束超时。
+            raise WaitFailedException("等待新人竞技场战斗结束超时")  # 抛异常由 try_step 恢复重试。
+        self.click_box(confirm_box, after_sleep=3)  # 点击结算确认/失败返回按钮回到新人竞技场界面。
+        self.assert_screen("rookie_arena", time_out=15)  # 确认回到新人竞技场界面，供下一轮循环判定。
+
+    def _do_special_arena_flow(self):  # 特殊竞技场整体流程：竞技场→特殊竞技场→领取累计奖励→逐级返回方舟。
+        self._nav_to_arena()  # 确保处于竞技场界面（正常已就位；失败恢复回大厅后由此重新进入）。
+        self.transition("special_arena", click_feature="special_arena", wait_confirm=10, after_sleep=3)  # 点击特殊竞技场入口并确认已进入特殊竞技场界面。
+        self.click_box("box_special_arena_reward", raise_if_not_found=True, after_sleep=2)  # 点击累计奖励区域打开奖励弹窗（box_ 前缀特征为纯坐标区域）。
+        self.wait_click_feature("special_arena_reward_claim", raise_if_not_found=True, after_sleep=2)  # 点击领取按钮收取累计奖励。
+        self.dismiss_all_popups(wait_for_popup=False, time_out=10)  # 清理领取后弹出的奖励遮罩弹窗。
+        self._back_to_ark_via_arena()  # 逐级返回到方舟界面。
+
+    def _back_to_ark_via_arena(self):  # 逐级返回：竞技场子页面→竞技场界面→方舟界面。
+        self.wait_click_feature("common_back", raise_if_not_found=True, after_sleep=1)  # 点击返回按钮回到竞技场界面。
+        self.assert_screen("arena", time_out=10)  # 断言已回到竞技场界面。
+        self.wait_click_feature("common_back", raise_if_not_found=True, after_sleep=1)  # 点击返回按钮回到方舟界面。
+        self.assert_screen("ark", time_out=10)  # 断言已回到方舟界面。
 
     def _under_daily(self):  # 判断当前是否由日常任务编排执行（日常里统一在全部子任务完成后提醒）。
         executor = getattr(og, "executor", None)  # 读取全局执行器。

@@ -44,8 +44,12 @@ class TestArkTask(_DebugOffTestCase):
         self.task.config["关闭自动爬塔"] = self.task.default_config["关闭自动爬塔"]
         self.task.config["企业塔"] = self.task.default_config["企业塔"]
         self.task.config["模拟室"] = False  # 默认关闭模拟室子流程，企业塔相关测试不受其干扰。
+        self.task.config["新人竞技场"] = False  # 默认关闭新人竞技场子流程，企业塔相关测试不受其干扰。
+        self.task.config["特殊竞技场"] = False  # 默认关闭特殊竞技场子流程，企业塔相关测试不受其干扰。
         self.task.clear_done("tribe_tower")
         self.task.clear_done("simulation")
+        self.task.clear_done("rookie_arena")
+        self.task.clear_done("special_arena")
         self.task.failed_towers = []
 
     def test_config_defaults(self):
@@ -58,7 +62,16 @@ class TestArkTask(_DebugOffTestCase):
         self.assertIn("关闭自动爬塔", self.task.config_description)
         self.assertTrue(self.task.default_config["模拟室"])  # 模拟室子流程默认开启。
         self.assertIn("模拟室", self.task.config_description)  # 模拟室配置有中文帮助文本。
-        self.assertEqual({"tribe_tower": "day", "simulation": "day"}, ArkTask.done_keys)
+        self.assertEqual({"tribe_tower": "day", "simulation": "day", "rookie_arena": "day", "special_arena": "day"}, ArkTask.done_keys)
+        self.assertTrue(self.task.default_config["新人竞技场"])  # 新人竞技场子流程默认开启。
+        self.assertTrue(self.task.default_config["对手选择策略"])  # 对手选择策略默认开启。
+        self.assertTrue(self.task.default_config["特殊竞技场"])  # 特殊竞技场子流程默认开启。
+        self.assertIn("新人竞技场", self.task.config_description)  # 新人竞技场配置有中文帮助文本。
+        self.assertIn("对手选择策略", self.task.config_description)  # 对手选择策略配置有中文帮助文本。
+        self.assertIn("特殊竞技场", self.task.config_description)  # 特殊竞技场配置有中文帮助文本。
+        rookie_sub = self.task.config_type["新人竞技场"]["sub_configs"]  # 开关联动对手选择策略显隐。
+        self.assertEqual(["对手选择策略"], rookie_sub[True])  # 启用时显示对手选择策略开关。
+        self.assertEqual([], rookie_sub[False])  # 关闭时收起配置。
         self.assertEqual("方舟", self.task.name)
 
     def test_skip_tribe_tower_when_disabled(self):
@@ -411,8 +424,12 @@ class TestArkTaskSimulation(_DebugOffTestCase):
         self.task.config["企业塔"] = self.task.default_config["企业塔"]
         self.task.config["关闭自动爬塔"] = self.task.default_config["关闭自动爬塔"]
         self.task.config["模拟室"] = True  # 模拟室子流程测试统一开启。
+        self.task.config["新人竞技场"] = False  # 关闭新人竞技场子流程，保证测试顺序隔离。
+        self.task.config["特殊竞技场"] = False  # 关闭特殊竞技场子流程，保证测试顺序隔离。
         self.task.clear_done("simulation")
         self.task.clear_done("tribe_tower")
+        self.task.clear_done("rookie_arena")
+        self.task.clear_done("special_arena")
 
     def _patch_common(self):
         """返回公共补丁栈：已确保在方舟界面、企业塔流程置空。"""
@@ -797,6 +814,250 @@ class TestNavToArk(_DebugOffTestCase):
         recover_mock.assert_called_once()
         lobby_mock.assert_not_called()
         transition_mock.assert_called_once()
+
+
+class TestArkTaskRookieArena(_DebugOffTestCase):
+    """新人竞技场子流程测试：覆盖成功/跳过/失败/已完成跳过及对手选择策略各分支。"""
+
+    task_class = ArkTask
+
+    config = config
+
+    def setUp(self):
+        super().setUp()
+        _isolate_task_config(self.task, 'ArkTask')
+        self.task.config["企业塔"] = False  # 关闭企业塔子流程，隔离新人竞技场测试。
+        self.task.config["关闭自动爬塔"] = self.task.default_config["关闭自动爬塔"]
+        self.task.config["模拟室"] = False  # 关闭模拟室子流程，隔离新人竞技场测试。
+        self.task.config["新人竞技场"] = True  # 新人竞技场子流程测试统一开启。
+        self.task.config["对手选择策略"] = self.task.default_config["对手选择策略"]
+        self.task.config["特殊竞技场"] = False  # 关闭特殊竞技场子流程，隔离新人竞技场测试。
+        self.task.clear_done("tribe_tower")
+        self.task.clear_done("simulation")
+        self.task.clear_done("rookie_arena")
+        self.task.clear_done("special_arena")
+        self.task.failed_towers = []
+
+    def test_skip_when_disabled(self):
+        self.task.config["新人竞技场"] = False  # 用户未启用新人竞技场。
+        with patch.object(self.task, "_do_rookie_arena_flow", side_effect=AssertionError("不应执行新人竞技场流程")), \
+                patch.object(self.task, "_nav_to_ark"):
+            self.task.run()
+        self.assertFalse(self.task.is_done("rookie_arena", "day"))
+
+    def test_skip_when_already_done(self):
+        self.task.mark_done("rookie_arena", "day")  # 标记本周期已完成。
+        with patch.object(self.task, "_do_rookie_arena_flow", side_effect=AssertionError("不应执行新人竞技场流程")), \
+                patch.object(self.task, "_nav_to_ark"):
+            self.task.run()
+        self.assertTrue(self.task.is_done("rookie_arena", "day"))
+
+    def test_success_marks_done(self):
+        with patch.object(self.task, "_nav_to_ark"), \
+                patch.object(self.task, "_do_rookie_arena_flow") as flow_mock:
+            self.task.run()
+        flow_mock.assert_called_once()
+        self.assertTrue(self.task.is_done("rookie_arena", "day"))
+
+    def test_failure_not_marked_done(self):
+        with patch.object(self.task, "try_step", side_effect=[True, False]):
+            self.task.run()
+        self.assertFalse(self.task.is_done("rookie_arena", "day"))
+
+    def _common_encounter(self):
+        return Box(1800, 600, 120, 40, confidence=1, name="box_rookie_arena_o1_free_encounter")  # 1号对手免费挑战区域框（纯坐标区域）。
+
+    def _flow_patches(self, encounter_side_effect, enabled_side_effect, battle_result):
+        """构造 _do_rookie_arena_flow 的公共补丁栈：导航/战斗全部 mock，按 side_effect 驱动分支。"""
+        toggle = Box(700, 1150, 80, 40, confidence=1, name="box_rookie_arena_quick_battle_feature")  # 快速战斗开关区域。
+        settle = Box(1280, 1200, 100, 50, confidence=1, name="battle_finish_esc")  # 结算确认按钮框。
+        encounters = iter(encounter_side_effect)  # 每次循环取下一个 1 号对手区域结果。
+
+        def get_box(name, *args, **kwargs):  # 按名分发：1 号对手区域按序列返回，其余（快速战斗开关）恒返回开关区域。
+            if name == "box_rookie_arena_o1_free_encounter":
+                return next(encounters)
+            return toggle
+
+        stack = ExitStack()
+        stack.enter_context(patch.object(self.task, "_nav_to_arena"))
+        transition_mock = stack.enter_context(patch.object(self.task, "transition"))
+        enabled_mock = stack.enter_context(patch.object(self.task, "is_feature_enabled", side_effect=enabled_side_effect))
+        click_feature_mock = stack.enter_context(patch.object(self.task, "wait_click_feature"))
+        stack.enter_context(patch.object(self.task, "wait_feature", return_value=Box(900, 200, 600, 400, confidence=1, name="rookie_arena_battle_modal")))
+        stack.enter_context(patch.object(self.task, "get_box_by_name", side_effect=get_box))
+        click_box_mock = stack.enter_context(patch.object(self.task, "click_box"))
+        stack.enter_context(patch.object(self.task, "wait_battle_finish", return_value=(battle_result, settle)))
+        stack.enter_context(patch.object(self.task, "assert_screen", return_value=True))
+        return stack, transition_mock, enabled_mock, click_feature_mock, click_box_mock, toggle, settle
+
+    def test_flow_success_strategy_off(self):
+        """策略关闭：固定挑战最下面对手；开关为灰白态先激活再进入战斗；胜利后第二轮免费次数用尽收尾。"""
+        self.task.config["对手选择策略"] = False  # 固定选择最下面的对手。
+        encounter = self._common_encounter()
+        stack, transition_mock, enabled_mock, click_feature_mock, click_box_mock, toggle, settle = \
+            self._flow_patches([encounter, encounter], [True, False, False], "success")
+        with stack:
+            self.task._do_rookie_arena_flow()
+        transition_mock.assert_called_once_with("rookie_arena", click_feature="rookie_arena",
+                                                wait_confirm=10, after_sleep=3)  # 确认了进入新人竞技场界面。
+        clicked = [c.args[0] for c in click_feature_mock.call_args_list]
+        self.assertEqual(["common_back", "common_back"], clicked)  # 模板特征点击仅剩两次返回。
+        self.assertEqual(["box_rookie_arena_o3_free_encounter", toggle, "box_rookie_arena_quick_battle", settle],
+                         [c.args[0] for c in click_box_mock.call_args_list])  # 点3号对手→激活开关→进入战斗→点结算确认。
+        self.assertEqual(3, enabled_mock.call_count)  # 免费可用→开关判态→第二轮免费已用尽。
+
+    def test_flow_toggle_enabled_skips_activation(self):
+        """快速战斗开关已是激活态时不重复点击。"""
+        self.task.config["对手选择策略"] = False
+        encounter = self._common_encounter()
+        stack, _, _, _, click_box_mock, _, settle = \
+            self._flow_patches([encounter, encounter], [True, True, False], "success")
+        with stack:
+            self.task._do_rookie_arena_flow()
+        self.assertEqual(["box_rookie_arena_o3_free_encounter", "box_rookie_arena_quick_battle", settle],
+                         [c.args[0] for c in click_box_mock.call_args_list])  # 开关已激活则点对手后直接进入战斗。
+
+    def test_flow_no_free_encounter_backs_out(self):
+        """免费次数已用尽：不挑战，直接逐级返回方舟。"""
+        encounter = self._common_encounter()
+        stack, transition_mock, enabled_mock, click_feature_mock, click_box_mock, _, _ = \
+            self._flow_patches([None], [False], "success")  # 免费挑战区域缺失（None）直接进入用尽分支。
+        with stack:
+            self.task._do_rookie_arena_flow()
+        self.assertEqual(0, enabled_mock.call_count)  # 区域缺失时不再判态，直接视为用尽。
+        clicked = [c.args[0] for c in click_feature_mock.call_args_list]
+        self.assertEqual(["common_back", "common_back"], clicked)  # 只发生两次返回点击。
+        click_box_mock.assert_not_called()  # 未发生任何战斗点击。
+
+    def test_flow_battle_timeout_raises_for_retry(self):
+        """战斗等待超时抛 WaitFailedException，交由 try_step 恢复重试。"""
+        encounter = self._common_encounter()
+        self.task.config["对手选择策略"] = False
+        stack, _, _, _, _, _, _ = self._flow_patches([encounter], [True, True], None)
+        with stack:
+            with self.assertRaises(WaitFailedException):
+                self.task._do_rookie_arena_flow()
+
+    def _cp_boxes(self, name):
+        """get_box_by_name side_effect：按特征名返回带名字的占位框。"""
+        return Box(0, 0, 10, 10, confidence=1, name=name)
+
+    def _ocr_texts(self, *args, **kwargs):
+        """ocr side_effect：己方战力读 100000，对手战力按 box 名尾段映射到 _opponent_values。"""
+        box = kwargs.get("box")
+        name = getattr(box, "name", "") or ""
+        if "player" in name:
+            return [Box(0, 0, 10, 10, confidence=1, name="100000")]
+        tail = name.split("_")[-2] if name.endswith("_cp") else ""  # box_rookie_arena_o1_cp -> "o1"。
+        return [Box(0, 0, 10, 10, confidence=1, name=str(self._opponent_values.get(tail, 90000)))]
+
+    def test_pick_opponent_strategy_off(self):
+        """策略关闭：不做 OCR，直接固定选最下面对手。"""
+        self.task.config["对手选择策略"] = False
+        with patch.object(self.task, "ocr", side_effect=AssertionError("策略关闭时不应 OCR")):
+            self.assertEqual("box_rookie_arena_o3_free_encounter", self.task._rookie_arena_pick_opponent())
+
+    def test_pick_opponent_picks_first_beatable(self):
+        """策略开启：自上而下选第一个满足 己方*0.846>对手 的对手（84600>90000 不成立，84600>80000 命中o2）。"""
+        self._opponent_values = {"o1": 90000, "o2": 80000, "o3": 200000}
+        with patch.object(self.task, "get_box_by_name", side_effect=self._cp_boxes), \
+                patch.object(self.task, "ocr", side_effect=self._ocr_texts) as ocr_mock:
+            self.assertEqual("box_rookie_arena_o2_free_encounter", self.task._rookie_arena_pick_opponent())
+        self.assertEqual(3, ocr_mock.call_count)  # 己方 + o1 + o2（命中即停，不读 o3）。
+
+    def test_pick_opponent_threshold_strictly_greater(self):
+        """阈值严格大于：84600 == 84600 不算压制，继续向下找。"""
+        self._opponent_values = {"o1": 84600, "o2": 84599, "o3": 999999}
+        with patch.object(self.task, "get_box_by_name", side_effect=self._cp_boxes), \
+                patch.object(self.task, "ocr", side_effect=self._ocr_texts):
+            self.assertEqual("box_rookie_arena_o2_free_encounter", self.task._rookie_arena_pick_opponent())
+
+    def test_pick_opponent_refresh_until_limit_returns_none(self):
+        """始终无压制对手：刷新10次后返回 None 结束子流程。"""
+        self._opponent_values = {"o1": 90000, "o2": 90000, "o3": 90000}  # 全部强于 84600。
+        with patch.object(self.task, "get_box_by_name", side_effect=self._cp_boxes), \
+                patch.object(self.task, "ocr", side_effect=self._ocr_texts), \
+                patch.object(self.task, "wait_click_feature") as refresh_mock:
+            self.assertIsNone(self.task._rookie_arena_pick_opponent())
+        self.assertEqual(10, refresh_mock.call_count)  # 刷新恰好 10 次。
+        self.assertEqual("rookie_arena_refresh", refresh_mock.call_args_list[0].args[0])
+
+    def test_pick_opponent_player_cp_unreadable_fallback(self):
+        """己方战力读取失败：保守回退固定挑战最下面对手。"""
+        with patch.object(self.task, "get_box_by_name", side_effect=self._cp_boxes), \
+                patch.object(self.task, "ocr", return_value=[Box(0, 0, 10, 10, confidence=1, name="")]):
+            self.assertEqual("box_rookie_arena_o3_free_encounter", self.task._rookie_arena_pick_opponent())
+
+    def test_pick_opponent_region_missing_fallback(self):
+        """战力标注区域缺失（coco 特征异常）时同样回退固定最下面对手。"""
+        with patch.object(self.task, "get_box_by_name", side_effect=ValueError("missing")):
+            self.assertEqual("box_rookie_arena_o3_free_encounter", self.task._rookie_arena_pick_opponent())
+
+
+class TestArkTaskSpecialArena(_DebugOffTestCase):
+    """特殊竞技场子流程测试：覆盖成功/跳过/失败/已完成跳过等主要分支。"""
+
+    task_class = ArkTask
+
+    config = config
+
+    def setUp(self):
+        super().setUp()
+        _isolate_task_config(self.task, 'ArkTask')
+        self.task.config["企业塔"] = False  # 关闭企业塔子流程，隔离特殊竞技场测试。
+        self.task.config["关闭自动爬塔"] = self.task.default_config["关闭自动爬塔"]
+        self.task.config["模拟室"] = False  # 关闭模拟室子流程，隔离特殊竞技场测试。
+        self.task.config["新人竞技场"] = False  # 关闭新人竞技场子流程，隔离特殊竞技场测试。
+        self.task.config["对手选择策略"] = self.task.default_config["对手选择策略"]
+        self.task.config["特殊竞技场"] = True  # 特殊竞技场子流程测试统一开启。
+        self.task.clear_done("tribe_tower")
+        self.task.clear_done("simulation")
+        self.task.clear_done("rookie_arena")
+        self.task.clear_done("special_arena")
+        self.task.failed_towers = []
+
+    def test_skip_when_disabled(self):
+        self.task.config["特殊竞技场"] = False  # 用户未启用特殊竞技场。
+        with patch.object(self.task, "_do_special_arena_flow", side_effect=AssertionError("不应执行特殊竞技场流程")), \
+                patch.object(self.task, "_nav_to_ark"):
+            self.task.run()
+        self.assertFalse(self.task.is_done("special_arena", "day"))
+
+    def test_skip_when_already_done(self):
+        self.task.mark_done("special_arena", "day")  # 标记本周期已完成。
+        with patch.object(self.task, "_do_special_arena_flow", side_effect=AssertionError("不应执行特殊竞技场流程")), \
+                patch.object(self.task, "_nav_to_ark"):
+            self.task.run()
+        self.assertTrue(self.task.is_done("special_arena", "day"))
+
+    def test_success_marks_done(self):
+        with patch.object(self.task, "_nav_to_ark"), \
+                patch.object(self.task, "_do_special_arena_flow") as flow_mock:
+            self.task.run()
+        flow_mock.assert_called_once()
+        self.assertTrue(self.task.is_done("special_arena", "day"))
+
+    def test_failure_not_marked_done(self):
+        with patch.object(self.task, "try_step", side_effect=[True, False]):
+            self.task.run()
+        self.assertFalse(self.task.is_done("special_arena", "day"))
+
+    def test_flow_claims_reward_and_backs_out(self):
+        """成功分支：进入特殊竞技场→点累计奖励区域→点领取→清弹窗→依次返回竞技场与方舟。"""
+        with patch.object(self.task, "_nav_to_arena"), \
+                patch.object(self.task, "transition") as transition_mock, \
+                patch.object(self.task, "click_box") as click_box_mock, \
+                patch.object(self.task, "wait_click_feature") as click_feature_mock, \
+                patch.object(self.task, "dismiss_all_popups") as dismiss_mock, \
+                patch.object(self.task, "assert_screen", return_value=True) as assert_mock:
+            self.task._do_special_arena_flow()
+        transition_mock.assert_called_once_with("special_arena", click_feature="special_arena",
+                                                wait_confirm=10, after_sleep=3)  # 确认了进入特殊竞技场界面。
+        self.assertEqual(["box_special_arena_reward"], [c.args[0] for c in click_box_mock.call_args_list])  # 点击累计奖励区域。
+        clicked = [c.args[0] for c in click_feature_mock.call_args_list]
+        self.assertEqual(["special_arena_reward_claim", "common_back", "common_back"], clicked)  # 领取后逐级返回。
+        dismiss_mock.assert_called_once()  # 领取后清理一次遮罩弹窗。
+        self.assertEqual(["arena", "ark"], [c.args[0] for c in assert_mock.call_args_list])  # 依次断言回到竞技场与方舟界面。
 
 
 if __name__ == '__main__':
