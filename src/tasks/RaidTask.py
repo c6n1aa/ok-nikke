@@ -235,7 +235,7 @@ class RaidTask(NikkeBaseTask):  # 定义讨伐任务类，包含协同作战与�
 
     def run(self):  # 任务执行入口：统一进入大厅后依次执行协同作战与个人突襲。
         self.log_info("讨伐任务开始。")  # 记录任务开始。
-        if not self.wait_until_lobby_after_start():  # 启动后等待进入游戏大厅，失败则中止。
+        if not self.ensure_screen("lobby", raise_on_fail=False):  # 启动后就位游戏大厅（幂等闸门：含冷启动引导与弹窗清理），失败则中止。
             self.log_error("未能进入游戏大厅，中止讨伐任务。")  # 记录失败原因。
             return  # 结束本次执行。
         self._do_coop()  # 执行协同作战子流程。

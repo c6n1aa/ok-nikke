@@ -6,7 +6,7 @@ from ok.task.exceptions import WaitFailedException
 from ok.test.TaskTestCase import TaskTestCase
 
 from src.config import config
-from src.screens import SCREENS
+from src.screens import LOGIN_PAGE_PATTERN, SCREENS
 from src.tasks.HarvestTask import HarvestTask
 
 
@@ -22,7 +22,7 @@ class TestScreenRecovery(TaskTestCase):
         self.task.register_screen("lobby", features=["ark"])
 
     def test_global_screens_registry_matches_migrated_specs(self):
-        # 集中式注册表收录全部 9 个界面，顺序与判定描述与迁移前各任务 __init__ 里的注册逐项一致。
+        # 集中式注册表收录全部 10 个界面：9 个迁移自任务 __init__，外加冷启动正向锚点 login_page。
         expected = {
             "lobby": {"features": ["ark", "lobby"]},
             "ark": {"features": ["ark_tribe_tower", "ark_simulation_room"]},
@@ -33,6 +33,7 @@ class TestScreenRecovery(TaskTestCase):
             "coop_nikke_select_page": {"features": ["coop_nikke_select_page"]},
             "solo_raid_page": {"features": ["solo_raid_page"]},
             "solo_raid_battle_team_select_page": {"features": ["solo_raid_battle_team_select_page"]},
+            "login_page": {"keywords": [LOGIN_PAGE_PATTERN], "ocr_box": "box_enter_game"},
         }
         self.assertEqual(list(expected), list(SCREENS))  # 顺序敏感：current_screen 按插入顺序首命中。
         self.assertEqual(expected, SCREENS)

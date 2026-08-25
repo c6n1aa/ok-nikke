@@ -61,7 +61,7 @@ if not self.ensure_screen("coop_page", entry=find_entry, wait_confirm=10, after_
     return  # 入口缺失：由调用方标记完成。
 ```
 
-内部行为：已在/正在过场进入目标页 → 直接返回（每轮 `wait_enter=5` 秒轮询容忍滑入动画）→ 清弹窗再等一轮 → 按「返回/主页按钮或任一已注册界面」分流（应用内界面恢复回大厅 / 无任何证据走冷启动 `wait_until_lobby_after_start`）→ 清大厅弹窗 → `transition()` 守卫式进入（entry 解析器在到大厅之后才调用，返回 None 则本方法返回 False）。所有失败抛 `WaitFailedException`，由外层 `try_step` 恢复重跑。
+内部行为：已在/正在过场进入目标页 → 直接返回（每轮 `wait_enter=5` 秒轮询容忍滑入动画）→ 清弹窗再等一轮 → 按分流走冷启动或恢复（正向命中 `login_page` 或无任何应用内证据 → 冷启动 `wait_until_lobby_after_start`；有应用内证据 → `_recover_to_lobby`）→ 清大厅弹窗 → 有点击源 `transition()` 守卫式进入（entry 解析器在到大厅之后才调用，返回 None 则返回 False）；无点击源（目标即大厅）→ 尾段 `wait_screen` 确认。默认 `raise_on_fail=True`（供 `try_step` 恢复）；任务开头用 `raise_on_fail=False` 优雅中止。登录页 `login_page`（关键词 TOUCH TO CONTINUE + `box_enter_game` 区域）注册在 `src/screens.py` 作为冷启动正向锚点——命中即明确冷启动入口，覆盖按钮推定。任务开头的就位大厅统一用 `ensure_screen("lobby")`（HarvestTask/OutpostDefenseTask/ShopTask/CashShopTask/RaidTask/DailyTask 六处开头已统一），它的大厅「入口」不是点击边而是冷启动引导这段程序化流程。
 
 ### 转换边：`transition()`
 

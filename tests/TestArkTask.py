@@ -558,7 +558,7 @@ class TestDailyTaskArkIntegration(_DebugOffTestCase):
             if cls is ArkTask:
                 ark.failed_towers = [1, 4]
 
-        with patch.object(daily, "wait_until_lobby_after_start", return_value=True), \
+        with patch.object(daily, "ensure_screen", return_value=True), \
                 patch.object(daily, "run_task_by_class", side_effect=fake_run_task_by_class), \
                 patch.object(daily, "get_task_by_class", return_value=ark), \
                 patch.object(daily, "log_info") as log_mock:
@@ -567,6 +567,55 @@ class TestDailyTaskArkIntegration(_DebugOffTestCase):
         self.assertEqual(1, len(notify_calls))
         self.assertIn("极乐净土", notify_calls[0].args[0])
         self.assertIn("朝圣者", notify_calls[0].args[0])
+
+
+class TestEnsureLobby(_DebugOffTestCase):
+    """ensure_screen("lobby") 的零点击尾段：任务开头就位大厅（含冷启动引导）的回归。"""
+
+    task_class = ArkTask
+
+    config = config
+
+    def setUp(self):
+        super().setUp()
+        _isolate_task_config(self.task, 'ArkTask')
+        self.stack = ExitStack()
+        self.stack.enter_context(patch.object(self.task, "dismiss_all_popups", return_value=True))
+        self.stack.enter_context(patch.object(self.task, "find_one", return_value=None))
+        self.stack.enter_context(patch.object(self.task, "current_screen", return_value=None))
+        self.stack.enter_context(patch.object(self.task, "is_screen", return_value=False))
+        self.stack.enter_context(patch.object(self.task, "_recover_to_lobby", return_value=True))
+        self.lobby_mock = self.stack.enter_context(
+            patch.object(self.task, "wait_until_lobby_after_start", return_value=True))
+        self.transition_mock = self.stack.enter_context(patch.object(self.task, "transition"))
+        self.shot_mock = self.stack.enter_context(patch.object(self.task, "save_failure_screenshot"))
+        self.addCleanup(self.stack.close)
+
+    def test_already_on_lobby_returns_immediately(self):
+        """快路径：已在大厅直接返回，不触发任何分流。"""
+        with patch.object(self.task, "wait_screen", return_value=True):
+            self.assertTrue(self.task.ensure_screen("lobby", raise_on_fail=False))
+        self.lobby_mock.assert_not_called()
+        self.transition_mock.assert_not_called()
+
+    def test_zero_click_tail_confirms_after_cold_start(self):
+        """零点击尾段：冷启动引导后就位成功 → 返回 True，且不发生任何导航点击。"""
+        with patch.object(self.task, "wait_screen", side_effect=[False, False, True]):
+            self.assertTrue(self.task.ensure_screen("lobby", raise_on_fail=False))
+        self.lobby_mock.assert_called_once()
+        self.transition_mock.assert_not_called()
+
+    def test_tail_confirm_failure_returns_false_when_asked(self):
+        """尾段确认失败且 raise_on_fail=False → 返回 False（任务开头优雅中止）。"""
+        with patch.object(self.task, "wait_screen", return_value=False):
+            self.assertFalse(self.task.ensure_screen("lobby", raise_on_fail=False))
+        self.transition_mock.assert_not_called()
+
+    def test_tail_confirm_failure_raises_by_default(self):
+        """尾段确认失败默认抛 WaitFailedException（供 try_step 恢复）。"""
+        with patch.object(self.task, "wait_screen", return_value=False):
+            with self.assertRaises(WaitFailedException):
+                self.task.ensure_screen("lobby")
 
 
 class TestNavToArk(_DebugOffTestCase):
@@ -583,8 +632,9 @@ class TestNavToArk(_DebugOffTestCase):
         _isolate_task_config(self.task, 'ArkTask')
 
     def _patch_common(self, wait_screen_side_effect, find_one_box=None, current_screen=None,
-                      recover=True):
-        """统一 mock 导航各判定/动作原语：wait_screen 用 side_effect 序列驱动流程分支。"""
+                      recover=True, on_login=False):
+        """统一 mock 导航各判定/动作原语：wait_screen 用 side_effect 序列驱动流程分支；
+        on_login=True 时正向命中 login_page 锚点（其余界面名一律未命中）。"""
         stack = ExitStack()
         stack.enter_context(patch.object(self.task, "wait_screen",
                                          side_effect=wait_screen_side_effect))
@@ -592,6 +642,8 @@ class TestNavToArk(_DebugOffTestCase):
         stack.enter_context(patch.object(self.task, "find_one", return_value=find_one_box))
         stack.enter_context(patch.object(self.task, "current_screen",
                                          return_value=current_screen))
+        stack.enter_context(patch.object(self.task, "is_screen",
+                                         side_effect=lambda name: name == "login_page" and on_login))
         recover_mock = stack.enter_context(patch.object(self.task, "_recover_to_lobby",
                                                         return_value=recover))
         lobby_mock = stack.enter_context(
@@ -633,6 +685,19 @@ class TestNavToArk(_DebugOffTestCase):
         """真冷启动（无按钮且无任何已注册界面命中）才进入 wait_until_lobby_after_start。"""
         stack, recover_mock, lobby_mock, transition_mock = self._patch_common(
             [False, False], find_one_box=None, current_screen=None)
+        with stack:
+            self.task._nav_to_ark()
+        recover_mock.assert_not_called()
+        lobby_mock.assert_called_once()
+        transition_mock.assert_called_once_with("ark", click_feature="ark",
+                                                wait_confirm=10, after_sleep=1)
+
+    def test_login_page_anchor_skips_recovery(self):
+        """登录页正向锚点：命中 login_page 即明确冷启动入口，即使有按钮证据也跳过恢复，
+        直接进入大厅引导流程。"""
+        stack, recover_mock, lobby_mock, transition_mock = self._patch_common(
+            [False, False], find_one_box=Box(0, 0, 10, 10), current_screen="login_page",
+            on_login=True)
         with stack:
             self.task._nav_to_ark()
         recover_mock.assert_not_called()

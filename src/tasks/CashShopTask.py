@@ -108,7 +108,7 @@ class CashShopTask(NikkeBaseTask):  # 付费商店免费礼包领取任务，继
 
     def run(self):  # 任务执行入口，一次进店连续领取全部免费礼包。
         self.log_info("付费商店任务开始。")  # 记录任务开始。
-        if not self.wait_until_lobby_after_start():  # 启动后等待进入游戏大厅，失败则中止。
+        if not self.ensure_screen("lobby", raise_on_fail=False):  # 启动后就位游戏大厅（幂等闸门：含冷启动引导与弹窗清理），失败则中止。
             self.log_error("未能进入游戏大厅，中止付费商店任务。")  # 记录失败原因。
             return  # 结束本次执行。
         if not self._has_pending_packs():  # 全部免费礼包本周期已完成。

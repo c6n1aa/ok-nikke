@@ -48,7 +48,7 @@ class TestHarvestTask(_DebugOffTestCase):
         self.assertTrue(self.task.is_done("harvest", "day"))
 
     def test_runs_sub_flows_when_not_done(self):
-        with patch.object(self.task, "wait_for_lobby"), \
+        with patch.object(self.task, "ensure_screen"), \
                 patch.object(self.task, "dismiss_all_popups"), \
                 patch.object(self.task, "_collect_friend") as friend_mock, \
                 patch.object(self.task, "_collect_mailbox") as mailbox_mock:
@@ -61,7 +61,7 @@ class TestHarvestTask(_DebugOffTestCase):
         from ok.task.exceptions import WaitFailedException
         self.task.config["收获友情点"] = True
         self.task.config["收取邮箱"] = True
-        with patch.object(self.task, "wait_for_lobby", side_effect=WaitFailedException("lobby not found")), \
+        with patch.object(self.task, "ensure_screen", side_effect=WaitFailedException("lobby not found")), \
                 patch.object(self.task, "_collect_friend", side_effect=AssertionError("不应执行友情点流程")), \
                 patch.object(self.task, "_collect_mailbox", side_effect=AssertionError("不应执行邮箱流程")):
             with self.assertRaises(WaitFailedException):
@@ -70,7 +70,7 @@ class TestHarvestTask(_DebugOffTestCase):
 
     def test_friend_flow_failure_recovered_and_skipped(self):
         from ok.task.exceptions import WaitFailedException
-        with patch.object(self.task, "wait_for_lobby"), \
+        with patch.object(self.task, "ensure_screen"), \
                 patch.object(self.task, "dismiss_all_popups"), \
                 patch.object(self.task, "_recover_to_lobby", return_value=True), \
                 patch.object(self.task, "save_failure_screenshot"), \
@@ -117,7 +117,7 @@ class TestOutpostDefenseTask(_DebugOffTestCase):
 
     def test_free_wipe_out_when_zero_times(self):
         self.task.config["使用珠宝歼灭次数"] = 0
-        with patch.object(self.task, "wait_for_lobby"), \
+        with patch.object(self.task, "ensure_screen"), \
                 patch.object(self.task, "dismiss_all_popups"), \
                 patch.object(self.task, "_click_outpost_defense"), \
                 patch.object(self.task, "_wipe_out_free") as free_mock, \
@@ -130,7 +130,7 @@ class TestOutpostDefenseTask(_DebugOffTestCase):
 
     def test_gem_wipe_out_loop_when_times_set(self):
         self.task.config["使用珠宝歼灭次数"] = 3
-        with patch.object(self.task, "wait_for_lobby"), \
+        with patch.object(self.task, "ensure_screen"), \
                 patch.object(self.task, "dismiss_all_popups"), \
                 patch.object(self.task, "_click_outpost_defense"), \
                 patch.object(self.task, "_wipe_out_free") as free_mock, \
@@ -143,7 +143,7 @@ class TestOutpostDefenseTask(_DebugOffTestCase):
 
     def test_abort_when_lobby_not_found(self):
         from ok.task.exceptions import WaitFailedException
-        with patch.object(self.task, "wait_for_lobby", side_effect=WaitFailedException("lobby not found")), \
+        with patch.object(self.task, "ensure_screen", side_effect=WaitFailedException("lobby not found")), \
                 patch.object(self.task, "_wipe_out_free", side_effect=AssertionError("不应执行免费歼灭")), \
                 patch.object(self.task, "_wipe_out_with_gem", side_effect=AssertionError("不应执行珠宝歼灭")):
             with self.assertRaises(WaitFailedException):

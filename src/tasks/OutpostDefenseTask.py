@@ -42,8 +42,7 @@ class OutpostDefenseTask(NikkeBaseTask):  # 定义歼灭子任务类。
         if times < 0 or times > 10:  # 校验次数是否在合法范围。
             self.log_error(f"歼灭次数 {times} 超出 0-10 范围。")  # 记录非法配置。
             return  # 结束本次执行。
-        self.wait_for_lobby()  # 先确认已进入游戏大厅，避免游戏仍在加载/登录页就按大厅坐标点击。
-        self.dismiss_all_popups(wait_for_popup=False, time_out=10)  # 统一清理进入大厅后残留的公告/活动弹窗，无弹窗时立即返回不等待。
+        self.ensure_screen("lobby")  # 先就位游戏大厅（含冷启动引导与弹窗清理），避免游戏仍在加载/登录页就按大厅坐标点击；失败抛 WaitFailedException。
         if not self.try_step(self._do_outpost_defense, name="歼灭", raise_on_fail=False):  # 从大厅出发完成整个歼灭子流程，失败恢复回大厅重试。
             self.log_warning("歼灭流程失败，跳过。")  # 记录失败并跳过，不中断整个日常。
             return  # 失败时不标记已完成，留待下次重试。

@@ -1,5 +1,7 @@
 """集中式界面识别注册表：全部界面的单一数据源。
 
+注意：本模块必须是纯数据 + stdlib（禁止 import ok 框架），以便完整性测试低成本导入。
+
 上游设计见 docs/screen-recovery-evolution-plan.md §5.3（方案 1 子项 1）。
 迁移前各界面分散注册在 NikkeBaseTask.__init__（lobby）、ArkTask.__init__
 （ark、tribe_tower、simulation_room）、CashShopTask.__init__（付费商店）与
@@ -24,6 +26,10 @@ current_screen() 按 priority 降序、同优先级按插入顺序遍历，
   需连续 N 轮命中才算进入（轮询每轮取新帧）；is_screen 恒为单帧语义。
 """
 
+import re  # 登录页关键词用正则（OCR 部分匹配，忽略大小写）。
+
+LOGIN_PAGE_PATTERN = re.compile(r"TOUCH TO\s+CONTINUE", re.IGNORECASE)  # 登录页进入游戏提示文字（TOUCH TO CONTINUE）。
+
 SCREENS = {
     "lobby": {"features": ["ark", "lobby"]},
     "ark": {"features": ["ark_tribe_tower", "ark_simulation_room"]},
@@ -34,6 +40,9 @@ SCREENS = {
     "coop_nikke_select_page": {"features": ["coop_nikke_select_page"]},
     "solo_raid_page": {"features": ["solo_raid_page"]},
     "solo_raid_battle_team_select_page": {"features": ["solo_raid_battle_team_select_page"]},
+    # 登录页（TOUCH TO CONTINUE）：正向冷启动锚点。冷启动判定由"无证据推定"
+    # 升级为"命中登录页即确证"，恢复/入口分流（ensure_screen）与未来的中断哨兵复用它。
+    "login_page": {"keywords": [LOGIN_PAGE_PATTERN], "ocr_box": "box_enter_game"},
 }
 
 # 长等待中断哨兵：断线/维护/登录过期等致命中断弹窗的特征清单。
