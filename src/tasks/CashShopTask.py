@@ -36,7 +36,7 @@ class CashShopTask(NikkeBaseTask):  # 付费商店免费礼包领取任务，继
         return box  # 返回区域框。
 
     def _enter_cash_shop(self):  # 从大厅进入付费商店。
-        self.transition("付费商店", click_feature="cash_shop", time_out=10, wait_confirm=10, after_sleep=1)  # 点击大厅付费商店入口并确认已进入。
+        self.transition("cash_shop", click_feature="cash_shop", time_out=10, wait_confirm=10, after_sleep=1)  # 点击大厅付费商店入口并确认已进入。
 
     def _switch_nav(self, feature_name):  # 在 box_cash_shop_nav_bar 区域内点击左侧导航项。
         nav_box = self._get_box("box_cash_shop_nav_bar")  # 获取导航栏标注区域。

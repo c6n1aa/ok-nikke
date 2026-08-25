@@ -33,7 +33,7 @@
 | `ark` | features `[ark_tribe_tower, ark_simulation_room]` | ArkTask |
 | `tribe_tower` | features `[tribe_tower_mark]` | ArkTask |
 | `simulation_room` | features `[simulation_mark]` | ArkTask |
-| `付费商店` | keywords `[付费商店]`, ocr_box `box_sub_pages_title` | CashShopTask |
+| `cash_shop` | keywords `[付费商店]`, ocr_box `box_sub_pages_title` | CashShopTask |
 | `coop_page` / `coop_nikke_select_page` / `solo_raid_page` / `solo_raid_battle_team_select_page` | 各 1 个 features | RaidTask |
 
 ### 1.2 spec 全字段
@@ -106,7 +106,7 @@ transition(to_screen, click_feature=None, box=None, click=None,
 | 任务 | 转换 | 形式 |
 |---|---|---|
 | ArkTask | → `ark` / → `simulation_room` / → `tribe_tower` | `click_feature=...`，`wait_confirm=10` |
-| CashShopTask | → `付费商店` | `click_feature="cash_shop"` |
+| CashShopTask | → `cash_shop` | `click_feature="cash_shop"` |
 | RaidTask | → `coop_page` | `box=`（预查框） |
 | RaidTask | → `coop_nikke_select_page` | `click_feature="coop_accpet"`，`time_out=60` |
 | RaidTask | → `solo_raid_battle_team_select_page` / → `solo_raid_page`（结算确认） | `click_feature=...` |

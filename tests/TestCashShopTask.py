@@ -49,7 +49,7 @@ class TestCashShopTask(_DebugOffTestCase):
 
     def test_registers_cash_shop_screen(self):
         # 标题区域 OCR 判定付费商店界面，供 assert_screen 复用。
-        self.assertEqual("box_sub_pages_title", self.task.screens["付费商店"]["ocr_box"])
+        self.assertEqual("box_sub_pages_title", self.task.screens["cash_shop"]["ocr_box"])
 
     def test_enter_cash_shop_transitions_to_screen(self):
         # 迁移到 transition 原语：点击入口后由原语等待确认进入付费商店界面。
@@ -57,7 +57,7 @@ class TestCashShopTask(_DebugOffTestCase):
                 patch.object(self.task, "wait_screen", return_value=True) as wait_mock:
             self.task._enter_cash_shop()
         click_mock.assert_called_once_with("cash_shop", time_out=10, raise_if_not_found=True, after_sleep=1)
-        wait_mock.assert_called_once_with("付费商店", time_out=10)
+        wait_mock.assert_called_once_with("cash_shop", time_out=10)
 
     def test_done_keys(self):
         self.assertEqual(

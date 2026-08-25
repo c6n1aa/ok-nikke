@@ -64,13 +64,13 @@ class TestFrameCache(TaskTestCase):
         self.assertEqual(1, ocr_mock.call_count)
 
     def test_ocr_result_cached_until_new_frame(self):
-        self.task.register_screen("付费商店", keywords=["付费商店"], ocr_box="box_sub_pages_title")
+        self.task.register_screen("cash_shop", keywords=["付费商店"], ocr_box="box_sub_pages_title")
         with patch.object(self.task, "get_box_by_name", return_value=_fake_box("t")), \
                 patch.object(self.task, "ocr", return_value=[_fake_box("付费商店")]) as ocr_mock:
-            self.assertTrue(self.task.is_screen("付费商店"))
-            self.assertTrue(self.task.is_screen("付费商店"))  # 同帧走缓存。
+            self.assertTrue(self.task.is_screen("cash_shop"))
+            self.assertTrue(self.task.is_screen("cash_shop"))  # 同帧走缓存。
             self.set_image('tests/images/main.png')  # 换帧失效。
-            self.assertTrue(self.task.is_screen("付费商店"))
+            self.assertTrue(self.task.is_screen("cash_shop"))
         self.assertEqual(2, ocr_mock.call_count)
 
     def test_fullscreen_degradation_not_merged(self):

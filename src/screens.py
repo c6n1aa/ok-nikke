@@ -4,7 +4,7 @@
 
 上游设计见 docs/screen-recovery-evolution-plan.md §5.3（方案 1 子项 1）。
 迁移前各界面分散注册在 NikkeBaseTask.__init__（lobby）、ArkTask.__init__
-（ark、tribe_tower、simulation_room）、CashShopTask.__init__（付费商店）与
+（ark、tribe_tower、simulation_room）、CashShopTask.__init__（cash_shop）与
 RaidTask.__init__（coop_* / solo_raid_*）；集中后 DebugTask 与
 current_screen() 能看到全量界面，后续方案也以本表为准。
 任务仍可用 NikkeBaseTask.register_screen 追加私有界面，同名覆盖全局条目。
@@ -35,7 +35,8 @@ SCREENS = {
     "ark": {"features": ["ark_tribe_tower", "ark_simulation_room"]},
     "tribe_tower": {"features": ["tribe_tower_mark"]},
     "simulation_room": {"features": ["simulation_mark"]},
-    "付费商店": {"keywords": ["付费商店"], "ocr_box": "box_sub_pages_title"},
+    "shop": {"keywords": ["百货商店"], "ocr_box": "box_sub_pages_title"},
+    "cash_shop": {"keywords": ["付费商店"], "ocr_box": "box_sub_pages_title"},
     "coop_page": {"features": ["coop_page"]},
     "coop_nikke_select_page": {"features": ["coop_nikke_select_page"]},
     "solo_raid_page": {"features": ["solo_raid_page"]},

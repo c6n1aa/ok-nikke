@@ -22,17 +22,20 @@ class TestScreenRecovery(TaskTestCase):
         self.task.register_screen("lobby", features=["ark"])
 
     def test_global_screens_registry_matches_migrated_specs(self):
-        # 集中式注册表收录全部 10 个界面：9 个迁移自任务 __init__，外加冷启动正向锚点 login_page。
+        # 集中式注册表收录全部 13 个界面：9 个迁移自任务 __init__、3 个竞技场界面，外加冷启动正向锚点 login_page。
         expected = {
             "lobby": {"features": ["ark", "lobby"]},
             "ark": {"features": ["ark_tribe_tower", "ark_simulation_room"]},
             "tribe_tower": {"features": ["tribe_tower_mark"]},
             "simulation_room": {"features": ["simulation_mark"]},
-            "付费商店": {"keywords": ["付费商店"], "ocr_box": "box_sub_pages_title"},
+            "cash_shop": {"keywords": ["付费商店"], "ocr_box": "box_sub_pages_title"},
             "coop_page": {"features": ["coop_page"]},
             "coop_nikke_select_page": {"features": ["coop_nikke_select_page"]},
             "solo_raid_page": {"features": ["solo_raid_page"]},
             "solo_raid_battle_team_select_page": {"features": ["solo_raid_battle_team_select_page"]},
+            "arena": {"features": ["arena_page"]},
+            "rookie_arena": {"features": ["rookie_arena_page"]},
+            "special_arena": {"features": ["special_arena_page"]},
             "login_page": {"keywords": [LOGIN_PAGE_PATTERN], "ocr_box": "box_enter_game"},
         }
         self.assertEqual(list(expected), list(SCREENS))  # 顺序敏感：current_screen 按插入顺序首命中。
@@ -78,16 +81,16 @@ class TestScreenRecovery(TaskTestCase):
         fake_box = Box(100, 100, 50, 50, confidence=1, name="cash_shop_title")
         with patch.object(self.task, "get_box_by_name", return_value=fake_box), \
                 patch.object(self.task, "ocr", return_value=[Box(100, 100, 50, 50, confidence=1, name="付费商店")]) as ocr_mock:
-            self.task.register_screen("付费商店", keywords=["付费商店"], ocr_box="cash_shop_title")
-            self.assertTrue(self.task.is_screen("付费商店"))
+            self.task.register_screen("cash_shop", keywords=["付费商店"], ocr_box="cash_shop_title")
+            self.assertTrue(self.task.is_screen("cash_shop"))
         ocr_mock.assert_called_once_with(box=fake_box)
 
     def test_screen_ocr_keywords_with_missing_named_box_falls_back_fullscreen(self):
         # 区域特征缺失时退化为全屏 OCR，不抛异常。
         with patch.object(self.task, "get_box_by_name", side_effect=ValueError("missing")), \
                 patch.object(self.task, "ocr", return_value=[Box(1, 1, 5, 5, name="付费商店")]) as ocr_mock:
-            self.task.register_screen("付费商店", keywords=["付费商店"], ocr_box="cash_shop_title")
-            self.assertTrue(self.task.is_screen("付费商店"))
+            self.task.register_screen("cash_shop", keywords=["付费商店"], ocr_box="cash_shop_title")
+            self.assertTrue(self.task.is_screen("cash_shop"))
         ocr_mock.assert_called_once_with()
 
     def test_screen_match_features_and_keywords_and(self):
