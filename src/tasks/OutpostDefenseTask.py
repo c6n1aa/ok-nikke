@@ -75,8 +75,7 @@ class OutpostDefenseTask(NikkeBaseTask):  # 定义歼灭子任务类。
         if free:  # 若存在免费歼灭按钮则点击。
             self.click_box(free, after_sleep=1)  # 点击免费歼灭确认。
             self.dismiss_all_popups(time_out=5);
-            self.wait_feature("outpost_defense_wipe_out", time_out=10, raise_if_not_found=True)  # 等待回到歼灭页。
-            return  # 免费歼灭后直接返回，不再使用珠宝。
+            # self.wait_feature("outpost_defense_wipe_out", time_out=10, raise_if_not_found=True)  # 等待回到歼灭页。
         self.wait_click_feature("wipe_out_with_gem", time_out=10, raise_if_not_found=True, after_sleep=1)  # 点击使用珠宝歼灭。
         self.wait_click_feature("wipe_out_confirm", time_out=10, raise_if_not_found=True, after_sleep=1)  # 点击确认弹窗。
         self.dismiss_all_popups(time_out=10);
