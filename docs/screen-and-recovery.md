@@ -78,7 +78,7 @@ self.transition("coop_page", box=coop_box, after_sleep=1)  # 已预查出的框�
 - 点击后未在 `wait_confirm` 秒内进入目标界面就**原地补点**，至多 `retry_click` 次（默认 2）；耗尽则保存失败截图并抛带 from/to 上下文的 `WaitFailedException`（由 `try_step` 捕获恢复）。
 - 点击等待与确认等待共享 `time_out` 总预算；进战斗等长加载边调大 `wait_confirm`/`time_out`。
 
-**不适用于**：战斗结算确认等已带专用语义的边（`wait_battle_finish` 后的确认/返回）、循环头部的「重确认仍在本页」断言（这类保留 `assert_screen`）。
+**不适用于**：战斗结算确认等已带专用语义的边（`wait_battle_finish` 后的确认/返回）、循环头部的「重确认仍在本页」断言（这类保留 `assert_screen`）、以及「入口在画面但已关闭」的休赛期入口边（如竞技场赛季已结束：点击后目标界面不会出现，`transition` 会按失败重试并触发恢复协议。这类改为点击后用 `wait_until` 赛跑「目标界面 vs 关闭态信号」——命中关闭信号 = 本周期无可执行内容，按「视为已完成」收尾而非走失败恢复；实现参考 `ArkTask._click_entry_race_closed`（新人/特殊竞技场入口共用）与其 `_hit_season_end_banner`，关闭态用 OCR 正则部分匹配判定（框架对普通字符串走全等，OCR 文本常带尾随标点，必须用 `re.Pattern`）、区域限横幅所在的中部横带；瞬态信号淡出快于框架默认 1 秒 settle 窗口时（实测横幅约 0.3~0.5 秒），赛跑的 `wait_until` 必须传 `settle_time=0` 首帧命中即短路。
 
 ## 失败恢复
 

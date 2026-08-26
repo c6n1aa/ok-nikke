@@ -490,7 +490,7 @@ class TestArkTaskSimulation(_DebugOffTestCase):
                 patch.object(self.task, "click_box", side_effect=AssertionError("无红点时不应点击")):
             self.task._do_simulation_flow()
         clicked = [c.args[0] for c in click_mock.call_args_list]
-        self.assertEqual(["ark_simulation_room", "simulation_close"], clicked)
+        self.assertEqual(["ark_simulation_room", "common_back"], clicked)
 
     def test_flow_dismisses_overclock_update_then_continues(self):
         red_dot = Box(1387, 804, 36, 45, confidence=1, name="red_dot")  # 徽标红点。
@@ -512,7 +512,7 @@ class TestArkTaskSimulation(_DebugOffTestCase):
             self.task._do_simulation_flow()
         clicked = [c.args[0] for c in click_mock.call_args_list]
         self.assertEqual(["ark_simulation_room", "simulation_overclock_update_close",
-                          "simulation_quick_battle_finishi", "simulation_close"], clicked)  # 先关更新弹窗再走正常快速模拟流程。
+                          "simulation_quick_battle_finishi", "common_back"], clicked)  # 先关更新弹窗再走正常快速模拟流程。
 
     def test_flow_full_success_skips_level_and_toggle(self):
         red_dot = Box(1387, 804, 36, 45, confidence=1, name="red_dot")  # 徽标红点。
@@ -532,7 +532,7 @@ class TestArkTaskSimulation(_DebugOffTestCase):
                 patch.object(self.task, "dismiss_all_popups") as dismiss_mock:
             self.task._do_simulation_flow()
         clicked = [c.args[0] for c in click_mock.call_args_list]
-        self.assertEqual(["ark_simulation_room", "simulation_quick_battle_finishi", "simulation_close"], clicked)
+        self.assertEqual(["ark_simulation_room", "simulation_quick_battle_finishi", "common_back"], clicked)
         self.assertEqual([red_dot, "box_simulation_region_selector", quick],
                          [c.args[0] for c in click_box_mock.call_args_list])
         dismiss_mock.assert_called_once()
@@ -555,7 +555,7 @@ class TestArkTaskSimulation(_DebugOffTestCase):
             self.task._do_simulation_flow()
         clicked = [c.args[0] for c in click_mock.call_args_list]
         self.assertEqual(["ark_simulation_room", "simulation_level5", "simulation_quick_battle_finishi",
-                          "simulation_close"], clicked)
+                          "common_back"], clicked)
         self.assertEqual([red_dot, "box_simulation_region_selector", switch_box, quick],
                          [c.args[0] for c in click_box_mock.call_args_list])
 
@@ -576,7 +576,7 @@ class TestArkTaskSimulation(_DebugOffTestCase):
                 patch.object(self.task, "dismiss_all_popups") as dismiss_mock:
             self.task._do_simulation_flow()
         clicked = [c.args[0] for c in click_mock.call_args_list]
-        self.assertEqual(["ark_simulation_room", "simulation_close"], clicked)
+        self.assertEqual(["ark_simulation_room", "common_back"], clicked)
         self.assertEqual([red_dot, "box_simulation_region_selector"],
                          [c.args[0] for c in click_box_mock.call_args_list])
         dismiss_mock.assert_not_called()
@@ -880,7 +880,7 @@ class TestArkTaskRookieArena(_DebugOffTestCase):
 
         stack = ExitStack()
         stack.enter_context(patch.object(self.task, "_nav_to_arena"))
-        transition_mock = stack.enter_context(patch.object(self.task, "transition"))
+        race_mock = stack.enter_context(patch.object(self.task, "wait_until", return_value=True))
         enabled_mock = stack.enter_context(patch.object(self.task, "is_feature_enabled", side_effect=enabled_side_effect))
         click_feature_mock = stack.enter_context(patch.object(self.task, "wait_click_feature"))
         stack.enter_context(patch.object(self.task, "wait_feature", return_value=Box(900, 200, 600, 400, confidence=1, name="rookie_arena_battle_modal")))
@@ -888,20 +888,19 @@ class TestArkTaskRookieArena(_DebugOffTestCase):
         click_box_mock = stack.enter_context(patch.object(self.task, "click_box"))
         stack.enter_context(patch.object(self.task, "wait_battle_finish", return_value=(battle_result, settle)))
         stack.enter_context(patch.object(self.task, "assert_screen", return_value=True))
-        return stack, transition_mock, enabled_mock, click_feature_mock, click_box_mock, toggle, settle
+        return stack, race_mock, enabled_mock, click_feature_mock, click_box_mock, toggle, settle
 
     def test_flow_success_strategy_off(self):
         """策略关闭：固定挑战最下面对手；开关为灰白态先激活再进入战斗；胜利后第二轮免费次数用尽收尾。"""
         self.task.config["对手选择策略"] = False  # 固定选择最下面的对手。
         encounter = self._common_encounter()
-        stack, transition_mock, enabled_mock, click_feature_mock, click_box_mock, toggle, settle = \
+        stack, race_mock, enabled_mock, click_feature_mock, click_box_mock, toggle, settle = \
             self._flow_patches([encounter, encounter], [True, False, False], "success")
         with stack:
             self.task._do_rookie_arena_flow()
-        transition_mock.assert_called_once_with("rookie_arena", click_feature="rookie_arena",
-                                                wait_confirm=10, after_sleep=3)  # 确认了进入新人竞技场界面。
+        race_mock.assert_called_once()  # 赛跑确认进入新人竞技场界面（替代 transition）。
         clicked = [c.args[0] for c in click_feature_mock.call_args_list]
-        self.assertEqual(["common_back", "common_back"], clicked)  # 模板特征点击仅剩两次返回。
+        self.assertEqual(["rookie_arena", "common_back", "common_back"], clicked)  # 入口→模板特征点击仅剩两次返回。
         self.assertEqual(["box_rookie_arena_o3_free_encounter", toggle, "box_rookie_arena_quick_battle", settle],
                          [c.args[0] for c in click_box_mock.call_args_list])  # 点3号对手→激活开关→进入战斗→点结算确认。
         self.assertEqual(3, enabled_mock.call_count)  # 免费可用→开关判态→第二轮免费已用尽。
@@ -920,14 +919,36 @@ class TestArkTaskRookieArena(_DebugOffTestCase):
     def test_flow_no_free_encounter_backs_out(self):
         """免费次数已用尽：不挑战，直接逐级返回方舟。"""
         encounter = self._common_encounter()
-        stack, transition_mock, enabled_mock, click_feature_mock, click_box_mock, _, _ = \
+        stack, race_mock, enabled_mock, click_feature_mock, click_box_mock, _, _ = \
             self._flow_patches([None], [False], "success")  # 免费挑战区域缺失（None）直接进入用尽分支。
         with stack:
             self.task._do_rookie_arena_flow()
         self.assertEqual(0, enabled_mock.call_count)  # 区域缺失时不再判态，直接视为用尽。
         clicked = [c.args[0] for c in click_feature_mock.call_args_list]
-        self.assertEqual(["common_back", "common_back"], clicked)  # 只发生两次返回点击。
+        self.assertEqual(["rookie_arena", "common_back", "common_back"], clicked)  # 入口 + 两次返回点击。
         click_box_mock.assert_not_called()  # 未发生任何战斗点击。
+
+    def test_flow_marks_complete_when_season_closed(self):
+        """休赛期分支：点击新人竞技场入口后仅出现赛季结束横幅→视为已完成收尾，不进入挑战。"""
+        with patch.object(self.task, "_nav_to_arena"), \
+                patch.object(self.task, "wait_until", return_value="closed") as race_mock, \
+                patch.object(self.task, "wait_click_feature") as click_feature_mock, \
+                patch.object(self.task, "get_box_by_name", side_effect=AssertionError("休赛期不应读取对手区域")), \
+                patch.object(self.task, "assert_screen", return_value=True) as assert_mock:
+            self.task._do_rookie_arena_flow()  # 不应抛异常，正常收尾。
+        race_mock.assert_called_once()  # 赛跑命中了休赛期横幅。
+        clicked = [c.args[0] for c in click_feature_mock.call_args_list]
+        self.assertEqual(["rookie_arena", "common_back"], clicked)  # 仅点入口与返回，不进入挑战。
+        self.assertEqual(["ark"], [c.args[0] for c in assert_mock.call_args_list])  # 只断言回到方舟。
+
+    def test_flow_raises_when_neither_entered_nor_closed(self):
+        """异常分支：点击后既未进入目标界面也未出现横幅→抛 WaitFailedException 交由 try_step 恢复。"""
+        with patch.object(self.task, "_nav_to_arena"), \
+                patch.object(self.task, "wait_until", return_value=None), \
+                patch.object(self.task, "wait_click_feature"), \
+                patch.object(self.task, "assert_screen"):
+            with self.assertRaises(WaitFailedException):
+                self.task._do_rookie_arena_flow()  # 真实导航异常走恢复协议。
 
     def test_flow_battle_timeout_raises_for_retry(self):
         """战斗等待超时抛 WaitFailedException，交由 try_step 恢复重试。"""
@@ -1043,21 +1064,115 @@ class TestArkTaskSpecialArena(_DebugOffTestCase):
         self.assertFalse(self.task.is_done("special_arena", "day"))
 
     def test_flow_claims_reward_and_backs_out(self):
-        """成功分支：进入特殊竞技场→点累计奖励区域→点领取→清弹窗→依次返回竞技场与方舟。"""
+        """成功分支：点击入口→赛跑确认进入特殊竞技场→点累计奖励区域→点领取→清弹窗→依次返回竞技场与方舟。"""
         with patch.object(self.task, "_nav_to_arena"), \
-                patch.object(self.task, "transition") as transition_mock, \
+                patch.object(self.task, "wait_until", return_value=True) as race_mock, \
                 patch.object(self.task, "click_box") as click_box_mock, \
                 patch.object(self.task, "wait_click_feature") as click_feature_mock, \
                 patch.object(self.task, "dismiss_all_popups") as dismiss_mock, \
                 patch.object(self.task, "assert_screen", return_value=True) as assert_mock:
             self.task._do_special_arena_flow()
-        transition_mock.assert_called_once_with("special_arena", click_feature="special_arena",
-                                                wait_confirm=10, after_sleep=3)  # 确认了进入特殊竞技场界面。
+        race_mock.assert_called_once()  # 以赛跑确认进入目标界面（替代 transition）。
         self.assertEqual(["box_special_arena_reward"], [c.args[0] for c in click_box_mock.call_args_list])  # 点击累计奖励区域。
         clicked = [c.args[0] for c in click_feature_mock.call_args_list]
-        self.assertEqual(["special_arena_reward_claim", "common_back", "common_back"], clicked)  # 领取后逐级返回。
+        self.assertEqual(["special_arena", "special_arena_reward_claim", "common_back", "common_back"], clicked)  # 入口→领取→逐级返回。
         dismiss_mock.assert_called_once()  # 领取后清理一次遮罩弹窗。
         self.assertEqual(["arena", "ark"], [c.args[0] for c in assert_mock.call_args_list])  # 依次断言回到竞技场与方舟界面。
+
+    def test_flow_marks_complete_when_season_closed(self):
+        """休赛期分支：点击入口后仅出现「赛季已结束」横幅→视为已完成收尾，不领取奖励。"""
+        with patch.object(self.task, "_nav_to_arena"), \
+                patch.object(self.task, "wait_until", return_value="closed") as race_mock, \
+                patch.object(self.task, "click_box") as click_box_mock, \
+                patch.object(self.task, "wait_click_feature") as click_feature_mock, \
+                patch.object(self.task, "dismiss_all_popups") as dismiss_mock, \
+                patch.object(self.task, "assert_screen", return_value=True) as assert_mock:
+            self.task._do_special_arena_flow()  # 不应抛异常，正常收尾。
+        race_mock.assert_called_once()  # 赛跑命中了休赛期横幅。
+        clicked = [c.args[0] for c in click_feature_mock.call_args_list]
+        self.assertEqual(["special_arena", "common_back"], clicked)  # 仅点入口与返回，不点领取。
+        click_box_mock.assert_not_called()  # 不点击累计奖励区域。
+        dismiss_mock.assert_not_called()  # 不清理奖励弹窗。
+        self.assertEqual(["ark"], [c.args[0] for c in assert_mock.call_args_list])  # 只断言回到方舟界面。
+
+    def test_flow_raises_when_neither_entered_nor_closed(self):
+        """异常分支：点击后既未进入目标界面也未出现横幅→抛 WaitFailedException 交由 try_step 恢复。"""
+        with patch.object(self.task, "_nav_to_arena"), \
+                patch.object(self.task, "wait_until", return_value=None), \
+                patch.object(self.task, "wait_click_feature"), \
+                patch.object(self.task, "click_box"), \
+                patch.object(self.task, "assert_screen"):
+            with self.assertRaises(WaitFailedException):
+                self.task._do_special_arena_flow()  # 真实导航异常走恢复协议。
+
+    def test_hit_season_end_banner_matches_keyword(self):
+        """横幅检测：OCR 命中赛季结束关键词返回 True、未命中返回 False，并锁定关键词与 OCR 区域。"""
+        from src.tasks.ArkTask import _SEASON_END_PATTERN  # 引用匹配模式防止改名漂移。
+        self.assertEqual("赛季已结束", _SEASON_END_PATTERN.pattern)  # 当前中文文案。
+        with patch.object(self.task, "ocr", return_value=[object()]) as ocr_mock:
+            self.assertTrue(self.task._hit_season_end_banner())  # OCR 有命中即休赛期。
+        self.assertEqual(_SEASON_END_PATTERN, ocr_mock.call_args_list[0].kwargs["match"])  # 匹配模式（部分匹配）。
+        self.assertEqual(0.3, ocr_mock.call_args_list[0].kwargs["x"])  # OCR 区域左边界。
+        self.assertEqual(0.7, ocr_mock.call_args_list[0].kwargs["to_x"])  # OCR 区域右边界。
+        with patch.object(self.task, "ocr", return_value=[]):
+            self.assertFalse(self.task._hit_season_end_banner())  # OCR 无命中返回 False。
+
+    def test_season_end_pattern_tolerates_trailing_punctuation(self):
+        """框架过滤语义回归：OCR 文本带尾随句号（如「赛季已结束。」）时编译模式必须命中。"""
+        from ok.feature.Box import Box, find_boxes_by_name  # 框架 ocr(match=...) 实际使用的过滤器。
+        from src.tasks.ArkTask import _SEASON_END_PATTERN
+        boxes = [Box(0, 0, 100, 20, confidence=1, name="赛季已结束。")]
+        self.assertEqual(1, len(find_boxes_by_name(boxes, _SEASON_END_PATTERN)))  # 部分匹配容忍尾随标点。
+        self.assertEqual([], find_boxes_by_name(boxes, ["赛季已结束"]))  # 普通字符串是全等比较，禁止回退成关键词列表。
+
+    def test_race_primitive_clicks_entry_then_races(self):
+        """赛跑原语：先点入口；横幅命中优先于目标界面（真实判定循环驱动，验证瞬态信号优先）。"""
+        with patch.object(self.task, "wait_click_feature") as click_mock, \
+                patch.object(self.task, "_hit_season_end_banner", side_effect=[False, True]) as banner_mock, \
+                patch.object(self.task, "is_screen", side_effect=[False]) as screen_mock:
+            captured = {}
+
+            def fake_wait_until(condition, time_out=0, pre_action=None, **kwargs):  # 手动驱动判定循环最多两轮。
+                captured["pre_action"] = pre_action  # 捕获补点钩子。
+                captured["settle_time"] = kwargs.get("settle_time")  # 横幅亚秒级瞬态，必须禁用 settle。
+                for _ in range(2):
+                    result = condition()
+                    if result is not None:
+                        return result
+                return None
+
+            with patch.object(self.task, "wait_until", side_effect=fake_wait_until):
+                result = self.task._click_entry_race_closed("special_arena", "special_arena")
+        self.assertEqual(1, click_mock.call_count)  # 仅首次点击入口。
+        self.assertEqual("special_arena", click_mock.call_args_list[0].args[0])  # 点击的是入口特征。
+        self.assertEqual("closed", result)  # 第二轮横幅命中胜出。
+        self.assertEqual(0, captured["settle_time"])  # 首帧命中即短路，防止 settle 窗口内横幅淡出导致漏判。
+        self.assertEqual(1, screen_mock.call_count)  # 横幅未命中时才判目标界面。
+
+    def test_race_primitive_reclicks_once_when_stalled(self):
+        """赛跑原语：超过 reclick_at 秒无信号时补点入口一次，且只补一次。"""
+        time_calls = []  # 记录每次 time.time() 调用序号，映射到模拟时刻。
+
+        def fake_time():
+            t = (0.0, 6.0, 12.0, 30.0)[min(len(time_calls), 3)]  # 前三次按剧本排列，之后恒为 30。
+            time_calls.append(t)
+            return t
+
+        with patch.object(self.task, "wait_click_feature") as click_mock:
+            captured = {}
+
+            def fake_wait_until(condition, time_out=0, pre_action=None, **kwargs):
+                captured["pre_action"] = pre_action  # 补点钩子由本用例手动驱动。
+                return None
+
+            with patch.object(self.task, "wait_until", side_effect=fake_wait_until), \
+                    patch("src.tasks.ArkTask.time.time", side_effect=fake_time):
+                self.task._click_entry_race_closed("special_arena", "special_arena")
+            pre = captured["pre_action"]
+            pre()  # start=0，当前 6 秒：超过 reclick_at 阈值 → 补点一次。
+            pre()  # 再次调用：已补点，不再重复。
+        self.assertEqual(2, click_mock.call_count)  # 首次点击 + 一次补点。
+        self.assertEqual("special_arena", click_mock.call_args_list[1].args[0])  # 补点仍是入口特征。
 
 
 if __name__ == '__main__':

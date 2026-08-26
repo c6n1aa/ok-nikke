@@ -7,7 +7,7 @@
 ## 0. 一页总览
 
 | 层 | 组件 | 位置 | 职责 |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | 判定（数据） | `SCREENS` / `INTERRUPTS` | `src/screens.py` | 全部界面判定条件与中断特征清单的单一数据源 |
 | 判定（机制） | `_screen_match` / `_check_absent` / `_match_ocr_keywords` | `src/tasks/NikkeBaseTask.py` | 单帧界面判定、扩展字段语义 |
 | 判定（性能） | `_find_feature_cached` / `_region_ocr_cached` / `next_frame` 覆写 | 同上 | 同帧去重：同特征/同区域同帧只真正匹配一次 |
@@ -28,7 +28,7 @@
 现有 9 个界面：
 
 | 界面 | 判据 | 原属任务 |
-|---|---|---|
+| --- | --- | --- |
 | `lobby` | features `[ark, lobby]` | 基类 |
 | `ark` | features `[ark_tribe_tower, ark_simulation_room]` | ArkTask |
 | `tribe_tower` | features `[tribe_tower_mark]` | ArkTask |
@@ -39,7 +39,7 @@
 ### 1.2 spec 全字段
 
 | 字段 | 默认 | 语义 | 作用面 |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `features` | `()` | coco 特征名列表，全部命中（与） | 全部判定 API |
 | `keywords` | `()` | OCR 关键词列表，任一命中（或）；与 features 同时配置时再取「与」 | 全部判定 API |
 | `ocr_box` | `None` | OCR 区域：相对坐标列表或 coco 区域特征名；缺失退化为全屏 | 关键词判定 |
@@ -51,7 +51,7 @@
 
 ### 1.3 判定流程（`_screen_match`）
 
-```
+```text
 features 非空 ──逐个 find（缓存）──任一缺失/未命中──> False
       │全部命中
       ├─ 无 keywords ──> absent 检查
@@ -89,7 +89,7 @@ transition(to_screen, click_feature=None, box=None, click=None,
            time_out=10, wait_confirm=3, retry_click=2, after_sleep=1)
 ```
 
-```
+```text
 循环至多 1 + retry_click 次：
   点击（三源之一：coco 特征 wait_click_feature / 框 click_box / 自定义可调用）
   wait_screen(to_screen, time_out=min(wait_confirm, 剩余总预算))
@@ -104,7 +104,7 @@ transition(to_screen, click_feature=None, box=None, click=None,
 已迁移 9 处（「点击入口 → assert_screen 确认」对）：
 
 | 任务 | 转换 | 形式 |
-|---|---|---|
+| --- | --- | --- |
 | ArkTask | → `ark` / → `simulation_room` / → `tribe_tower` | `click_feature=...`，`wait_confirm=10` |
 | CashShopTask | → `cash_shop` | `click_feature="cash_shop"` |
 | RaidTask | → `coop_page` | `box=`（预查框） |
@@ -118,6 +118,8 @@ transition(to_screen, click_feature=None, box=None, click=None,
 
 - `ArkTask.py` 爬塔循环头 `assert_screen("tribe_tower")`：跨轮次重确认（点击发生在上一轮 `_climb_battle` 的 `common_back`），不是「点击→确认」转换边。
 - `RaidTask.py` 战斗胜利后 `wait_click_feature("battle_finish_esc") + assert_screen("coop_page")`：战斗结算边（兜底确认点击 + 回页断言沿用既有结算语义）。
+
+有意不使用 `transition` 的第三类边（2026-08 新增）：**休赛期关闭入口边**——`ArkTask` 新人/特殊竞技场入口（共用 `_click_entry_race_closed`）点击后不再用 `transition` 确认，而是 `wait_until` 赛跑「目标界面 vs `_hit_season_end_banner`（OCR 关键词 `_SEASON_END_KEYWORDS` 命中中部横带）」。命中关闭信号 = 入口在画面但已关闭（赛季结束），按「本周期无可执行内容 → 视为已完成」收尾（正常返回，由调用方 `mark_done`），而非走失败恢复。动机：休赛期是常规业务状态，`transition` 的失败重试+`try_step` 恢复会把每个休赛日浪费约 2 分钟并灌假失败截图；横幅是约 2~3 秒淡出的瞬时 toast，只能在点击后的确认窗口内逐帧赛跑捕捉。补充：`wait_until` 的 settle（默认 1 秒）要求横幅持续命中才返回，横幅显示时长足够。
 
 ## 3. 恢复层
 
@@ -142,7 +144,7 @@ transition(to_screen, click_feature=None, box=None, click=None,
 ## 4. 弹窗 / 子界面的处理约定（三类）
 
 | 类别 | 例 | 不注册为「界面」 | 处理机制 |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | A 模态弹窗（叠加在父页面上） | 好友/邮箱/公告/遮罩 | 是（独立维度） | 进流程前 `dismiss_all_popups`；恢复路径由 `_recover_to_lobby` 统一清；`_nav_*` 系列用「刷新→判定→清弹窗→再判定」两段式 |
 | B 流程内顺序子页面 | 塔卡/关卡选择、队伍编成、快速战斗确认 | 是（顶替父页面，父特征消失） | 流程内特征/相对坐标推进；异常恢复依赖该页有无 `common_home` |
 | C 全屏中断页 | 加载、断线、维护 | 是 | `INTERRUPTS` 哨兵在长等待中快速失败（特征待实机标注逐步补齐） |
@@ -152,7 +154,7 @@ transition(to_screen, click_feature=None, box=None, click=None,
 ## 5. 测试地图
 
 | 测试文件 | 覆盖层 |
-|---|---|
+| --- | --- |
 | `TestScreenRecovery.py` | 注册表数据集、`_screen_match` 各分支、absent/priority/min_frames、`transition()` 吞点击与耗尽、`dismiss_all_popups` 顺序修复、`try_step`、`_recover_to_lobby` |
 | `TestFrameCache.py` | 同帧去重、miss 缓存、`next_frame` 失效、`set_image` 失效兜底、区域 OCR 共享、全屏退化隔离 |
 | `TestScreenRegistryIntegrity.py` | SCREENS 引用 ⊆ coco categories、无空 spec（纯静态、CI 拦截特征漂移） |
@@ -164,7 +166,7 @@ transition(to_screen, click_feature=None, box=None, click=None,
 ## 6. Backlog（已识别，未做）
 
 | 项 | 触发条件 |
-|---|---|
+| --- | --- |
 | `simulation_mark`（正中心判据）条件迁移 | simulation_room 参与恢复期/全局分类时 |
 | 模态覆盖区经验值实机校准 | 好友/邮箱弹窗实机复核后回填文档 |
 | `when_unobscured`（遮罩下不算命中） | 判定层稳定后单独实施 |

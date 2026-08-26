@@ -1,4 +1,5 @@
 import re  # 正则模块，用于 OCR 关键词的部分匹配。
+import time  # 时间模块，用于竞技场入口赛跑的补点计时。
 
 from ok import og  # 全局单例，读取当前执行任务以判断是否由日常编排。
 from ok.task.exceptions import WaitFailedException  # 界面断言/战斗超时抛出的框架等待失败异常。
@@ -20,6 +21,11 @@ _ROOKIE_ARENA_CP_RATIO = 0.846
 
 # 新人竞技场刷新对手列表的最大次数：用尽后结束子流程（标记完成）。
 _ROOKIE_ARENA_MAX_REFRESH = 10
+
+# 竞技场「赛季已结束」横幅匹配模式：OCR 结果常带句号等尾随标点（如「赛季已结束。」），
+# 框架对 re.Pattern 走 re.search 部分匹配、对普通字符串走全等比较，必须用编译模式而非关键词列表。
+# IGNORECASE 对中文是 no-op 故省略；i18n 增加英文分支时并入 alternation 并补 re.IGNORECASE。
+_SEASON_END_PATTERN = re.compile(r"赛季已结束")
 
 # 新人竞技场（战力标注区域， 免费挑战区域）对，自上而下对应 1-3 号对手。
 _ROOKIE_CP_ENCOUNTER_PAIRS = (
@@ -130,7 +136,7 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
             self.wait_click_feature("simulation_overclock_update_close", raise_if_not_found=True, after_sleep=1)  # 点击弹窗关闭按钮，关闭后继续原流程。
         red_dot = self.find_red_dot("box_simulation_badge")  # 在模拟室徽标区域检测通知红点。
         if red_dot is None:  # 无红点说明今日模拟室已完成或不可挑战。
-            self._click_simulation_close()  # 点击关闭按钮返回方舟。
+            self._exit_simulation_to_ark()  # 确认在模拟室界面后点击返回按钮回方舟。
             return  # 结束本流程（由调用方统一标记完成）。
         self.click_box(red_dot, after_sleep=1)  # 点击带红点的徽标进入关卡选择。
         if self.find_one("simulation_level5") is None:  # 当前未选中最高难度 Lv.5。
@@ -141,15 +147,17 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
             self.click_box(switch_box, after_sleep=1)  # 点击开关激活立即完成；已激活（彩色）直接继续快速模拟。
         quick_battle = self.find_one("simulation_quick_battle")  # 识别快速战斗按钮。
         if quick_battle is None:  # 无快速战斗按钮（今日已完成或不可快速完成）。
-            self._click_simulation_close()  # 点击关闭按钮返回方舟。
+            self._exit_simulation_to_ark()  # 确认在模拟室界面后点击返回按钮回方舟。
             return  # 结束本流程（由调用方统一标记完成）。
         self.click_box(quick_battle, after_sleep=1)  # 点击快速战斗立即完成本场模拟。
         self.wait_click_feature("simulation_quick_battle_finishi", raise_if_not_found=True, after_sleep=1)  # 点击快速模拟结算的完成按钮。
         self.dismiss_all_popups(wait_for_popup=False, time_out=10)  # 清理结算后可能弹出的奖励/公告弹窗。
-        self._click_simulation_close(raise_if_not_found=False)  # 尝试点击关闭按钮返回方舟（可能已在方舟则跳过）。
+        self._exit_simulation_to_ark()  # 快速战斗结束后确认回到模拟室界面，再返回方舟收尾。
 
-    def _click_simulation_close(self, raise_if_not_found=True):  # 点击模拟室右上角关闭按钮返回方舟。
-        self.wait_click_feature("simulation_close", raise_if_not_found=raise_if_not_found, after_sleep=1)  # 等待关闭按钮出现并点击。
+    def _exit_simulation_to_ark(self):  # 退出模拟室返回方舟：simulation_close 只能关闭战斗确认弹窗，无法退出模拟室，必须走 common_back。
+        self.assert_screen("simulation_room", time_out=10)  # 确认当前处于模拟室界面。
+        self.wait_click_feature("common_back", raise_if_not_found=True, after_sleep=1)  # 点击返回按钮退出模拟室，返回方舟界面。
+        self.assert_screen("ark", time_out=10)  # 断言已回到方舟界面，模拟室子流程到此才算结束。
 
     def _do_tribe_tower_flow(self):  # 企业塔整体流程：确保在方舟→无限之塔→逐塔挑战→返回方舟。
         self._nav_to_ark()  # 确保处于方舟界面（正常已就位；失败恢复回大厅后由此重新进入）。
@@ -284,7 +292,13 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
 
     def _do_rookie_arena_flow(self):  # 新人竞技场整体流程：竞技场→新人竞技场→循环免费挑战→逐级返回方舟。
         self._nav_to_arena()  # 确保处于竞技场界面（正常已就位；失败恢复回大厅后由此重新进入）。
-        self.transition("rookie_arena", click_feature="rookie_arena", wait_confirm=10, after_sleep=3)  # 点击新人竞技场入口并确认已进入新人竞技场界面。
+        hit = self._click_entry_race_closed("rookie_arena", "rookie_arena")  # 点击新人竞技场入口并赛跑确认（目标界面 vs 赛季结束横幅）。
+        if hit == "closed":  # 休赛期：入口在画面但已关闭，点击只弹出赛季结束横幅。
+            self.log_info("新人竞技场赛季已结束，本周期视为已完成。")  # 记录休赛期收尾。
+            self._back_to_ark_from_arena()  # 从竞技场界面返回方舟。
+            return  # 正常返回，由调用方标记本周期已完成。
+        if hit is None:  # 既未进入目标界面也未出现横幅：视为真实导航异常。
+            raise WaitFailedException("新人竞技场入口点击后既未进入也未提示赛季结束")  # 抛异常由 try_step 恢复重试。
         while True:  # 循环使用免费挑战次数（每天5次），直到免费挑战不可用或刷新对手用尽。
             try:  # box_ 前缀特征为纯坐标区域，无模板可匹配，直接按标注坐标取区域。
                 encounter = self.get_box_by_name("box_rookie_arena_o1_free_encounter")  # 以1号对手免费挑战区域判断免费次数是否还有剩余。
@@ -344,16 +358,69 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
             quick_toggle = None  # 置空做兜底处理。
         if quick_toggle is not None and not self.is_feature_enabled(quick_toggle):  # 开关为灰白未激活态时先点击激活快速战斗。
             self.click_box(quick_toggle, after_sleep=1)  # 点击开关激活快速战斗。
-        self.click_box("box_rookie_arena_quick_battle", raise_if_not_found=True, after_sleep=10)  # 点击进入战斗并等待战斗加载。
+        self.click_box("box_rookie_arena_quick_battle", raise_if_not_found=True, after_sleep=5)  # 点击进入战斗并等待战斗加载。
         result, confirm_box = self.wait_battle_finish(time_out=240)  # 节流等待战斗结束，只检测不点击。
         if result is None:  # 等待战斗结束超时。
             raise WaitFailedException("等待新人竞技场战斗结束超时")  # 抛异常由 try_step 恢复重试。
         self.click_box(confirm_box, after_sleep=3)  # 点击结算确认/失败返回按钮回到新人竞技场界面。
         self.assert_screen("rookie_arena", time_out=15)  # 确认回到新人竞技场界面，供下一轮循环判定。
 
+    def _hit_season_end_banner(self):  # 检测竞技场「赛季已结束」横幅：点击入口后弹出的全宽横带、文字居中，实测约 0.3~0.5 秒后淡出。
+        return bool(self.ocr(x=0.3, y=0.40, to_x=0.7, to_y=0.60, match=_SEASON_END_PATTERN))  # OCR 只取中部横带，部分匹配命中即休赛期。
+
+    def _click_entry_race_closed(self, entry_feature, to_screen, after_sleep=1, time_out=10, reclick_at=5):
+        """点击入口并赛跑确认：目标界面或「赛季已结束」横幅任一首帧命中即短路。
+
+        竞技场系休赛期入口边：入口在画面但已关闭时，点击只弹出赛季结束横幅——
+        实测约 0.3~0.5 秒即淡出的瞬态信号，只能在点击后的确认窗口内逐帧赛跑
+        捕捉（settle_time=0 首帧命中即返回），不能等确认失败后再查。命中横幅是
+        本周期无可执行内容的常规状态，由调用方按「视为已完成」收尾，不走失败恢复协议。
+
+        Args:
+            entry_feature: 入口 coco 特征名（走 wait_click_feature）。
+            to_screen: 目标界面名（须已注册，is_screen 判定）。
+            after_sleep: 每次点击后的固定等待（秒）。
+            time_out: 赛跑总预算（秒）。
+            reclick_at: 该秒数后仍无信号则原地补点一次（对应 transition 的吞点击容错）。
+
+        Returns:
+            True: 已进入目标界面。
+            "closed": 命中赛季结束横幅（休赛期，入口在但无法进入）。
+            None: time_out 内两者皆未命中（真实导航异常，调用方抛 WaitFailedException）。
+        """
+        self.wait_click_feature(entry_feature, raise_if_not_found=True, after_sleep=after_sleep)  # 点击入口。
+        start = time.time()  # 赛跑计时起点。
+        re_clicked = [False]  # 补点标记（闭包写入，只补一次）。
+
+        def _race():  # 每轮判定：横幅优先（瞬态信号），其次目标界面。
+            if self._hit_season_end_banner():  # 赛季结束横幅出现（休赛期）。
+                return "closed"  # 休赛期收尾信号。
+            if self.is_screen(to_screen):  # 已进入目标界面。
+                return True  # 正常进入信号。
+            return None  # 均未命中，继续轮询。
+
+        def _reclick_if_stalled():  # 前半段无任何信号则原地补点一次。
+            if not re_clicked[0] and time.time() - start > reclick_at:  # 超过阈值仍无信号。
+                self.wait_click_feature(entry_feature, raise_if_not_found=True, after_sleep=after_sleep)  # 补点一次。
+                re_clicked[0] = True  # 只补一次，避免连点横幅期间误操作。
+
+        # 横幅实测仅可见约 0.3~0.5 秒；框架默认 settle 要求结果持续 1 秒以上才返回，
+        # 亚秒级瞬态信号永远无法满足，必须 settle_time=0 首帧命中即短路。
+        return self.wait_until(_race, time_out=time_out, pre_action=_reclick_if_stalled, settle_time=0)
+
+    def _back_to_ark_from_arena(self):  # 从竞技场界面返回方舟（休赛期收尾用：未进入子页面，只需一次返回）。
+        self.wait_click_feature("common_back", raise_if_not_found=True, after_sleep=1)  # 点击返回按钮回到方舟界面。
+        self.assert_screen("ark", time_out=10)  # 断言已回到方舟界面。
+
     def _do_special_arena_flow(self):  # 特殊竞技场整体流程：竞技场→特殊竞技场→领取累计奖励→逐级返回方舟。
         self._nav_to_arena()  # 确保处于竞技场界面（正常已就位；失败恢复回大厅后由此重新进入）。
-        self.transition("special_arena", click_feature="special_arena", wait_confirm=10, after_sleep=3)  # 点击特殊竞技场入口并确认已进入特殊竞技场界面。
+        hit = self._click_entry_race_closed("special_arena", "special_arena")  # 点击特殊竞技场入口并赛跑确认。
+        if hit == "closed":  # 休赛期：入口在画面但已关闭，点击只弹出赛季结束横幅。
+            self.log_info("特殊竞技场赛季已结束，本周期视为已完成。")  # 记录休赛期收尾。
+            self._back_to_ark_from_arena()  # 从竞技场界面返回方舟。
+            return  # 正常返回，由调用方标记本周期已完成。
+        if hit is None:  # 既未进入目标界面也未出现横幅：视为真实导航异常。
+            raise WaitFailedException("特殊竞技场入口点击后既未进入也未提示赛季结束")  # 抛异常由 try_step 恢复重试。
         self.click_box("box_special_arena_reward", raise_if_not_found=True, after_sleep=2)  # 点击累计奖励区域打开奖励弹窗（box_ 前缀特征为纯坐标区域）。
         self.wait_click_feature("special_arena_reward_claim", raise_if_not_found=True, after_sleep=2)  # 点击领取按钮收取累计奖励。
         self.dismiss_all_popups(wait_for_popup=False, time_out=10)  # 清理领取后弹出的奖励遮罩弹窗。
