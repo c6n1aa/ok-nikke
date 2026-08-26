@@ -1,6 +1,6 @@
 # AGENTS.md
 
-ok-nikke-maid 是基于 PyPI `ok-script`（2.x）构建的《NIKKE》Windows 客户端 GUI 自动化应用。技术栈：PySide6 + qfluentwidgets（GUI）、OpenCV 模板匹配 + onnxocr（识别）。仓库：https://github.com/c6n1aa/ok-nikke-maid 。本文只写给 coding agent 的规则与命令，背景细节看代码或 `docs/`。
+ok-nikke-maid 是基于 PyPI `ok-script`（2.x）构建的《NIKKE》Windows 客户端 GUI 自动化应用。技术栈：PySide6 + qfluentwidgets（GUI）、OpenCV 模板匹配 + onnxocr（识别）。仓库：<https://github.com/c6n1aa/ok-nikke-maid> 。本文只写给 coding agent 的规则与命令，背景细节看代码或 `docs/`。
 
 ## 红线
 
@@ -46,7 +46,7 @@ ok-nikke-maid 是基于 PyPI `ok-script`（2.x）构建的《NIKKE》Windows 客
 - 任务 UI 字符串直接写简体中文，不做 i18n（框架 `og.app.tr()` 查不到原样返回）。
 - 非必要不手写 `self.sleep`：等待优先挂在框架 API 的 `after_sleep`/`time_out` 参数上，写在产生界面变化的那个调用的挂点处。
 - 技能（`.agents/skills/`）：任务类 `ok-script-tasks`；`run()` 逻辑 `ok-script-codegen`；翻译 `ok-script-i18n`；跑 Python `use-local-venv`。查 ok-script 框架 API：venv `ok` 包源码、`docs/api_doc/README.md`、`.agents/skills/ok-script-tasks/references/`。
-- 提交信息用 Conventional Commits：`type(scope): 英文主题`。
+- 提交信息用 Conventional Commits：`<type>[optional scope]: <description>`。
 
 ## 测试策略
 
