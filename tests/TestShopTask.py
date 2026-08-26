@@ -93,10 +93,43 @@ class TestShopTask(TaskTestCase):
                 patch.object(self.task, "wait_screen", return_value=True) as wait_mock, \
                 patch.object(self.task, "_assert_shop_title") as title_mock:
             self.task._enter_general_shop()
-        click_mock.assert_called_once_with("shop", time_out=10, raise_if_not_found=True, after_sleep=1)
+        click_mock.assert_called_once_with("shop", time_out=10, raise_if_not_found=True, after_sleep=2)  # transition 转发点击；after_sleep 与源码一致。
         self.assertEqual(("shop",), wait_mock.call_args.args)  # transition 内部确认已注册的 shop 界面。
-        self.assertEqual(10, wait_mock.call_args.kwargs["time_out"])
+        confirm_timeout = wait_mock.call_args.kwargs["time_out"]  # transition 按总预算剩余收紧确认等待（NikkeBaseTask.transition）。
+        self.assertGreaterEqual(confirm_timeout, 1)  # 剩余预算下限 1 秒。
+        self.assertLessEqual(confirm_timeout, 10)  # 不超过 wait_confirm 与总预算。
         title_mock.assert_called_once_with("普通商店")
+
+    def test_buy_cell_detects_no_currency_toast_without_settle(self):
+        # 资金不足 toast 是亚秒级瞬态信号：赛跑必须传 settle_time=0 首帧命中即返回（同赛季横幅教训）。
+        with patch.object(self.task, "click"), \
+                patch.object(self.task, "wait_click_feature") as close_mock, \
+                patch.object(self.task, "ocr", return_value=[object()]) as ocr_mock, \
+                patch.object(self.task, "wait_until", side_effect=self._eval_once) as wait_mock:
+            self.assertFalse(self.task._buy_cell("shop_buy_confirm", row=1, col=1))  # 命中资金不足返回 False。
+        from src.tasks.ShopTask import _NO_CURRENCY_PATTERN  # 引用匹配模式防止改名漂移。
+        self.assertEqual("资金不足", _NO_CURRENCY_PATTERN.pattern)  # 实际游戏文案（模板图集核实，非「货币不足」）。
+        self.assertEqual(_NO_CURRENCY_PATTERN, ocr_mock.call_args.kwargs["match"])  # 编译模式部分匹配。
+        self.assertEqual("box_shop_no_currency", ocr_mock.call_args.kwargs["box"])  # OCR 区域取 coco 标注区域。
+        self.assertEqual(0, wait_mock.call_args_list[0].kwargs["settle_time"])  # 首次赛跑调用禁用 settle，防「命中却不返回」漏检。
+        close_call = close_mock.call_args_list[-1]  # 前面还有买最大/确认两次调用，取最后一次关闭调用。
+        self.assertEqual("shop_buy_close", close_call.args[0])  # 关闭购买弹窗才算结束。
+        self.assertEqual(self.task.get_box_by_name("box_shop_buy_close"), close_call.kwargs["box"])  # 关闭按钮限定在标注区域。
+        self.assertEqual(3, close_call.kwargs["time_out"])  # 关闭按钮等待超时。
+
+    def test_buy_cell_returns_true_when_no_currency_absent(self):
+        # 未弹资金不足提示：清遮罩弹窗后按购买成功收尾。
+        with patch.object(self.task, "click"), \
+                patch.object(self.task, "wait_click_feature"), \
+                patch.object(self.task, "ocr", return_value=[]), \
+                patch.object(self.task, "dismiss_all_popups"), \
+                patch.object(self.task, "next_frame"):
+            self.assertTrue(self.task._buy_cell("shop_buy_confirm", row=1, col=1))
+
+    @staticmethod
+    def _eval_once(cond, **kwargs):
+        """直通求值一次的 wait_until 桩：立即返回条件结果，不轮询。"""
+        return cond()
 
 
 if __name__ == '__main__':

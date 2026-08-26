@@ -1,4 +1,5 @@
 import os  # 路径拼接模块，拼装 assets/template/ 下代码模板的路径。
+import re  # 正则模块，资金不足提示的 OCR 部分匹配使用。
 
 import cv2  # OpenCV 模块，废铁商店图标模板读取与缩放使用。
 import numpy as np  # 数值计算模块，SOLD OUT 横幅带的像素统计使用。
@@ -7,6 +8,11 @@ from ok.feature.Box import Box  # 框类型，构造网格每格的匹配区域�
 from ok.task.exceptions import WaitFailedException  # 框架等待失败异常，子流程断言失败时抛出由 try_step 捕获。
 
 from src.tasks.NikkeBaseTask import NikkeBaseTask  # 项目基类，所有任务统一继承它。
+
+# 商店购买确认后的「资金不足」toast OCR 匹配模式：OCR 文本常带尾随句号（如「资金不足。」），
+# 框架对普通字符串走全等、re.Pattern 走 re.search 部分匹配，必须用编译模式（同 ArkTask._SEASON_END_PATTERN）。
+# 文案属游戏画面渲染文本：i18n 恢复后由 fix_match_regex 经 ok.po 在运行期翻译为对应游戏语言。
+_NO_CURRENCY_PATTERN = re.compile(r"资金不足")
 
 # 竞技场代码模板（第一列 1-3 格随机出现，用模板匹配识别），名称 -> 模板路径。
 _CODE_TEMPLATES = {
@@ -160,7 +166,13 @@ class ShopTask(NikkeBaseTask):  # 商店自动兑换任务，继承项目基类�
 
     # ---- 购买流程 ----
 
-    def _buy_cell(self, confirm_feature, row=None, col=None, box=None):  # 点击格子并完成购买确认，返回 True 成功 / False 货币不足。
+    def _hit_no_currency(self):  # 检测购买确认后的「资金不足」toast：OCR 区域取 coco 标注的 box_shop_no_currency（已按分辨率缩放）。
+        try:  # 区域特征可能缺失（如无可用帧）。
+            return bool(self.ocr(box="box_shop_no_currency", match=_NO_CURRENCY_PATTERN))  # 区域内有命中即视为资金不足。
+        except ValueError:  # 特征缺失。
+            return False  # 视为未命中。
+
+    def _buy_cell(self, confirm_feature, row=None, col=None, box=None):  # 点击格子并完成购买确认，返回 True 成功 / False 资金不足。
         if box is not None:  # 布局无关商品（废铁扫描反推的任意卡片框）。
             cx, cy = box.x + box.width // 2, box.y + box.height // 2  # 卡片中心坐标。
         else:  # 固定网格商品（普通/竞技场），按行列取格子中心。
@@ -169,9 +181,12 @@ class ShopTask(NikkeBaseTask):  # 商店自动兑换任务，继承项目基类�
         # 确认框高度会浮动，shop_buy_max / shop_buy_confirm 限定在各自标注区域（box_shop_buy_max / box_shop_buy_confirm）内识别，避免误点/漏点。
         self.wait_click_feature("shop_buy_max", box=self.get_box_by_name("box_shop_buy_max"), time_out=3, raise_if_not_found=False, after_sleep=0.5)  # 点最大购买，置数量为上限；无可点不抛错，3 秒内未出现即继续。
         self.wait_click_feature(confirm_feature, box=self.get_box_by_name("box_shop_buy_confirm"), time_out=5, raise_if_not_found=True, after_sleep=0.5)  # 等待并点击确认按钮。
-        if self.wait_feature("shop_no_currency", time_out=2, raise_if_not_found=False) is not None:  # 检测是否弹出货币不足提示。
-            self.log_warning("货币不足，停止当前商店购买。")  # 记录货币不足。
-            self.wait_until(lambda: self.find_one("shop_no_currency") is None, time_out=3, raise_if_not_found=False)  # 等待货币不足弹窗自动消失，避免拦截后续点击。
+        # 「资金不足」是亚秒级瞬态 toast；框架默认 settle 要求持续命中 1 秒以上，
+        # 会像赛季横幅一样「每帧命中却不返回」直至超时，把购买误判成成功，必须 settle_time=0。
+        if self.wait_until(self._hit_no_currency, time_out=2, settle_time=0):  # OCR 命中资金不足提示。
+            self.log_warning("资金不足，停止当前商店购买。")  # 记录资金不足。
+            # 关闭购买道具弹窗才算结束：在 box_shop_buy_close 区域内找到 shop_buy_close 关闭按钮并点击。
+            self.wait_click_feature("shop_buy_close", box=self.get_box_by_name("box_shop_buy_close"), time_out=3, raise_if_not_found=True, after_sleep=1)
             return False  # 返回失败，调用方据此停止当前商店。
         self.dismiss_all_popups(time_out=3, wait_for_popup=True)  # 清购买成功后的遮罩弹窗；出现即秒关，不出现也不长时间等待。
         self.next_frame()  # 刷新一帧，确保后续读取的是购买后的最新画面。
