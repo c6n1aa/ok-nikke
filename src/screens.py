@@ -2,11 +2,10 @@
 
 注意：本模块必须是纯数据 + stdlib（禁止 import ok 框架），以便完整性测试低成本导入。
 
-上游设计见 docs/screen-recovery-evolution-plan.md §5.3（方案 1 子项 1）。
 迁移前各界面分散注册在 NikkeBaseTask.__init__（lobby）、ArkTask.__init__
 （ark、tribe_tower、simulation_room）、CashShopTask.__init__（cash_shop）与
 RaidTask.__init__（coop_* / solo_raid_*）；集中后 DebugTask 与
-current_screen() 能看到全量界面，后续方案也以本表为准。
+current_screen() 能看到全量界面。
 任务仍可用 NikkeBaseTask.register_screen 追加私有界面，同名覆盖全局条目。
 
 判定语义（NikkeBaseTask._screen_match）：features 全部命中才算命中（与）；

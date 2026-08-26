@@ -3,7 +3,6 @@
 本文是开发任务的统一约束：`NikkeBaseTask`（`src/tasks/NikkeBaseTask.py`）提供「界面识别 + 守卫式导航 + 失败恢复」三层骨架，全部复用 ok-script 现有 API。Agent 开发新任务必须遵守文末「约束」一节。
 
 - 判定数据集中在 `src/screens.py`（单一数据源），判定/导航/恢复机制在 `NikkeBaseTask`。
-- 机制细节与缓冲/合并的实现原理见内部文档 `docs/screen-recovery-architecture.md`（维护者向）；演进计划见 `docs/screen-recovery-evolution-plan.md`。
 - 帧级判定缓存对使用者完全透明：判定结果与无缓存逐位一致，使用本页 API 无需关心缓存。
 
 ## 界面识别
@@ -67,8 +66,6 @@ if not self.ensure_screen("coop_page", entry=find_entry, wait_confirm=10, after_
 
 任务里「点击入口 → 确认进入目标界面」的转换**一律用 `transition()`**，不再手写 `wait_click_feature(...) + assert_screen(...)` 两行：
 
-任务里「点击入口 → 确认进入目标界面」的转换**一律用 `transition()`**，不再手写 `wait_click_feature(...) + assert_screen(...)` 两行：
-
 ```python
 self.transition("tribe_tower", click_feature="ark_tribe_tower", wait_confirm=10, after_sleep=1)
 self.transition("coop_page", box=coop_box, after_sleep=1)  # 已预查出的框走 box=
@@ -79,6 +76,10 @@ self.transition("coop_page", box=coop_box, after_sleep=1)  # 已预查出的框�
 - 点击等待与确认等待共享 `time_out` 总预算；进战斗等长加载边调大 `wait_confirm`/`time_out`。
 
 **不适用于**：战斗结算确认等已带专用语义的边（`wait_battle_finish` 后的确认/返回）、循环头部的「重确认仍在本页」断言（这类保留 `assert_screen`）、以及「入口在画面但已关闭」的休赛期入口边（如竞技场赛季已结束：点击后目标界面不会出现，`transition` 会按失败重试并触发恢复协议。这类改为点击后用 `wait_until` 赛跑「目标界面 vs 关闭态信号」——命中关闭信号 = 本周期无可执行内容，按「视为已完成」收尾而非走失败恢复；实现参考 `ArkTask._click_entry_race_closed`（新人/特殊竞技场入口共用）与其 `_hit_season_end_banner`，关闭态用 OCR 正则部分匹配判定（框架对普通字符串走全等，OCR 文本常带尾随标点，必须用 `re.Pattern`）、区域限横幅所在的中部横带；瞬态信号淡出快于框架默认 1 秒 settle 窗口时（实测横幅约 0.3~0.5 秒），赛跑的 `wait_until` 必须传 `settle_time=0` 首帧命中即短路；同理，一切瞬态 toast 检测（如 `ShopTask._buy_cell` 的资金不足提示，OCR 关键词走 `re.Pattern` 部分匹配）的赛跑也必须 `settle_time=0`，否则会「每帧命中却不返回」直至超时，把失败误判成成功。
+
+### 逐级返回：`_back_through_screens()`
+
+退出子页面逐级返回原语：`_back_through_screens(*screens)` 每级先 `wait_click_feature("common_back")` 再 `assert_screen(该级界面)`，逐级退回（如「子页面 → 竞技场 → 方舟」传 `("arena", "ark")`）。用于多级返回场景，代替手写多次「点 common_back + 断言」。
 
 ## 失败恢复
 
