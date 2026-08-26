@@ -7,16 +7,16 @@
 
 - **类名/文件**：`src/tasks/<TaskName>.py`（PascalCase）
 - **说明**（description，中文）：一句话描述任务做什么
-- **done_keys**：无 或 `{"键名": "day|week|month"}`（纯编排任务不写）
+- **done_keys**：无 或 `{"键名": "day|week|month"}`（纯编排/纯调试任务不写）
 - **配置项**：每行一个：`键名 / 默认值 / 类型(bool|drop_down|line_edit...) / 中文说明`；没有写"无"
 - **触发**：onetime 或 trigger（trigger 需注明 trigger_interval）
 
 ## 屏幕与特征
 
-（一行一个；流程中用 `[屏幕名]` 引用。只列本任务用到的。）
+（界面优先注册进 `src/screens.py` 的 `SCREENS`，仅任务私有界面才用 `register_screen`；一行一个，流程中用 `[屏幕名]` 引用。）
 
-- `<screen_name>(<中文名>)` = 判定条件：coco 特征名 / box_区域 OCR"关键词" 组合
-- 特殊小模板：`assets/template/xxx.png`（运行时须用 find_scaled_template）
+- `<screen_name>(<中文名>)` = 判定：`features`（coco 特征，全部命中）/ `keywords`（OCR 关键词，任一命中，配 `ocr_box` 限区域）
+- 特殊小模板：`assets/template/xxx.png`（运行时用 `find_scaled_template` 缩放匹配）
 
 ## 流程
 
@@ -26,17 +26,26 @@
 
 | 简写 | 标准实现 |
 |---|---|
-| `点<特征名>` | `wait_click_feature("<特征名>")`；特征必须是 coco 已标注名或简报「屏幕与特征」节声明的小模板 |
-| `common_back` | coco 通用返回按钮特征，点击它返回上一级 |
+| `到[屏幕名]：点<入口>` | `transition("<screen>", click_feature="<入口>")`，点入口→确认进入目标界面（导航边统一走它） |
+| `闸门[屏幕名]` | `ensure_screen("<screen>")`，子流程开头幂等就位（含冷启动/恢复分流） |
+| `点<特征名>` | `wait_click_feature("<特征名>")`，非导航边的单次点击 |
+| `返回`,`返回上一级` | `common_back`，coco 通用返回按钮特征，点击返回上一级 |
 | `等[屏幕名]` | `wait_screen("<screen_name>")`，屏幕须已在「屏幕与特征」节定义 |
-| `OCR <区域> 含/不含 "<关键词"` | 用 `ocr_box` 限定该区域做关键词判定 |
+| `OCR <区域> 含/不含 "<关键词>"` | 用 `ocr_box` 限定该区域做关键词判定 |
 | `战斗等待` | 基类 `wait_battle_finish(...)`，只检测不点击，后续动作由流程树写明 |
 | `mark_done("<键>")` | 基类完成状态标记，键须出现在「基本信息」的 done_keys 中 |
 | `<区域> y+0.1 点击` | 在该 box 基础上做 y 向相对偏移后点击 |
+| `判断<区域>是否可用` | `is_feature_enabled("<box>")`, 判断 UI 元素是否处于可用（高亮彩色）状态 |
+| `清弹窗` | `dismiss_all_popups(...)`，统一清理公告/遮罩弹窗（无弹窗时 `wait_for_popup=False`） |
+| `取框[区域]` | `get_box_by_name("box_xxx")`，box_ 前缀纯坐标区域（已按分辨率缩放） |
+| `等 <条件> 成立/消失` | `wait_until(lambda: <条件>, time_out=…)`，按钮可用/禁用态翻转 |
+| `红点[区域]` | `find_red_dot("box_xxx")`，徽标区域红点检测是否有可领 |
+| `[区域] 灰度找<特征>` | `find_one("<特征>", box=<区域>, use_gray_scale=True)`，面板内灰度匹配入口 |
 
-规则：只使用词表和 AGENTS.md 中定义过的记号；简报里自创的片段名（如「战斗段」）
-必须在「公共片段」或本节就地定义一次。拿不准怎么简写的步骤就直接用自然语言写清楚，
-不要发明新符号。
+规则：只使用词表和 AGENTS.md 中定义过的记号；每个「从大厅出发、自包含导航」的
+子流程入口方法在代码里用 `try_step` 包**一层**（内部步骤不逐个包）。简报里自创的
+片段名（如「战斗段」）必须在「公共片段」或本节就地定义一次。拿不准怎么简写的
+步骤就直接用自然语言写清楚，不要发明新符号。
 
 **单流程任务**：直接写一棵树（见下方骨架）。
 
@@ -65,7 +74,7 @@
 或单流程：
 
 ```
-1. 大厅 → 点<入口特征> → [屏幕A]
+1. 大厅 → 到[屏幕A]：点<入口特征>
 2. 循环 <特征或区域列表>：
    - <判定条件>？否 → 下一轮
    - 是 → 点击… → 等[屏幕B] → 点击…
@@ -88,5 +97,5 @@
 
 ## 输出
 
-src/tasks/<TaskName>.py + 注册 src/config.py + tests/Test<TaskName>.py
+src/tasks/<TaskName>.py + 注册进 src/config.py 的 onetime_tasks（或 trigger_tasks）+ tests/Test<TaskName>.py
 （覆盖主要分支：成功/跳过/失败/已完成跳过），跑测试并报告结果。
