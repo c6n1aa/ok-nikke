@@ -45,6 +45,8 @@ SCREENS = {
     "arena": {"features": ["arena_page"]},
     "rookie_arena": {"features": ["rookie_arena_page"]},
     "special_arena": {"features": ["special_arena_page"]},
+    # 方舟相关子页面：方舟→排名。
+    "ark_ranking": {"features": ["ark_ranking_page"]},
     # 登录页（TOUCH TO CONTINUE）：正向冷启动锚点。冷启动判定由"无证据推定"
     # 升级为"命中登录页即确证"，恢复/入口分流（ensure_screen）与未来的中断哨兵复用它。
     "login_page": {"keywords": [LOGIN_PAGE_PATTERN], "ocr_box": "box_enter_game"},

@@ -352,9 +352,9 @@ class ShopTask(NikkeBaseTask):  # 商店自动兑换任务，继承项目基类�
 
     def _assert_shop_title(self, keyword):  # 在 shop_title 区域 OCR 确认当前商店名称。
         try:  # coco 特征可能缺失。
-            title_box = self.get_box_by_name("shop_title")  # 获取商店标题标注区域（已按当前分辨率缩放）。
+            title_box = self.get_box_by_name("box_shop_title")  # 获取商店标题标注区域（已按当前分辨率缩放）。
         except ValueError:  # 特征缺失时抛等待失败异常。
-            raise WaitFailedException("shop_title 特征缺失")  # 由 try_step 捕获恢复。
+            raise WaitFailedException("box_shop_title 特征缺失")  # 由 try_step 捕获恢复。
         if self.wait_ocr(box=title_box, match=keyword, time_out=10, raise_if_not_found=False) is None:  # OCR 未匹配到关键词。
             raise WaitFailedException(f"未确认进入商店：{keyword}")  # 抛异常由 try_step 捕获恢复。
 
@@ -369,12 +369,6 @@ class ShopTask(NikkeBaseTask):  # 商店自动兑换任务，继承项目基类�
     def _switch_to_recycling(self):  # 从普通商店切换到废铁商店。
         self.wait_click_feature("shop_recyling", time_out=10, raise_if_not_found=True, after_sleep=2)  # 点击废铁商店标签。
         self._assert_shop_title("废铁商店")  # OCR 确认已进入废铁商店。
-
-    def _exit_to_lobby(self):  # 退出商店返回大厅。
-        home = self.find_one("common_home")  # 查找大厅按钮。
-        if home is not None:  # 找到则点击返回大厅。
-            self.click_box(home, after_sleep=1)  # 点击大厅按钮并等待。
-        self.wait_for_lobby(time_out=10, raise_if_not_found=False)  # 等待确认回到大厅，超时不报错由上层处理。
 
     # ---- 合并子流程（re-entrant，由 try_step 包裹）----
 

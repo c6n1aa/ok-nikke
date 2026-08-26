@@ -180,6 +180,13 @@ class NikkeBaseTask(BaseTask):
         self.bring_game_to_front()  # 先把游戏窗口切到前台，确保 pynput 点击生效。
         return self.wait_feature("ark", time_out=time_out, raise_if_not_found=raise_if_not_found)
 
+    def _exit_to_lobby(self):
+        """退出当前子页面返回大厅（幂等：失败恢复已带回大厅时找不到主页按钮，只确认不点击）。"""
+        home = self.find_one("common_home")  # 查找大厅按钮。
+        if home is not None:  # 找到则点击返回大厅。
+            self.click_box(home, after_sleep=1)  # 点击大厅按钮并等待。
+        self.wait_for_lobby(time_out=10, raise_if_not_found=False)  # 等待确认回到大厅，超时不报错由上层处理。
+
     _NOTICE_BELL_TEMPLATES = (  # 公告弹窗铃铛模板列表：公告(notice_bell1)与活动(notice_bell2)弹窗图标样式略有差异，依次尝试任一命中即可。
         os.path.join('assets', 'template', 'common', 'notice_bell1.png'),  # 活动弹窗铃铛模板，来自 2560x1440 截图。
         os.path.join('assets', 'template', 'common', 'notice_bell2.png'),  # 公告弹窗铃铛模板，来自 2560x1440 截图。
@@ -790,6 +797,17 @@ class NikkeBaseTask(BaseTask):
             self.log_warning(f"界面断言失败: 期望 {name}，当前 {cur}")  # 记录断言失败。
             raise WaitFailedException(f"not on screen: {name} (current: {cur})")  # 抛等待失败异常。
 
+    def _back_through_screens(self, *screens):
+        """退出子页面逐级返回原语：每级点击 common_back 后断言到达的界面。
+
+        Args:
+            *screens: 沿途依次经过的界面名（须已注册），最后一个是最终目标；
+                例如子页面→竞技场→方舟传 ("arena", "ark")，单级返回只传 ("ark",)。
+        """
+        for screen in screens:  # 逐级返回：先点返回再确认到达该级界面。
+            self.wait_click_feature("common_back", raise_if_not_found=True, after_sleep=1)  # 点击返回按钮。
+            self.assert_screen(screen)  # 断言已到达该级界面，超时抛 WaitFailedException 由 try_step 恢复。
+
     def transition(self, to_screen, click_feature=None, box=None, click=None,
                    time_out=10, wait_confirm=3, retry_click=2, after_sleep=1):
         """守卫式转换原语：点击入口 → 等待目标界面 → 未命中原地补点 → 带上下文抛错。
@@ -877,7 +895,7 @@ class NikkeBaseTask(BaseTask):
             current = self.current_screen()  # 帧级缓存，本轮内不重复匹配。
             in_app = current is not None and current != "login_page"
         if in_app:  # 处于应用内其它界面：走统一失败恢复协议回大厅，再重进。
-            # 目标页本身可能没有返回/主页按钮（如方舟顶层页），仅靠按钮检测会把它误判成冷启动。
+            # 页面可能正处于过场动画、该帧上返回/主页按钮尚未出现（实机事故：企业塔收尾返回方舟的过场），仅靠按钮检测会把它误判成冷启动。
             if not self._recover_to_lobby():
                 if raise_on_fail:
                     raise WaitFailedException("未能回到游戏大厅")

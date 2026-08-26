@@ -77,12 +77,6 @@ class CashShopTask(NikkeBaseTask):  # 付费商店免费礼包领取任务，继
                 self.log_info(f"{keyword}免费礼包已售罄，跳过。")  # 记录跳过原因。
             self.mark_done(done_key, period)  # 标记当前页签本周期已完成。
 
-    def _exit_to_lobby(self):  # 退出付费商店返回大厅。
-        home = self.find_one("common_home")  # 查找大厅按钮。
-        if home is not None:  # 找到则点击返回大厅。
-            self.click_box(home, after_sleep=1)  # 点击大厅按钮并等待。
-        self.wait_for_lobby(time_out=10, raise_if_not_found=False)  # 等待确认回到大厅，超时不报错由上层处理。
-
     # ---- 合并子流程（re-entrant，由 try_step 包裹）----
 
     def _has_pending_packs(self):  # 是否存在本周期尚未领取的免费礼包。

@@ -46,11 +46,17 @@ class TestArkTask(_DebugOffTestCase):
         self.task.config["模拟室"] = False  # 默认关闭模拟室子流程，企业塔相关测试不受其干扰。
         self.task.config["新人竞技场"] = False  # 默认关闭新人竞技场子流程，企业塔相关测试不受其干扰。
         self.task.config["特殊竞技场"] = False  # 默认关闭特殊竞技场子流程，企业塔相关测试不受其干扰。
+        self.task.config["收取排名奖励"] = False  # 默认关闭收取排名奖励子流程，企业塔相关测试不受其干扰。
         self.task.clear_done("tribe_tower")
         self.task.clear_done("simulation")
         self.task.clear_done("rookie_arena")
         self.task.clear_done("special_arena")
+        self.task.clear_done("ranking_reward")
         self.task.failed_towers = []
+        exit_patcher = patch.object(self.task, "_exit_to_lobby")  # 拦截主流程收尾返回大厅步骤，避免测试触碰真实窗口。
+        self.exit_patcher = exit_patcher  # 本体分支测试通过 stop() 还原真实方法调用。
+        self.exit_mock = exit_patcher.start()
+        self.addCleanup(exit_patcher.stop)
 
     def test_config_defaults(self):
         self.assertTrue(self.task.default_config["企业塔"])  # 企业塔子流程默认开启。
@@ -62,13 +68,16 @@ class TestArkTask(_DebugOffTestCase):
         self.assertIn("关闭自动爬塔", self.task.config_description)
         self.assertTrue(self.task.default_config["模拟室"])  # 模拟室子流程默认开启。
         self.assertIn("模拟室", self.task.config_description)  # 模拟室配置有中文帮助文本。
-        self.assertEqual({"tribe_tower": "day", "simulation": "day", "rookie_arena": "day", "special_arena": "day"}, ArkTask.done_keys)
+        self.assertEqual({"tribe_tower": "day", "simulation": "day", "rookie_arena": "day", "special_arena": "day",
+                          "ranking_reward": "day"}, ArkTask.done_keys)  # 排名奖励完成状态随日常刷新。
         self.assertTrue(self.task.default_config["新人竞技场"])  # 新人竞技场子流程默认开启。
         self.assertTrue(self.task.default_config["对手选择策略"])  # 对手选择策略默认开启。
         self.assertTrue(self.task.default_config["特殊竞技场"])  # 特殊竞技场子流程默认开启。
+        self.assertTrue(self.task.default_config["收取排名奖励"])  # 收取排名奖励子流程默认开启。
         self.assertIn("新人竞技场", self.task.config_description)  # 新人竞技场配置有中文帮助文本。
         self.assertIn("对手选择策略", self.task.config_description)  # 对手选择策略配置有中文帮助文本。
         self.assertIn("特殊竞技场", self.task.config_description)  # 特殊竞技场配置有中文帮助文本。
+        self.assertIn("收取排名奖励", self.task.config_description)  # 收取排名奖励配置有中文帮助文本。
         rookie_sub = self.task.config_type["新人竞技场"]["sub_configs"]  # 开关联动对手选择策略显隐。
         self.assertEqual(["对手选择策略"], rookie_sub[True])  # 启用时显示对手选择策略开关。
         self.assertEqual([], rookie_sub[False])  # 关闭时收起配置。
@@ -90,11 +99,22 @@ class TestArkTask(_DebugOffTestCase):
         self.assertTrue(self.task.is_done("tribe_tower", "day"))
 
     def test_abort_when_lobby_not_found(self):
-        with patch.object(self.task, "_nav_to_ark", side_effect=WaitFailedException("未能进入方舟")), \
+        with patch.object(self.task, "_nav_to_ark", side_effect=WaitFailedException("未找到")), \
                 patch.object(self.task, "_recover_to_lobby", return_value=True), \
                 patch.object(self.task, "_do_tribe_tower_flow", side_effect=AssertionError("不应执行企业塔流程")):
             self.task.run()
         self.assertFalse(self.task.is_done("tribe_tower", "day"))
+        self.exit_mock.assert_not_called()  # 未进入方舟直接中止，不执行返回大厅收尾。
+
+    def test_run_returns_to_lobby_at_end(self):
+        with patch.object(self.task, "_nav_to_ark"), \
+                patch.object(self.task, "_do_tribe_tower"), \
+                patch.object(self.task, "_do_simulation"), \
+                patch.object(self.task, "_do_rookie_arena"), \
+                patch.object(self.task, "_do_special_arena"), \
+                patch.object(self.task, "_do_ranking_reward"):
+            self.task.run()
+        self.exit_mock.assert_called_once()  # 全部子流程结束后统一返回大厅收尾。
 
     def test_runs_flow_and_marks_done(self):
         with patch.object(self.task, "_nav_to_ark"), \
@@ -408,6 +428,25 @@ class TestArkTask(_DebugOffTestCase):
         self.assertEqual(3, assert_mock.call_count)  # 打完一塔返回后先识别到无限之塔界面再判断下一塔。
         back_mock.assert_called_once()
 
+    def test_exit_to_lobby_clicks_home_and_waits(self):
+        self.exit_patcher.stop()  # 还原真实 _exit_to_lobby 以验证其本体逻辑。
+        home = Box(10, 10, 20, 20, confidence=1, name="common_home")  # 命中的大厅按钮框。
+        with patch.object(self.task, "find_one", return_value=home), \
+                patch.object(self.task, "click_box") as click_mock, \
+                patch.object(self.task, "wait_for_lobby", return_value=True) as lobby_mock:
+            self.task._exit_to_lobby()
+        click_mock.assert_called_once_with(home, after_sleep=1)  # 命中按钮即点击返回大厅。
+        lobby_mock.assert_called_once_with(time_out=10, raise_if_not_found=False)  # 点击后等待确认回到大厅。
+
+    def test_exit_to_lobby_no_home_skips_click_and_still_waits(self):
+        self.exit_patcher.stop()  # 还原真实 _exit_to_lobby 以验证其本体逻辑。
+        with patch.object(self.task, "find_one", return_value=None), \
+                patch.object(self.task, "click_box") as click_mock, \
+                patch.object(self.task, "wait_for_lobby", return_value=True) as lobby_mock:
+            self.task._exit_to_lobby()
+        click_mock.assert_not_called()  # 未命中按钮（如已被失败恢复带回大厅）跳过点击。
+        lobby_mock.assert_called_once_with(time_out=10, raise_if_not_found=False)  # 仍等待确认回到大厅。
+
 
 class TestArkTaskSimulation(_DebugOffTestCase):
     """模拟室子流程测试：覆盖成功/跳过/失败/已完成跳过等主要分支。"""
@@ -426,10 +465,15 @@ class TestArkTaskSimulation(_DebugOffTestCase):
         self.task.config["模拟室"] = True  # 模拟室子流程测试统一开启。
         self.task.config["新人竞技场"] = False  # 关闭新人竞技场子流程，保证测试顺序隔离。
         self.task.config["特殊竞技场"] = False  # 关闭特殊竞技场子流程，保证测试顺序隔离。
+        self.task.config["收取排名奖励"] = False  # 关闭收取排名奖励子流程，保证测试顺序隔离。
         self.task.clear_done("simulation")
         self.task.clear_done("tribe_tower")
         self.task.clear_done("rookie_arena")
         self.task.clear_done("special_arena")
+        self.task.clear_done("ranking_reward")
+        exit_patcher = patch.object(self.task, "_exit_to_lobby")  # 拦截主流程收尾返回大厅步骤，避免测试触碰真实窗口。
+        exit_patcher.start()
+        self.addCleanup(exit_patcher.stop)
 
     def _patch_common(self):
         """返回公共补丁栈：已确保在方舟界面、企业塔流程置空。"""
@@ -711,7 +755,7 @@ class TestEnsureLobby(_DebugOffTestCase):
 
 class TestNavToArk(_DebugOffTestCase):
     """_nav_to_ark 分支回归：实机事故（2026-08-25 02:19 日志）——企业塔收尾返回方舟的过场动画期间
-    单帧 is_screen("ark") 失败，且方舟页没有 common_back/common_home 按钮，被误判为冷启动，
+    单帧 is_screen("ark") 与 common_back/common_home 检测均未命中（动画中按钮尚未出现），被误判为冷启动，
     卡在 wait_until_lobby_after_start 空等大厅 60 秒以上（游戏实际已停在方舟页）。"""
 
     task_class = ArkTask
@@ -832,11 +876,16 @@ class TestArkTaskRookieArena(_DebugOffTestCase):
         self.task.config["新人竞技场"] = True  # 新人竞技场子流程测试统一开启。
         self.task.config["对手选择策略"] = self.task.default_config["对手选择策略"]
         self.task.config["特殊竞技场"] = False  # 关闭特殊竞技场子流程，隔离新人竞技场测试。
+        self.task.config["收取排名奖励"] = False  # 关闭收取排名奖励子流程，隔离新人竞技场测试。
         self.task.clear_done("tribe_tower")
         self.task.clear_done("simulation")
         self.task.clear_done("rookie_arena")
         self.task.clear_done("special_arena")
+        self.task.clear_done("ranking_reward")
         self.task.failed_towers = []
+        exit_patcher = patch.object(self.task, "_exit_to_lobby")  # 拦截主流程收尾返回大厅步骤，避免测试触碰真实窗口。
+        exit_patcher.start()
+        self.addCleanup(exit_patcher.stop)
 
     def test_skip_when_disabled(self):
         self.task.config["新人竞技场"] = False  # 用户未启用新人竞技场。
@@ -1031,11 +1080,16 @@ class TestArkTaskSpecialArena(_DebugOffTestCase):
         self.task.config["新人竞技场"] = False  # 关闭新人竞技场子流程，隔离特殊竞技场测试。
         self.task.config["对手选择策略"] = self.task.default_config["对手选择策略"]
         self.task.config["特殊竞技场"] = True  # 特殊竞技场子流程测试统一开启。
+        self.task.config["收取排名奖励"] = False  # 关闭收取排名奖励子流程，隔离特殊竞技场测试。
         self.task.clear_done("tribe_tower")
         self.task.clear_done("simulation")
         self.task.clear_done("rookie_arena")
         self.task.clear_done("special_arena")
+        self.task.clear_done("ranking_reward")
         self.task.failed_towers = []
+        exit_patcher = patch.object(self.task, "_exit_to_lobby")  # 拦截主流程收尾返回大厅步骤，避免测试触碰真实窗口。
+        exit_patcher.start()
+        self.addCleanup(exit_patcher.stop)
 
     def test_skip_when_disabled(self):
         self.task.config["特殊竞技场"] = False  # 用户未启用特殊竞技场。
@@ -1173,6 +1227,124 @@ class TestArkTaskSpecialArena(_DebugOffTestCase):
             pre()  # 再次调用：已补点，不再重复。
         self.assertEqual(2, click_mock.call_count)  # 首次点击 + 一次补点。
         self.assertEqual("special_arena", click_mock.call_args_list[1].args[0])  # 补点仍是入口特征。
+
+
+class TestArkTaskRankingReward(_DebugOffTestCase):
+    """收取排名奖励子流程测试：覆盖成功/跳过/失败/红点缺失/奖励不可用等主要分支。"""
+
+    task_class = ArkTask
+
+    config = config
+
+    def setUp(self):
+        super().setUp()
+        _isolate_task_config(self.task, 'ArkTask')
+        self.task.config["企业塔"] = False  # 关闭企业塔子流程，隔离排名奖励测试。
+        self.task.config["关闭自动爬塔"] = self.task.default_config["关闭自动爬塔"]
+        self.task.config["模拟室"] = False  # 关闭模拟室子流程，隔离排名奖励测试。
+        self.task.config["新人竞技场"] = False  # 关闭新人竞技场子流程，隔离排名奖励测试。
+        self.task.config["特殊竞技场"] = False  # 关闭特殊竞技场子流程，隔离排名奖励测试。
+        self.task.config["收取排名奖励"] = True  # 排名奖励子流程测试统一开启。
+        self.task.clear_done("tribe_tower")
+        self.task.clear_done("simulation")
+        self.task.clear_done("rookie_arena")
+        self.task.clear_done("special_arena")
+        self.task.clear_done("ranking_reward")
+        exit_patcher = patch.object(self.task, "_exit_to_lobby")  # 拦截主流程收尾返回大厅步骤，避免测试触碰真实窗口。
+        exit_patcher.start()
+        self.addCleanup(exit_patcher.stop)
+
+    def test_skip_when_disabled(self):
+        self.task.config["收取排名奖励"] = False  # 用户未启用收取排名奖励。
+        with patch.object(self.task, "_do_ranking_reward_flow", side_effect=AssertionError("不应执行收取排名奖励流程")), \
+                patch.object(self.task, "_nav_to_ark"):
+            self.task.run()
+        self.assertFalse(self.task.is_done("ranking_reward", "day"))
+
+    def test_skip_when_already_done(self):
+        self.task.mark_done("ranking_reward", "day")  # 标记本周期已完成。
+        with patch.object(self.task, "_do_ranking_reward_flow", side_effect=AssertionError("不应执行收取排名奖励流程")), \
+                patch.object(self.task, "_nav_to_ark"):
+            self.task.run()
+        self.assertTrue(self.task.is_done("ranking_reward", "day"))
+
+    def test_success_marks_done(self):
+        with patch.object(self.task, "_nav_to_ark"), \
+                patch.object(self.task, "_do_ranking_reward_flow") as flow_mock:
+            self.task.run()
+        flow_mock.assert_called_once()
+        self.assertTrue(self.task.is_done("ranking_reward", "day"))
+
+    def test_failure_not_marked_done(self):
+        with patch.object(self.task, "try_step", side_effect=[True, False]):
+            self.task.run()
+        self.assertFalse(self.task.is_done("ranking_reward", "day"))
+
+    def test_flow_no_red_dot_stays_at_ark(self):
+        """无红点分支：不点击任何入口，直接在方舟界面收尾（由调用方标记完成）。"""
+        with patch.object(self.task, "_nav_to_ark"), \
+                patch.object(self.task, "find_red_dot", return_value=None) as red_dot_mock, \
+                patch.object(self.task, "transition", side_effect=AssertionError("无红点时不应进入排名界面")), \
+                patch.object(self.task, "click_box", side_effect=AssertionError("无红点时不应点击")):
+            self.task._do_ranking_reward_flow()
+        red_dot_mock.assert_called_once_with("box_ark_ranking_badge")  # 红点判定区域入参锁定。
+
+    def test_flow_reward_unavailable_backs_out_without_claim(self):
+        """奖励不可用分支：进入排名界面后判态为灰白，不领取，返回方舟。"""
+        red_dot = Box(1387, 804, 36, 45, confidence=1, name="red_dot")  # 排名徽标红点。
+        reward_box = Box(1800, 600, 120, 40, confidence=1, name="box_ark_ranking_reward_feature")  # 奖励判定区域。
+        with patch.object(self.task, "_nav_to_ark"), \
+                patch.object(self.task, "find_red_dot", return_value=red_dot), \
+                patch.object(self.task, "transition") as transition_mock, \
+                patch.object(self.task, "get_box_by_name", return_value=reward_box), \
+                patch.object(self.task, "is_feature_enabled", return_value=False) as enabled_mock, \
+                patch.object(self.task, "click_box", side_effect=AssertionError("不可用时不应点击奖励区域")), \
+                patch.object(self.task, "dismiss_all_popups", side_effect=AssertionError("不可用时不应清弹窗")), \
+                patch.object(self.task, "wait_click_feature") as click_mock, \
+                patch.object(self.task, "assert_screen", return_value=True) as assert_mock:
+            self.task._do_ranking_reward_flow()
+        transition_mock.assert_called_once_with("ark_ranking", click_feature="ark_ranking",
+                                                wait_confirm=10, after_sleep=1)  # 点击排名入口并确认进入排名界面。
+        enabled_mock.assert_called_once_with(reward_box)  # 判态入参应为奖励区域。
+        click_mock.assert_called_once_with("common_back", raise_if_not_found=True, after_sleep=1)  # 仅一次返回点击。
+        assert_mock.assert_called_once_with("ark")  # 断言回到方舟界面（基类原语默认超时 10 秒）。
+
+    def test_flow_reward_region_missing_treated_unavailable(self):
+        """奖励区域特征缺失（coco 异常）时按不可用处理，直接返回方舟。"""
+        red_dot = Box(1387, 804, 36, 45, confidence=1, name="red_dot")  # 排名徽标红点。
+        with patch.object(self.task, "_nav_to_ark"), \
+                patch.object(self.task, "find_red_dot", return_value=red_dot), \
+                patch.object(self.task, "transition"), \
+                patch.object(self.task, "get_box_by_name", side_effect=ValueError("missing")), \
+                patch.object(self.task, "is_feature_enabled", side_effect=AssertionError("区域缺失时不应判态")), \
+                patch.object(self.task, "click_box", side_effect=AssertionError("区域缺失时不应点击")), \
+                patch.object(self.task, "dismiss_all_popups", side_effect=AssertionError("区域缺失时不应清弹窗")), \
+                patch.object(self.task, "wait_click_feature"), \
+                patch.object(self.task, "assert_screen", return_value=True):
+            self.task._do_ranking_reward_flow()
+
+    def test_flow_claims_reward_and_backs_out(self):
+        """成功分支：进入排名界面→判态可用→点击奖励区域→清弹窗→返回方舟。"""
+        red_dot = Box(1387, 804, 36, 45, confidence=1, name="red_dot")  # 排名徽标红点。
+        reward_box = Box(1800, 600, 120, 40, confidence=1, name="box_ark_ranking_reward_feature")  # 奖励判定区域。
+        with patch.object(self.task, "_nav_to_ark"), \
+                patch.object(self.task, "find_red_dot", return_value=red_dot), \
+                patch.object(self.task, "transition"), \
+                patch.object(self.task, "get_box_by_name", return_value=reward_box), \
+                patch.object(self.task, "is_feature_enabled", return_value=True), \
+                patch.object(self.task, "click_box") as click_box_mock, \
+                patch.object(self.task, "dismiss_all_popups") as dismiss_mock, \
+                patch.object(self.task, "wait_click_feature") as click_mock, \
+                patch.object(self.task, "assert_screen", return_value=True) as assert_mock:
+            self.task._do_ranking_reward_flow()
+        click_box_mock.assert_called_once_with(reward_box, after_sleep=2)  # 点击可领取的奖励区域。
+        dismiss_mock.assert_called_once()  # 领取后必出奖励遮罩，等待并清理（默认 wait_for_popup=True）。
+        click_mock.assert_called_once_with("common_back", raise_if_not_found=True, after_sleep=1)  # 返回方舟。
+        assert_mock.assert_called_once_with("ark")  # 断言已回到方舟界面（基类原语默认超时 10 秒）。
+
+    def test_ranking_screen_registered(self):
+        self.assertIn("ark_ranking", self.task.screens)  # 排名界面已注册。
+        self.assertEqual(["ark_ranking_page"], self.task.screens["ark_ranking"]["features"])  # 以页面特征判定。
 
 
 if __name__ == '__main__':

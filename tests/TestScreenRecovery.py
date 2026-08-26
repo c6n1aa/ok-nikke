@@ -22,12 +22,13 @@ class TestScreenRecovery(TaskTestCase):
         self.task.register_screen("lobby", features=["ark"])
 
     def test_global_screens_registry_matches_migrated_specs(self):
-        # 集中式注册表收录全部 13 个界面：9 个迁移自任务 __init__、3 个竞技场界面，外加冷启动正向锚点 login_page。
+        # 集中式注册表收录全部 15 个界面：9 个迁移自任务 __init__、3 个竞技场界面、商店与方舟排名子页面，外加冷启动正向锚点 login_page。
         expected = {
             "lobby": {"features": ["ark", "lobby"]},
             "ark": {"features": ["ark_tribe_tower", "ark_simulation_room"]},
             "tribe_tower": {"features": ["tribe_tower_mark"]},
             "simulation_room": {"features": ["simulation_mark"]},
+            "shop": {"keywords": ["百货商店"], "ocr_box": "box_sub_pages_title"},
             "cash_shop": {"keywords": ["付费商店"], "ocr_box": "box_sub_pages_title"},
             "coop_page": {"features": ["coop_page"]},
             "coop_nikke_select_page": {"features": ["coop_nikke_select_page"]},
@@ -36,6 +37,7 @@ class TestScreenRecovery(TaskTestCase):
             "arena": {"features": ["arena_page"]},
             "rookie_arena": {"features": ["rookie_arena_page"]},
             "special_arena": {"features": ["special_arena_page"]},
+            "ark_ranking": {"features": ["ark_ranking_page"]},
             "login_page": {"keywords": [LOGIN_PAGE_PATTERN], "ocr_box": "box_enter_game"},
         }
         self.assertEqual(list(expected), list(SCREENS))  # 顺序敏感：current_screen 按插入顺序首命中。

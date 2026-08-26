@@ -37,7 +37,8 @@ _ROOKIE_CP_ENCOUNTER_PAIRS = (
 
 class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截战/竞技场等子流程。
 
-    done_keys = {"tribe_tower": "day", "simulation": "day", "rookie_arena": "day", "special_arena": "day"}  # 完成状态：企业塔/模拟室/新人竞技场/特殊竞技场（日常刷新）。
+    done_keys = {"tribe_tower": "day", "simulation": "day", "rookie_arena": "day", "special_arena": "day",
+                 "ranking_reward": "day"}  # 完成状态：企业塔/模拟室/新人竞技场/特殊竞技场/排名奖励（日常刷新）。
 
     def __init__(self, *args, **kwargs):  # 初始化任务元数据与配置。
         super().__init__(*args, **kwargs)  # 必须先调用父类初始化。
@@ -51,6 +52,7 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
             "新人竞技场": True,  # 使用每天5次的免费战斗（启用此功能请先配置好队伍）。
             "对手选择策略": True,  # 优先选择稳定战力压制的对手；关闭则固定选择最下面的对手。
             "特殊竞技场": True,  # 收取特殊竞技场累计奖励。
+            "收取排名奖励": True,  # 进入排名界面领取排名奖励。
         })
         self.config_description.update({  # 每个配置项的帮助文本。
             "企业塔": "是否执行企业塔（无限之塔）子流程。",
@@ -59,6 +61,7 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
             "新人竞技场": "使用每天5次的免费战斗（启用此功能请先配置好队伍）。",
             "对手选择策略": "优先选择稳定战力压制的对手（己方战力 * 0.846 > 对手战力）；关闭则固定选择最下面的对手。",
             "特殊竞技场": "收取特殊竞技场累计奖励。",
+            "收取排名奖励": "进入排名界面领取排名奖励。",
         })
         self.config_type.update({  # 配置类型与显隐控制：布尔开关联动子配置显隐（参考 ShopTask）。
             "企业塔": {  # 布尔开关，启用时才展开企业塔配置。
@@ -75,7 +78,7 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
             },
         })
 
-    def run(self):  # 任务执行入口：先统一进入方舟，再依次执行各子流程。
+    def run(self):  # 任务执行入口：先统一进入方舟，依次执行各子流程，最后返回大厅。
         self.log_info("方舟任务开始。")  # 记录任务开始。
         self.failed_towers = []  # 重置本次运行的失败塔记录，避免残留上次数据。
         if not self.try_step(self._nav_to_ark, name="进入方舟", raise_on_fail=False):  # 统一入口：确认进入方舟界面，失败则中止整个任务。
@@ -85,6 +88,8 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
         self._do_simulation()  # 执行模拟室子流程。
         self._do_rookie_arena()  # 执行新人竞技场子流程。
         self._do_special_arena()  # 执行特殊竞技场子流程。
+        self._do_ranking_reward()  # 执行收取排名奖励子流程。
+        self._exit_to_lobby()  # 各子流程收尾均回到方舟界面，此处统一返回大厅收尾（基类幂等实现）。
 
     def _nav_to_ark(self):  # 导航到方舟界面（幂等入口闸门，供子流程开头与统一入口复用）。
         self.ensure_screen("ark", click_feature="ark", wait_confirm=10, after_sleep=1)  # 过场动画容忍、弹窗清理与恢复/冷启动分流均在 ensure_screen 内。
@@ -156,8 +161,7 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
 
     def _exit_simulation_to_ark(self):  # 退出模拟室返回方舟：simulation_close 只能关闭战斗确认弹窗，无法退出模拟室，必须走 common_back。
         self.assert_screen("simulation_room", time_out=10)  # 确认当前处于模拟室界面。
-        self.wait_click_feature("common_back", raise_if_not_found=True, after_sleep=1)  # 点击返回按钮退出模拟室，返回方舟界面。
-        self.assert_screen("ark", time_out=10)  # 断言已回到方舟界面，模拟室子流程到此才算结束。
+        self._back_through_screens("ark")  # 点击返回按钮并断言已回到方舟界面，模拟室子流程到此才算结束。
 
     def _do_tribe_tower_flow(self):  # 企业塔整体流程：确保在方舟→无限之塔→逐塔挑战→返回方舟。
         self._nav_to_ark()  # 确保处于方舟界面（正常已就位；失败恢复回大厅后由此重新进入）。
@@ -295,7 +299,7 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
         hit = self._click_entry_race_closed("rookie_arena", "rookie_arena")  # 点击新人竞技场入口并赛跑确认（目标界面 vs 赛季结束横幅）。
         if hit == "closed":  # 休赛期：入口在画面但已关闭，点击只弹出赛季结束横幅。
             self.log_info("新人竞技场赛季已结束，本周期视为已完成。")  # 记录休赛期收尾。
-            self._back_to_ark_from_arena()  # 从竞技场界面返回方舟。
+            self._back_through_screens("ark")  # 未进入子页面，从竞技场界面一次返回方舟。
             return  # 正常返回，由调用方标记本周期已完成。
         if hit is None:  # 既未进入目标界面也未出现横幅：视为真实导航异常。
             raise WaitFailedException("新人竞技场入口点击后既未进入也未提示赛季结束")  # 抛异常由 try_step 恢复重试。
@@ -311,7 +315,7 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
             if target is None:  # 刷新用尽仍未找到战力压制对手。
                 break  # 结束循环（标记完成由调用方统一处理）。
             self._rookie_arena_fight(target)  # 挑战所选对手并等待战斗结束，回到新人竞技场界面。
-        self._back_to_ark_via_arena()  # 逐级返回到方舟界面。
+        self._back_through_screens("arena", "ark")  # 逐级返回到方舟界面。
 
     def _rookie_arena_pick_opponent(self):  # 按配置选择对手：策略关闭固定选最下面；开启时选稳定战力压制对手，否则刷新对手列表（最多10次）。
         if not self.config.get("对手选择策略"):  # 对手选择策略已关闭。
@@ -408,29 +412,54 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
         # 亚秒级瞬态信号永远无法满足，必须 settle_time=0 首帧命中即短路。
         return self.wait_until(_race, time_out=time_out, pre_action=_reclick_if_stalled, settle_time=0)
 
-    def _back_to_ark_from_arena(self):  # 从竞技场界面返回方舟（休赛期收尾用：未进入子页面，只需一次返回）。
-        self.wait_click_feature("common_back", raise_if_not_found=True, after_sleep=1)  # 点击返回按钮回到方舟界面。
-        self.assert_screen("ark", time_out=10)  # 断言已回到方舟界面。
+    def _do_ranking_reward(self):  # 排名奖励子流程：方舟→排名→领取排名奖励→返回方舟。
+        if not self.config.get("收取排名奖励"):  # 用户未启用收取排名奖励子流程。
+            self.log_info("收取排名奖励未开启，跳过。")  # 记录跳过原因。
+            return  # 结束本子流程。
+        if self.is_done("ranking_reward", "day"):  # 本周期内已完成则直接跳过。
+            self.log_info("今日排名奖励已完成，跳过。")  # 记录跳过原因。
+            return  # 结束本子流程。
+        success = self.try_step(  # 排名奖励整体流程以方舟为起点，用恢复协议包裹。
+            lambda: self._do_ranking_reward_flow(),  # 执行收取排名奖励流程。
+            name="收取排名奖励",  # 步骤名用于日志与失败截图。
+            raise_on_fail=False,  # 多次失败后跳过而非抛异常。
+        )
+        if not success:  # 流程多次失败。
+            self.log_warning("收取排名奖励流程多次失败，跳过。")  # 记录跳过原因。
+            return  # 不标记完成，下次可重试。
+        self.mark_done("ranking_reward", "day")  # 记录本周期已完成。
+        self.log_info("收取排名奖励任务完成。")  # 记录子流程完成。
+
+    def _do_ranking_reward_flow(self):  # 排名奖励整体流程：确保在方舟→红点判断→进入排名→奖励可用性判断→领取→返回方舟。
+        self._nav_to_ark()  # 确保处于方舟界面（正常已就位；失败恢复回大厅后由此重新进入）。
+        red_dot = self.find_red_dot("box_ark_ranking_badge")  # 在排名入口徽标区域检测通知红点。
+        if red_dot is None:  # 无红点说明没有可领取的排名奖励，此时仍处于方舟界面。
+            return  # 结束本流程（由调用方统一标记完成）。
+        self.transition("ark_ranking", click_feature="ark_ranking", wait_confirm=10, after_sleep=1)  # 点击排名入口并确认已进入排名界面。
+        try:  # 奖励区域特征可能缺失。
+            reward_box = self.get_box_by_name("box_ark_ranking_reward_feature")  # 获取奖励可领取判定区域（box_ 前缀纯坐标区域）。
+        except ValueError:  # 特征缺失。
+            reward_box = None  # 视为不可用。
+        if reward_box is None or not self.is_feature_enabled(reward_box):  # 区域缺失或灰白禁用态说明无可领取奖励。
+            self._back_through_screens("ark")  # 返回方舟界面。
+            return  # 结束本流程（由调用方统一标记完成）。
+        self.click_box(reward_box, after_sleep=2)  # 点击可领取的排名奖励区域。
+        self.dismiss_all_popups(time_out=10)  # 领取后必然弹出奖励遮罩弹窗，等待其出现并全部清理。
+        self._back_through_screens("ark")  # 返回方舟收尾。
 
     def _do_special_arena_flow(self):  # 特殊竞技场整体流程：竞技场→特殊竞技场→领取累计奖励→逐级返回方舟。
         self._nav_to_arena()  # 确保处于竞技场界面（正常已就位；失败恢复回大厅后由此重新进入）。
         hit = self._click_entry_race_closed("special_arena", "special_arena")  # 点击特殊竞技场入口并赛跑确认。
         if hit == "closed":  # 休赛期：入口在画面但已关闭，点击只弹出赛季结束横幅。
             self.log_info("特殊竞技场赛季已结束，本周期视为已完成。")  # 记录休赛期收尾。
-            self._back_to_ark_from_arena()  # 从竞技场界面返回方舟。
+            self._back_through_screens("ark")  # 未进入子页面，从竞技场界面一次返回方舟。
             return  # 正常返回，由调用方标记本周期已完成。
         if hit is None:  # 既未进入目标界面也未出现横幅：视为真实导航异常。
             raise WaitFailedException("特殊竞技场入口点击后既未进入也未提示赛季结束")  # 抛异常由 try_step 恢复重试。
         self.click_box("box_special_arena_reward", raise_if_not_found=True, after_sleep=2)  # 点击累计奖励区域打开奖励弹窗（box_ 前缀特征为纯坐标区域）。
         self.wait_click_feature("special_arena_reward_claim", raise_if_not_found=True, after_sleep=2)  # 点击领取按钮收取累计奖励。
         self.dismiss_all_popups(wait_for_popup=False, time_out=10)  # 清理领取后弹出的奖励遮罩弹窗。
-        self._back_to_ark_via_arena()  # 逐级返回到方舟界面。
-
-    def _back_to_ark_via_arena(self):  # 逐级返回：竞技场子页面→竞技场界面→方舟界面。
-        self.wait_click_feature("common_back", raise_if_not_found=True, after_sleep=1)  # 点击返回按钮回到竞技场界面。
-        self.assert_screen("arena", time_out=10)  # 断言已回到竞技场界面。
-        self.wait_click_feature("common_back", raise_if_not_found=True, after_sleep=1)  # 点击返回按钮回到方舟界面。
-        self.assert_screen("ark", time_out=10)  # 断言已回到方舟界面。
+        self._back_through_screens("arena", "ark")  # 逐级返回到方舟界面。
 
     def _under_daily(self):  # 判断当前是否由日常任务编排执行（日常里统一在全部子任务完成后提醒）。
         executor = getattr(og, "executor", None)  # 读取全局执行器。
