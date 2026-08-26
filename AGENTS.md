@@ -15,7 +15,7 @@ ok-nikke-maid 是基于 PyPI `ok-script`（2.x）构建的《NIKKE》Windows 客
 
 - **界面识别/导航/恢复**（详见 `docs/screen-and-recovery.md`）：界面统一注册在 `src/screens.py` 的 `SCREENS`（不在任务 `__init__` 里 `register_screen`）；「点入口→确认进入」用 `transition()`；子流程开头闸门用 `ensure_screen()`；失败恢复用 `try_step` 包入口方法**一层**（内部步骤不逐个包，禁止手写重试/回大厅）。范例：`DailyTask.run` 开头就位大厅、`ArkTask` 各 `_do_*`/`_nav_*` 入口方法。
 - **完成状态**：声明 `done_keys = {key: period}`（如 `{"harvest": "day"}`），基类给 `is_completed()`/`clear_done_all()`，自动接 UI；纯编排/调试任务（`DailyTask`/`DebugTask`）不定义。
-- **模板匹配**：`assets/template/` 小图（铃铛、关闭按钮等）用 `find_scaled_template(...)` 缩放后匹配，禁止未缩放模板直接传 `find_one`/`find_feature`。
+- **模板匹配 / coco 标注**：`assets/coco_annotations.json` 是 COCO 格式——`images[].file_name` 指向图集 `images/*.png`、`annotations[].bbox` 是图集坐标（非游戏画面坐标）、`categories[].name` 是特征名，运行时由 `FeatureSet` 按当前分辨率缩放匹配。`assets/template/` 小图（铃铛、关闭按钮等）用 `find_scaled_template(...)` 缩放后匹配，禁止未缩放模板直接传 `find_one`/`find_feature`。
 - **任务 UI 数据驱动**：改用户看到的内容就改任务属性（`name`/`description`/`default_config`/`config_type` 等），不手写控件；新增 `config_type` 需同步 `ConfigItemFactory` 工厂分支。标准范例见 `src/tasks/MyOneTimeTask.py`。
 
 ## 架构概览
@@ -45,7 +45,7 @@ ok-nikke-maid 是基于 PyPI `ok-script`（2.x）构建的《NIKKE》Windows 客
 
 - 任务 UI 字符串直接写简体中文，不做 i18n（框架 `og.app.tr()` 查不到原样返回）。
 - 非必要不手写 `self.sleep`：等待优先挂在框架 API 的 `after_sleep`/`time_out` 参数上，写在产生界面变化的那个调用的挂点处。
-- 技能（`.agents/skills/`）：任务类 `ok-script-tasks`；`run()` 逻辑 `ok-script-codegen`；翻译 `ok-script-i18n`；跑 Python `use-local-venv`。
+- 技能（`.agents/skills/`）：任务类 `ok-script-tasks`；`run()` 逻辑 `ok-script-codegen`；翻译 `ok-script-i18n`；跑 Python `use-local-venv`。查 ok-script 框架 API：venv `ok` 包源码、`docs/api_doc/README.md`、`.agents/skills/ok-script-tasks/references/`。
 - 提交信息用 Conventional Commits：`type(scope): 英文主题`。
 
 ## 测试策略
