@@ -108,7 +108,7 @@ self.try_step(step_fn, name=None, retries=2, recover=True, raise_on_fail=True) -
 
 ## 长等待与中断哨兵
 
-- 自动战斗结束等待用 `wait_battle_finish(time_out=240, check_interval=3, settle_time=2)`（节流轮询、只检测不点击，返回 `("success", esc)` / `("failed", back)` / `(None, None)`，后续动作由调用方决定）。长时间等战斗不要用 `wait_feature`/`wait_ocr` 忙轮询。
+- 自动战斗结束等待用 `wait_battle_finish(time_out=240, check_interval=3, settle_time=2)`（节流轮询、只检测不点击：胜利结算对 `box_battle_finish_text` 区域 OCR 识别 ESC 文字，`box_battle_finish_bottom_right` 内 `battle_finish_statistics` 兜底，命中后稳定化再返回；返回 `("success", text_box)`——可点击框统一为 `box_battle_finish_text` 区域，`("failed", back)` / `(None, None)`，后续动作由调用方决定）。长时间等战斗不要用 `wait_feature`/`wait_ocr` 忙轮询。
 - 中断哨兵：`wait_battle_finish` 与 `RaidTask` 的 60s 匹配等待在每轮轮询中先查 `src/screens.py` 的 `INTERRUPTS["features"]`，命中即抛 `InterruptedByDialogException`（继承 `WaitFailedException`，`try_step` 自动兼容）。清单当前为空 = 未激活、零开销。
 - 实机遇到断线/维护/登录过期弹窗：先把弹窗特征标注进 coco，再把特征名加入 `INTERRUPTS["features"]`，并给 `tests/TestBattleWait.py` 加对应用例。
 

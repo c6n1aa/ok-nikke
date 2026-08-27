@@ -120,6 +120,7 @@ config = {
         ["src.tasks.ArkTask", "ArkTask"],
         ["src.tasks.RaidTask", "RaidTask"],
         ["src.tasks.DebugTask", "DebugTask"],
+        ["src.tasks.MyOneTimeTask", "MyOneTimeTask"],
         ["ok", "DiagnosisTask"],
     ],
     'trigger_tasks': [  # 后台任务，可随时开启/关闭

@@ -99,9 +99,9 @@ class RaidTask(NikkeBaseTask):  # 定义讨伐任务类，包含协同作战与�
             if result is None:  # 超时未检测到结算界面。
                 raise WaitFailedException("等待协同作战战斗结束超时")  # 抛异常由 try_step 恢复。
             if confirm_box is not None:  # 命中结算确认框。
-                self.click_box(confirm_box, after_sleep=1)  # M 点击 battle_finish_esc（或失败返回框）返回协同作战页。
+                self.click_box(confirm_box, after_sleep=1)  # M 点击胜利结算的 box_battle_finish_text 区域（或失败返回框）返回协同作战页。
             else:  # 兜底：未返回确认框。
-                self.wait_click_feature("battle_finish_esc", time_out=10, raise_if_not_found=True, after_sleep=1)  # 兜底点击胜利确认。
+                self.click_box("box_battle_finish_text", after_sleep=1)  # 兜底点击胜利结算确认区域。
             self.assert_screen("coop_page")  # 循环回到 C：确认已回到协同作战页面。
         # 循环结束，尝试返回大厅。
         try:  # 返回大厅容错。
@@ -149,9 +149,9 @@ class RaidTask(NikkeBaseTask):  # 定义讨伐任务类，包含协同作战与�
         if result is None:  # 超时未检测到结算界面。
             raise WaitFailedException("等待个人突袭战斗结束超时")  # 抛异常由 try_step 捕获恢复。
         if confirm_box is not None:  # 命中结算确认框。
-            self.click_box(confirm_box, after_sleep=1)  # M 点击战斗结束后的 esc（或失败返回框）。
+            self.click_box(confirm_box, after_sleep=1)  # M 点击战斗结束后的 box_battle_finish_text 区域（或失败返回框）。
         else:  # 兜底：未返回确认框。
-            self.wait_click_feature("battle_finish_esc", time_out=10, raise_if_not_found=True, after_sleep=1)  # 兜底点击胜利确认。
+            self.click_box("box_battle_finish_text", after_sleep=1)  # 兜底点击胜利结算确认区域。
         self.wait_feature("solo_raid_battle_finish", time_out=15, raise_if_not_found=True)  # R 等待识别战斗结果页出现。
         self.transition("solo_raid_page", click_feature="solo_raid_battle_finish_confirm", time_out=10, wait_confirm=10, after_sleep=1)  # N 识别并点击结果确认，确认回到个人突袭首页。
 

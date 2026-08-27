@@ -25,7 +25,7 @@ ok-nikke-maid 是基于 PyPI `ok-script`（2.x）构建的《NIKKE》Windows 客
 - `src/screens.py`：界面识别单一数据源（`SCREENS` 注册表 + `INTERRUPTS` 中断哨兵）。
 - `src/ui/`：自定义 tab（当前仅 `DailyTab`，经 `src/config.py` 的 `custom_tabs` 注册）。
 - 资产：`assets/coco_annotations.json`（COCO 标注）+ `assets/images/`（图集）+ `assets/template/`（手动裁剪小图）。
-- 运行时产物（`configs/`/`logs/`/`screenshots/` 等）与框架本体（`ok/` 等）不入仓，以 `.gitignore` 为准；一次性脚本/中间产物放 `dev_tools/`（已 gitignore），XAL 标注导入在 `scripts/import_xal.py`。
+- 运行时产物（`configs/`/`logs/`/`screenshots/` 等）与框架本体（`ok/` 等）不入仓，以 `.gitignore` 为准；开发时使用或生产的一次性脚本/中间产物放 `dev_tools/`（已 gitignore），XAL 标注导入在 `scripts/import_xal.py`。
 - CI：`.github/workflows/build.yml`（监听 `v*` tag → 测试+打包+Release）、`docs.yml`（部署 mkdocs）。
 
 ## 环境与命令

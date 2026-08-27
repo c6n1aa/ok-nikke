@@ -279,18 +279,21 @@ class NikkeBaseTask(BaseTask):
         self.log_warning(f"等待进入游戏大厅超时（{time_out}秒）。")  # 记录超时原因。
         return False  # 返回失败，由调用方决定是否中止后续流程。
 
+    _BATTLE_FINISH_ESC_PATTERN = re.compile(r"\bESC\b", re.IGNORECASE)  # 结算界面 ESC 确认文字（OCR 部分匹配，忽略大小写）。
+
     def wait_battle_finish(self, time_out=240, check_interval=3, settle_time=2):
         """节流轮询等待自动战斗结束，返回 (结果, 确认按钮框)，不自动点击。
 
         战斗时长不确定（约10秒~3分钟）：每 check_interval 秒才刷新一帧做单次
-        模板匹配；命中结算界面后先等待 settle_time 秒让结算入场动画收尾，再刷新
-        一帧重新定位确认按钮并返回——结算界面刚出现时按钮坐标仍在漂移，直接返回
-        会导致调用方点击落空。超时返回 (None, None)。避免用 wait_feature 等
+        检测；命中结算界面后先等待 settle_time 秒让结算入场动画收尾，再刷新
+        一帧复识别确认仍在结算界面并返回——结算界面刚出现时直接返回会让调用方
+        在动画期间误操作。超时返回 (None, None)。避免用 wait_feature 等
         忙轮询长时间对游戏窗口持续抓帧/匹配，与游戏抢 CPU。
 
-        正常结束：识别 battle_finish_esc（ESC 确认提示，图标粗壮跨分辨率可靠；
-        battle_finish_reward 为细笔画文字，实测在非原生分辨率下缩放后匹配分
-        仅约 0.45，不可作为判据）。
+        正常结束：对 box_battle_finish_text 区域 OCR 识别 ESC 确认文字
+        （区域框随分辨率等比缩放，比图标模板跨分辨率更可靠）。OCR 未命中时在
+        box_battle_finish_bottom_right 区查找 battle_finish_statistics 兜底判定
+        胜利。两条胜利路径返回的可点击框统一为 box_battle_finish_text 区域框。
         战斗失败：同时识别 battle_finish_failed 与 battle_finish_failed_back。
 
         此处只检测不点击——战斗结束后的动作由调用方决定（连续战斗的胜利界面
@@ -298,7 +301,7 @@ class NikkeBaseTask(BaseTask):
         需要点击时可直接用它。
 
         Returns:
-            ("success", esc_box) 正常结束，esc 为确认按钮框；
+            ("success", text_box) 正常结束，text_box 为 box_battle_finish_text 区域框；
             ("failed", failed_back_box) 战斗失败，failed_back_box 为返回按钮框；
             (None, None) 超时。
         """
@@ -313,34 +316,77 @@ class NikkeBaseTask(BaseTask):
                 self.save_failure_screenshot("interrupt")  # 保存中断现场截图便于排查。
                 self.log_warning("检测到致命中断弹窗，中止长等待。")  # 记录中断原因。
                 raise InterruptedByDialogException("long wait interrupted by dialog")  # 由 try_step 按等待失败恢复。
-            v_variance = 100 / 1440  # Y 轴上下各扩展约 100 像素（以 2560x1440 为基准的相对比例，随分辨率等比缩放；不同战斗结算界面的 ESC 位置可能上下偏移）。
-            esc = self.find_one("battle_finish_esc", vertical_variance=v_variance)  # 纵向扩大搜索范围匹配正常结束确认按钮特征（粗壮图标，跨分辨率可靠）。
-            if esc is not None:  # 正常战斗结束。
-                esc = self._stabilize_battle_finish_box(esc, v_variance, settle_time=settle_time)  # 等结算动画收尾后重新定位 esc，避免返回漂移中的坐标。
+            # 胜利判定主路径：对 box_battle_finish_text 区域 OCR 识别 ESC 确认文字。
+            text_box = self._battle_finish_text_box()  # 获取结算文字区域框（coco 坐标区域，按当前分辨率缩放；特征缺失为 None）。
+            if text_box is not None and self._esc_visible(text_box):  # 该区域命中 ESC 文字，判定正常结束。
+                confirm = self._stabilize_battle_finish_box(text_box, settle_time=settle_time)  # 等结算动画收尾后复识别确认仍在结算界面，返回统一可点击区域框。
                 self.log_info("检测到战斗胜利结算界面。")  # 记录正常结束。
-                return "success", esc  # 返回结果与确认按钮框，由调用方决定后续动作。
+                return "success", confirm  # 返回结果与确认按钮框，由调用方决定后续动作。
+            # OCR 未命中兜底：在结算右下区查找 battle_finish_statistics，命中即判胜利。
+            # 返回的可点击框仍统一为 box_battle_finish_text 区域：statistics 仅做检测，不做可点击框。
+            statistics = self.find_one("battle_finish_statistics", box="box_battle_finish_bottom_right")  # 限定在右下角结算信息区匹配统计文字特征，避免全屏误命中。
+            if statistics is not None:  # OCR 未命中但 statistics 兜底命中，判定为战斗胜利。
+                confirm = self._stabilize_battle_finish_box(text_box if text_box is not None else statistics, settle_time=settle_time)  # 等结算动画收尾后复识别确认，返回统一可点击区域框。
+                self.log_info("检测到战斗胜利结算界面（statistics 兜底）。")  # 记录经兜底判定的正常结束。
+                return "success", confirm  # 返回结果与确认按钮框，由调用方决定后续动作。
             failed = self.find_one("battle_finish_failed")  # 单帧匹配战斗失败特征。
             failed_back = self.find_one("battle_finish_failed_back")  # 单帧匹配失败返回按钮特征。
             if failed is not None and failed_back is not None:  # 战斗失败。
-                failed_back = self._stabilize_battle_finish_box(failed_back, None, failed=True, settle_time=settle_time)  # 同样等稳定后重新定位失败返回按钮。
+                failed_back = self._stabilize_battle_finish_box(failed_back, failed=True, settle_time=settle_time)  # 同样等稳定后重新定位失败返回按钮。
                 self.log_info("检测到战斗失败结算界面。")  # 记录失败结束。
                 return "failed", failed_back  # 返回结果与返回按钮框，由调用方决定后续动作。
         self.save_failure_screenshot("wait_battle_finish")  # 超时保存现场截图便于排查。
         self.log_warning(f"等待战斗结束超时（{time_out}秒）。")  # 记录超时原因。
         return None, None  # 返回超时结果。
 
-    def _stabilize_battle_finish_box(self, box, v_variance, failed=False, settle_time=2):
-        """结算界面命中后的稳定化：等待 settle_time 秒让入场动画收尾，刷新一帧重新定位同一按钮。
+    def _battle_finish_text_box(self):
+        """获取 box_battle_finish_text 结算文字区域框（coco 坐标区域，按当前分辨率缩放）。
 
-        复识别未命中（界面已自动跳转等异常）时退回原检测框，交由调用方的后续动作兜底。
+        该区域固定不随结算动画漂移，同时用作胜利结算的 OCR 检测区与统一返回的
+        可点击框；特征缺失（coco 未标注）时返回 None，由调用方跳过主路径。
+        """
+        try:  # 特征可能尚未标注进 coco。
+            return self.get_box_by_name("box_battle_finish_text")  # 按当前分辨率解析区域框。
+        except ValueError:  # 特征缺失视为区域不可用。
+            return None  # 返回 None。
+
+    def _esc_visible(self, text_box) -> bool:
+        """在 box_battle_finish_text 区域 OCR 识别 ESC 确认文字，命中返回 True。
+
+        走帧级缓存：同一帧内重复判定只真正 OCR 一次。
+        """
+        boxes = self._region_ocr_cached(self._ocr_box_key(text_box), text_box)  # 区域 OCR（同帧缓存）。
+        return bool(find_boxes_by_name(boxes, self.fix_match_regex(self._BATTLE_FINISH_ESC_PATTERN)))  # 与 ocr(match=...) 相同的部分匹配过滤。
+
+    def _victory_settle_still_visible(self) -> bool:
+        """结算稳定化后的复识别：OCR box_battle_finish_text 命中 ESC，或
+        box_battle_finish_bottom_right 内 statistics 兜底命中，即认为仍在胜利结算界面。
+
+        任一判据命中即视为仍在结算界面（防止动画一帧误命中后界面已跳走）。
+        """
+        text_box = self._battle_finish_text_box()  # 获取结算文字区域框。
+        if text_box is not None and self._esc_visible(text_box):  # 主判据仍命中。
+            return True  # 仍在胜利结算界面。
+        try:  # 主判据失配时查兜底判据。
+            return self.find_one("battle_finish_statistics", box="box_battle_finish_bottom_right") is not None  # statistics 兜底仍在。
+        except ValueError:  # 特征缺失视为未命中。
+            return False  # 返回 False。
+
+    def _stabilize_battle_finish_box(self, box, failed=False, settle_time=2):
+        """结算界面命中后的稳定化：等待 settle_time 秒让入场动画收尾，刷新一帧复识别确认仍在结算界面。
+
+        胜利结算：复识别（OCR box_battle_finish_text 命中 ESC 或 statistics 兜底命中）
+        确认仍在结算界面后返回 box_battle_finish_text 区域框——该区域固定不随动画
+        漂移，两条胜利路径统一用它作可点击框；复识别未命中（界面已自动跳转等异常）
+        时退回原检测框，交由调用方的后续动作兜底。
+        失败结算：先复核 failed 特征仍在前台，再重新定位 failed_back 返回按钮。
 
         Args:
-            box: 初次命中的按钮框（动画中，坐标可能漂移）。
-            v_variance: 胜利 esc 特征的纵向扩展比例；失败分支传 None（failed_back 无需扩展）。
-            failed: 是否为失败结算分支（复识别 failed_back 前先复核 failed 特征仍在）。
+            box: 初次命中的检测框（胜利路径为 text_box 区域框，失败路径为 failed_back 按钮框）。
+            failed: 是否为失败结算分支。
             settle_time: 稳定化等待秒数。
         Returns:
-            稳定后的按钮框；复识别未命中时为原框。
+            稳定后的可点击框；复识别未命中时为原框。
         """
         self.sleep(settle_time)  # 等待结算入场动画收尾（时长见 wait_battle_finish 的 settle_time 参数）。
         self.next_frame()  # 刷新一帧获取稳定后的结算画面。
@@ -348,9 +394,11 @@ class NikkeBaseTask(BaseTask):
             if self.find_one("battle_finish_failed") is None:  # 失败界面已不在。
                 return box  # 退回原检测框兜底。
             stable = self.find_one("battle_finish_failed_back")  # 重新定位失败返回按钮。
-        else:  # 胜利结算。
-            stable = self.find_one("battle_finish_esc", vertical_variance=v_variance)  # 重新定位 esc 按钮。
-        return stable if stable is not None else box  # 复识别命中则采用稳定坐标，否则退回原框。
+            return stable if stable is not None else box  # 复识别命中则采用稳定坐标，否则退回原框。
+        if not self._victory_settle_still_visible():  # 胜利结算：复识别确认仍在结算界面。
+            return box  # 界面已跳走，退回原检测框兜底。
+        text_box = self._battle_finish_text_box()  # 复识别通过，取统一可点击区域框。
+        return text_box if text_box is not None else box  # 区域可取则返回区域框，否则退回原框。
 
     def _hit_interrupt(self):
         """检查当前帧是否命中致命中断弹窗特征（src/screens.py 的 INTERRUPTS 清单）。

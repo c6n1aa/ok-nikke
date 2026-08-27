@@ -168,7 +168,7 @@ class TestRaidTaskCoopFlow(_DebugOffTestCase):
         coop_box = _fake_box("coop", 5, 5, 10, 10)
         count_box = _fake_box("box_coop_count", 20, 20, 30, 10)
         home_box = _fake_box("common_home", 0, 0, 5, 5)
-        esc_box = _fake_box("battle_finish_esc", 100, 100, 20, 10)
+        esc_box = _fake_box("box_battle_finish_text", 100, 100, 20, 10)
         ocr_seq = [[_fake_box("剩余次数 1/3")], [_fake_box("0/3")]]
         with patch.object(self.task, "is_screen", return_value=False), patch.object(self.task, "wait_until_lobby_after_start", return_value=True), patch.object(self.task, "dismiss_all_popups"), patch.object(self.task, "get_box_by_name", side_effect=lambda n: {"box_lobby_left_side_panel": panel, "box_coop_count": count_box}.get(n, _fake_box(n))), patch.object(self.task, "_recover_to_lobby", return_value=True), patch.object(self.task, "find_one", side_effect=lambda name, **kw: {"coop": coop_box, "common_home": home_box}.get(name)), patch.object(self.task, "click_box") as click_mock, patch.object(self.task, "wait_screen", side_effect=_ws_ensure_then_confirm()) as wait_screen_mock, patch.object(self.task, "ocr", side_effect=ocr_seq), patch.object(self.task, "wait_feature") as wait_mock, patch.object(self.task, "wait_click_feature") as wait_click_mock, patch.object(self.task, "sleep"), patch.object(self.task, "wait_battle_finish", return_value=("success", esc_box)), patch.object(self.task, "wait_for_lobby") as lobby_mock:
             self.task._do_coop_flow()
@@ -216,13 +216,13 @@ class TestRaidTaskSolo(_DebugOffTestCase):
         raid_box = _fake_box("solo_raid", 5, 5, 10, 10)
         max_btn = _fake_box("solo_raid_quick_battle_max", 30, 30, 10, 10)
         home_box = _fake_box("common_home", 0, 0, 5, 5)
-        esc_box = _fake_box("battle_finish_esc", 100, 100, 20, 10)
+        esc_box = _fake_box("box_battle_finish_text", 100, 100, 20, 10)
         find_map = {"solo_raid": raid_box, "solo_raid_quick_battle_max": max_btn, "common_home": home_box}
         clicks = []
         with patch.object(self.task, "is_screen", return_value=False), patch.object(self.task, "wait_until_lobby_after_start", return_value=True), patch.object(self.task, "dismiss_all_popups"), patch.object(self.task, "_get_panel_box", return_value=self._PANEL), patch.object(self.task, "_recover_to_lobby", return_value=True), patch.object(self.task, "wait_screen", side_effect=_ws_ensure_then_confirm()), patch.object(self.task, "wait_feature", return_value=_fake_box("page")), patch.object(self.task, "sleep"), patch.object(self.task, "next_frame"), patch.object(self.task, "click_box", side_effect=lambda box, **kw: clicks.append(box)), patch.object(self.task, "wait_for_lobby"), patch.object(self.task, "find_one", side_effect=lambda name, **kw: find_map.get(name)), patch.object(self.task, "_is_solo_raid_option_enabled", side_effect=lambda box_name: box_name == "box_solo_raid_quick_battle_feature"), patch.object(self.task, "wait_battle_finish", return_value=("success", esc_box)):
             self.task._do_solo_raid()
         names = [b if isinstance(b, str) else b.name for b in clicks]
-        self.assertEqual(["solo_raid", "box_solo_raid_quick_battle_feature", "solo_raid_quick_battle_max", "box_solo_raid_quick_battle", "battle_finish_esc", "common_home"], names)
+        self.assertEqual(["solo_raid", "box_solo_raid_quick_battle_feature", "solo_raid_quick_battle_max", "box_solo_raid_quick_battle", "box_battle_finish_text", "common_home"], names)
         self.assertNotIn("box_solo_raid_battle_feature", names)
         self.assertTrue(self.task.is_done("solo_raid", "day"))
     def test_solo_quick_battle_result_missing_raises(self):
@@ -235,7 +235,7 @@ class TestRaidTaskSolo(_DebugOffTestCase):
         confirm_box = _fake_box("solo_raid_battle_confirm", 40, 40, 10, 10)
         finish_confirm = _fake_box("solo_raid_battle_finish_confirm", 50, 50, 10, 10)
         home_box = _fake_box("common_home", 0, 0, 5, 5)
-        esc_box = _fake_box("battle_finish_esc", 100, 100, 20, 10)
+        esc_box = _fake_box("box_battle_finish_text", 100, 100, 20, 10)
         enabled_seq = [False, True, False, False]  # 第1轮：快速不可用、出战可用；第2轮：均不可用。
         wait_clicks = []
         with patch.object(self.task, "is_screen", side_effect=lambda n: n == "solo_raid_page"), patch.object(self.task, "wait_screen", return_value=True), patch.object(self.task, "click_box"), patch.object(self.task, "wait_for_lobby"), patch.object(self.task, "find_one", side_effect=lambda name, **kw: home_box if name == "common_home" else None), patch.object(self.task, "wait_click_feature", side_effect=lambda name, **kw: wait_clicks.append(name) or (confirm_box if name == "solo_raid_battle_confirm" else finish_confirm)), patch.object(self.task, "wait_feature", return_value=_fake_box("solo_raid_battle_finish")), patch.object(self.task, "wait_battle_finish", return_value=("success", esc_box)) as battle_mock, patch.object(self.task, "_is_solo_raid_option_enabled", side_effect=lambda box_name: enabled_seq.pop(0)):

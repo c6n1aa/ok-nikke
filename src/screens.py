@@ -31,6 +31,7 @@ LOGIN_PAGE_PATTERN = re.compile(r"TOUCH TO\s+CONTINUE", re.IGNORECASE)  # 登录
 
 SCREENS = {
     "lobby": {"features": ["ark", "lobby"]},
+    "login_page": {"keywords": [LOGIN_PAGE_PATTERN], "ocr_box": "box_enter_game"},
     "ark": {"features": ["ark_tribe_tower", "ark_simulation_room"]},
     "tribe_tower": {"features": ["tribe_tower_mark"]},
     "simulation_room": {"features": ["simulation_mark"]},
@@ -46,9 +47,13 @@ SCREENS = {
     "special_arena": {"features": ["special_arena_page"]},
     # 方舟相关子页面：方舟→排名。
     "ark_ranking": {"features": ["ark_ranking_page"]},
-    # 登录页（TOUCH TO CONTINUE）：正向冷启动锚点。冷启动判定由"无证据推定"
-    # 升级为"命中登录页即确证"，恢复/入口分流（ensure_screen）与未来的中断哨兵复用它。
-    "login_page": {"keywords": [LOGIN_PAGE_PATTERN], "ocr_box": "box_enter_game"},
+    # 拦截战入口双标签页：从方舟点 ark_interception 后停在通用或异常个体标签页，
+    # 两个标签页的 active/disable 特征成对消歧（当前标签显示 active，另一标签显示 disable）。
+    "interception_page": {"features": ["common_interception_active"],
+                          "keywords": ["拦截战"], "ocr_box": "box_sub_pages_title"},
+    "anomaly_interception_page": {"features": ["anomaly_interception_page", "anomaly_interception_active"]},
+    "common_interception_page": {"features": ["common_interception_page"]},
+    "anomaly_interception_team_select_page": {"features": ["anomaly_interception_team_select_page"]},
 }
 
 # 长等待中断哨兵：断线/维护/登录过期等致命中断弹窗的特征清单。

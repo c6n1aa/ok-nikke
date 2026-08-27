@@ -105,7 +105,7 @@ The right unit for `try_step` is the **entry method**: a sub-flow method that st
 
 ## Long Waits & the Interrupt Sentinel
 
-- Use `wait_battle_finish(time_out=240, check_interval=3, settle_time=2)` for auto-battle completion (throttled polling, detect-only, returns `("success", esc)` / `("failed", back)` / `(None, None)`; follow-up actions are the caller's choice). Never busy-poll battle screens with `wait_feature`/`wait_ocr`.
+- Use `wait_battle_finish(time_out=240, check_interval=3, settle_time=2)` for auto-battle completion (throttled polling, detect-only: victory is detected by OCR of the ESC text within `box_battle_finish_text`, with `battle_finish_statistics` inside `box_battle_finish_bottom_right` as fallback, then stabilized before returning; returns `("success", text_box)` with the clickable box always the `box_battle_finish_text` region, `("failed", back)` / `(None, None)`; follow-up actions are the caller's choice). Never busy-poll battle screens with `wait_feature`/`wait_ocr`.
 - Interrupt sentinel: `wait_battle_finish` and RaidTask's 60s matchmaking wait check `INTERRUPTS["features"]` from `src/screens.py` before checking battle-settlement features on every poll; a hit raises `InterruptedByDialogException` (subclass of `WaitFailedException`, `try_step`-compatible). The list is currently empty = inactive, zero overhead.
 - When you on-device encounter a disconnect/maintenance/login-expired dialog: annotate its feature into coco, add the feature name to `INTERRUPTS["features"]`, and add a case in `tests/TestBattleWait.py`.
 

@@ -26,28 +26,19 @@ class CashShopTask(NikkeBaseTask):  # 付费商店免费礼包领取任务，继
         self.name = "付费商店"  # 任务显示名称。
         self.description = "自动领取付费商店中STEP UP/每日/每周/每月的免费礼包。"  # 任务说明。
 
-    def _get_box(self, name):  # 获取标注区域框，特征缺失时抛等待失败异常。
-        try:  # coco 特征可能缺失。
-            box = self.get_box_by_name(name)  # 获取指定标注区域（已按当前分辨率缩放）。
-        except ValueError:  # 特征缺失时置空。
-            box = None  # 由下方统一判断。
-        if box is None:  # 区域不可用。
-            raise WaitFailedException(f"特征区域缺失: {name}")  # 抛异常由 try_step 捕获恢复。
-        return box  # 返回区域框。
-
     def _enter_cash_shop(self):  # 从大厅进入付费商店。
         self.transition("cash_shop", click_feature="cash_shop", time_out=10, wait_confirm=10, after_sleep=1)  # 点击大厅付费商店入口并确认已进入。
 
     def _switch_nav(self, feature_name):  # 在 box_cash_shop_nav_bar 区域内点击左侧导航项。
-        nav_box = self._get_box("box_cash_shop_nav_bar")  # 获取导航栏标注区域。
+        nav_box = self.get_box_by_name("box_cash_shop_nav_bar")  # 获取导航栏标注区域。
         self.wait_click_feature(feature_name, box=nav_box, time_out=10, raise_if_not_found=True, after_sleep=1)  # 在导航栏内查找并点击目标导航项。
 
     def _do_stepup_pack(self):  # STEP UP 免费礼包：限时礼包页 → STEP UP 页签 → 免费按钮。
         self._switch_nav("cash_shop_nav_limited_time_package")  # 切换到限时礼包导航项。
         self.wait_feature("cash_shop_limited_time_package", time_out=10, raise_if_not_found=True)  # 确认已进入限时礼包页面。
-        tab_bar = self._get_box("box_cash_shop_tab_bars")  # 获取页签栏标注区域。
+        tab_bar = self.get_box_by_name("box_cash_shop_tab_bars")  # 获取页签栏标注区域。
         self.wait_click_ocr(box=tab_bar, match=re.compile("STEP UP"), time_out=10, raise_if_not_found=True, after_sleep=1)  # OCR 识别并点击 STEP UP 页签。
-        free_box = self.wait_ocr(box=self._get_box("box_cash_shop_free_stepup"), match=re.compile("免费"), time_out=3, raise_if_not_found=False)  # 等待在免费购买按钮区域 OCR 识别“免费”。
+        free_box = self.wait_ocr(box=self.get_box_by_name("box_cash_shop_free_stepup"), match=re.compile("免费"), time_out=3, raise_if_not_found=False)  # 等待在免费购买按钮区域 OCR 识别“免费”。
         if free_box:  # 识别到免费按钮。
             self.click_box(free_box[0], after_sleep=1)  # 点击免费按钮购买礼包。
             self.dismiss_all_popups(time_out=10)  # 处理购买后出现的遮罩层（默认等待弹窗出现）。
@@ -59,7 +50,7 @@ class CashShopTask(NikkeBaseTask):  # 付费商店免费礼包领取任务，继
     def _do_ordinary_packs(self):  # 每日/每周/每月免费礼包：普通礼包页 → 逐页签领取。
         self._switch_nav("cash_shop_nav_ordinary_package")  # 切换到普通礼包导航项。
         self.wait_feature("cash_shop_ordinary_package", time_out=10, raise_if_not_found=True)  # 确认已进入普通礼包页面。
-        tab_bar = self._get_box("box_cash_shop_tab_bars")  # 获取页签栏标注区域。
+        tab_bar = self.get_box_by_name("box_cash_shop_tab_bars")  # 获取页签栏标注区域。
         for keyword, done_key, period in self._ORDINARY_TABS:  # 依次处理每日/每周/每月页签。
             if self.is_done(done_key, period):  # 本周期已完成则跳过。
                 continue  # 处理下一个页签。
@@ -69,7 +60,7 @@ class CashShopTask(NikkeBaseTask):  # 付费商店免费礼包领取任务，继
                 continue  # 处理下一个页签。
             sold_out = self.wait_feature("cash_shop_free_package_sold_out", time_out=5, raise_if_not_found=False)  # 判断免费礼包是否售罄。
             if sold_out is None:  # 未售罄，可购买。
-                buy_box = self._get_box("cash_shop_free_package_sold_out")  # 获取售罄标签标注区域作为购买按钮位置。
+                buy_box = self.get_box_by_name("cash_shop_free_package_sold_out")  # 获取售罄标签标注区域作为购买按钮位置。
                 self.click_box(buy_box, after_sleep=1)  # 点击购买免费礼包。
                 self.dismiss_all_popups(time_out=10)  # 处理购买后出现的遮罩层（默认等待弹窗出现）。
                 self.log_info(f"已领取{keyword}免费礼包。")  # 记录领取成功。
@@ -87,11 +78,11 @@ class CashShopTask(NikkeBaseTask):  # 付费商店免费礼包领取任务，继
 
     def _combined_step(self):  # 合并子流程：一次进店，先 STEP UP 再普通礼包，结束后统一退出。
         self._enter_cash_shop()  # 进入付费商店。
-        if not self.is_done("cash_shop_stepup", "day"):  # STEP UP 本日未完成才处理。
-            try:  # 单流程失败不中断整体。
-                self._do_stepup_pack()  # 领取 STEP UP 免费礼包。
-            except WaitFailedException as e:  # STEP UP 领取失败。
-                self.log_warning(f"STEP UP 免费礼包领取失败，跳过：{e}")  # 记录失败并继续后续礼包。
+        # if not self.is_done("cash_shop_stepup", "day"):  # STEP UP 本日未完成才处理。
+        #     try:  # 单流程失败不中断整体。
+        #         self._do_stepup_pack()  # 领取 STEP UP 免费礼包。
+        #     except WaitFailedException as e:  # STEP UP 领取失败。
+        #         self.log_warning(f"STEP UP 免费礼包领取失败，跳过：{e}")  # 记录失败并继续后续礼包。
         try:  # 普通礼包失败不中断整体。
             self._do_ordinary_packs()  # 领取每日/每周/每月免费礼包。
         except WaitFailedException as e:  # 普通礼包领取失败。

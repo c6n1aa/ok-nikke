@@ -22,9 +22,11 @@ class TestScreenRecovery(TaskTestCase):
         self.task.register_screen("lobby", features=["ark"])
 
     def test_global_screens_registry_matches_migrated_specs(self):
-        # 集中式注册表收录全部 15 个界面：9 个迁移自任务 __init__、3 个竞技场界面、商店与方舟排名子页面，外加冷启动正向锚点 login_page。
+        # 集中式注册表收录全部 19 个界面：9 个迁移自任务 __init__、3 个竞技场界面、商店与方舟排名子页面、
+        # 4 个拦截战界面，外加冷启动正向锚点 login_page。顺序即 SCREENS 注册顺序（login_page 紧随 lobby）。
         expected = {
             "lobby": {"features": ["ark", "lobby"]},
+            "login_page": {"keywords": [LOGIN_PAGE_PATTERN], "ocr_box": "box_enter_game"},
             "ark": {"features": ["ark_tribe_tower", "ark_simulation_room"]},
             "tribe_tower": {"features": ["tribe_tower_mark"]},
             "simulation_room": {"features": ["simulation_mark"]},
@@ -38,7 +40,11 @@ class TestScreenRecovery(TaskTestCase):
             "rookie_arena": {"features": ["rookie_arena_page"]},
             "special_arena": {"features": ["special_arena_page"]},
             "ark_ranking": {"features": ["ark_ranking_page"]},
-            "login_page": {"keywords": [LOGIN_PAGE_PATTERN], "ocr_box": "box_enter_game"},
+            "interception_page": {"features": ["common_interception_active"],
+                                  "keywords": ["拦截战"], "ocr_box": "box_sub_pages_title"},
+            "anomaly_interception_page": {"features": ["anomaly_interception_page", "anomaly_interception_active"]},
+            "common_interception_page": {"features": ["common_interception_page"]},
+            "anomaly_interception_team_select_page": {"features": ["anomaly_interception_team_select_page"]},
         }
         self.assertEqual(list(expected), list(SCREENS))  # 顺序敏感：current_screen 按插入顺序首命中。
         self.assertEqual(expected, SCREENS)

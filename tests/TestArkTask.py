@@ -44,11 +44,14 @@ class TestArkTask(_DebugOffTestCase):
         self.task.config["关闭自动爬塔"] = self.task.default_config["关闭自动爬塔"]
         self.task.config["企业塔"] = self.task.default_config["企业塔"]
         self.task.config["模拟室"] = False  # 默认关闭模拟室子流程，企业塔相关测试不受其干扰。
+        self.task.config["拦截战"] = False  # 默认关闭拦截战子流程，企业塔相关测试不受其干扰。
+        self.task.config["异常拦截战"] = False  # 默认关闭异常拦截战子流程，企业塔相关测试不受其干扰。
         self.task.config["新人竞技场"] = False  # 默认关闭新人竞技场子流程，企业塔相关测试不受其干扰。
         self.task.config["特殊竞技场"] = False  # 默认关闭特殊竞技场子流程，企业塔相关测试不受其干扰。
         self.task.config["收取排名奖励"] = False  # 默认关闭收取排名奖励子流程，企业塔相关测试不受其干扰。
         self.task.clear_done("tribe_tower")
         self.task.clear_done("simulation")
+        self.task.clear_done("interception")
         self.task.clear_done("rookie_arena")
         self.task.clear_done("special_arena")
         self.task.clear_done("ranking_reward")
@@ -68,8 +71,17 @@ class TestArkTask(_DebugOffTestCase):
         self.assertIn("关闭自动爬塔", self.task.config_description)
         self.assertTrue(self.task.default_config["模拟室"])  # 模拟室子流程默认开启。
         self.assertIn("模拟室", self.task.config_description)  # 模拟室配置有中文帮助文本。
-        self.assertEqual({"tribe_tower": "day", "simulation": "day", "rookie_arena": "day", "special_arena": "day",
-                          "ranking_reward": "day"}, ArkTask.done_keys)  # 排名奖励完成状态随日常刷新。
+        self.assertFalse(self.task.default_config["拦截战"])  # 拦截战子流程默认关闭（与异常拦截战互斥）。
+        self.assertTrue(self.task.default_config["异常拦截战"])  # 异常拦截战子流程默认开启。
+        self.assertTrue(self.task.default_config["只进行快速战斗"])  # 只进行快速战斗默认开启。
+        self.assertEqual("克拉肯", self.task.default_config["BOSS选择"])  # BOSS选择默认克拉肯。
+        self.assertTrue(self.task.default_config["异常拦截队伍配置"])  # 异常拦截队伍配置默认开启。
+        self.assertIn("拦截战", self.task.config_description)  # 拦截战配置有中文帮助文本。
+        anomaly_sub = self.task.config_type["异常拦截战"]["sub_configs"]  # 开关联动子配置显隐。
+        self.assertEqual(["只进行快速战斗", "BOSS选择", "异常拦截队伍配置"], anomaly_sub[True])  # 启用时展开三项。
+        self.assertEqual([], anomaly_sub[False])  # 关闭时收起配置。
+        self.assertEqual({"tribe_tower": "day", "simulation": "day", "interception": "day", "rookie_arena": "day",
+                          "special_arena": "day", "ranking_reward": "day"}, ArkTask.done_keys)  # 拦截战完成状态随日常刷新。
         self.assertTrue(self.task.default_config["新人竞技场"])  # 新人竞技场子流程默认开启。
         self.assertTrue(self.task.default_config["对手选择策略"])  # 对手选择策略默认开启。
         self.assertTrue(self.task.default_config["特殊竞技场"])  # 特殊竞技场子流程默认开启。
@@ -317,7 +329,7 @@ class TestArkTask(_DebugOffTestCase):
         abandon_mock.assert_called_once_with(battle_box)
 
     def test_climb_battle_success_with_next_stage(self):
-        esc_box = Box(1252, 1268, 55, 34, confidence=1, name="battle_finish_esc")
+        esc_box = Box(1252, 1268, 55, 34, confidence=1, name="box_battle_finish_text")
         next_box = Box(2300, 1343, 36, 26, confidence=1, name="battile_finish_next_stage")
         battle_btn = Box(10, 10, 5, 5, confidence=1, name="battle_btn")
         with patch.object(self.task, "click_box") as click_mock, \
@@ -329,11 +341,11 @@ class TestArkTask(_DebugOffTestCase):
                 patch.object(self.task, "dismiss_all_popups"):
             self.task._climb_battle(1, battle_btn)
         clicked = [c.args[0].name for c in click_mock.call_args_list]
-        self.assertEqual(["battle_btn", "battile_finish_next_stage", "battle_finish_esc"], clicked)
+        self.assertEqual(["battle_btn", "battile_finish_next_stage", "box_battle_finish_text"], clicked)
         self.assertEqual([], self.task.failed_towers)
 
     def test_climb_battle_success_click_esc_when_no_next_stage(self):
-        esc_box = Box(1252, 1268, 55, 34, confidence=1, name="battle_finish_esc")
+        esc_box = Box(1252, 1268, 55, 34, confidence=1, name="box_battle_finish_text")
         battle_btn = Box(10, 10, 5, 5, confidence=1, name="battle_btn")
         with patch.object(self.task, "click_box") as click_mock, \
                 patch.object(self.task, "wait_battle_finish",
@@ -344,7 +356,7 @@ class TestArkTask(_DebugOffTestCase):
                 patch.object(self.task, "dismiss_all_popups"):
             self.task._climb_battle(1, battle_btn)
         clicked = [c.args[0].name for c in click_mock.call_args_list]
-        self.assertEqual(["battle_btn", "battle_finish_esc"], clicked)
+        self.assertEqual(["battle_btn", "box_battle_finish_text"], clicked)
         back_mock.assert_called_once_with("common_back", raise_if_not_found=True,
                                           after_sleep=1)  # 返回后不再固定等待，由流程在下一塔前断言无限之塔界面。
         self.assertEqual([], self.task.failed_towers)
@@ -463,11 +475,14 @@ class TestArkTaskSimulation(_DebugOffTestCase):
         self.task.config["企业塔"] = self.task.default_config["企业塔"]
         self.task.config["关闭自动爬塔"] = self.task.default_config["关闭自动爬塔"]
         self.task.config["模拟室"] = True  # 模拟室子流程测试统一开启。
+        self.task.config["拦截战"] = False  # 关闭拦截战子流程，保证测试顺序隔离。
+        self.task.config["异常拦截战"] = False  # 关闭异常拦截战子流程，保证测试顺序隔离。
         self.task.config["新人竞技场"] = False  # 关闭新人竞技场子流程，保证测试顺序隔离。
         self.task.config["特殊竞技场"] = False  # 关闭特殊竞技场子流程，保证测试顺序隔离。
         self.task.config["收取排名奖励"] = False  # 关闭收取排名奖励子流程，保证测试顺序隔离。
         self.task.clear_done("simulation")
         self.task.clear_done("tribe_tower")
+        self.task.clear_done("interception")
         self.task.clear_done("rookie_arena")
         self.task.clear_done("special_arena")
         self.task.clear_done("ranking_reward")
@@ -873,12 +888,15 @@ class TestArkTaskRookieArena(_DebugOffTestCase):
         self.task.config["企业塔"] = False  # 关闭企业塔子流程，隔离新人竞技场测试。
         self.task.config["关闭自动爬塔"] = self.task.default_config["关闭自动爬塔"]
         self.task.config["模拟室"] = False  # 关闭模拟室子流程，隔离新人竞技场测试。
+        self.task.config["拦截战"] = False  # 关闭拦截战子流程，隔离新人竞技场测试。
+        self.task.config["异常拦截战"] = False  # 关闭异常拦截战子流程，隔离新人竞技场测试。
         self.task.config["新人竞技场"] = True  # 新人竞技场子流程测试统一开启。
         self.task.config["对手选择策略"] = self.task.default_config["对手选择策略"]
         self.task.config["特殊竞技场"] = False  # 关闭特殊竞技场子流程，隔离新人竞技场测试。
         self.task.config["收取排名奖励"] = False  # 关闭收取排名奖励子流程，隔离新人竞技场测试。
         self.task.clear_done("tribe_tower")
         self.task.clear_done("simulation")
+        self.task.clear_done("interception")
         self.task.clear_done("rookie_arena")
         self.task.clear_done("special_arena")
         self.task.clear_done("ranking_reward")
@@ -919,7 +937,7 @@ class TestArkTaskRookieArena(_DebugOffTestCase):
     def _flow_patches(self, encounter_side_effect, enabled_side_effect, battle_result):
         """构造 _do_rookie_arena_flow 的公共补丁栈：导航/战斗全部 mock，按 side_effect 驱动分支。"""
         toggle = Box(700, 1150, 80, 40, confidence=1, name="box_rookie_arena_quick_battle_feature")  # 快速战斗开关区域。
-        settle = Box(1280, 1200, 100, 50, confidence=1, name="battle_finish_esc")  # 结算确认按钮框。
+        settle = Box(1280, 1200, 100, 50, confidence=1, name="box_battle_finish_text")  # 结算确认按钮框。
         encounters = iter(encounter_side_effect)  # 每次循环取下一个 1 号对手区域结果。
 
         def get_box(name, *args, **kwargs):  # 按名分发：1 号对手区域按序列返回，其余（快速战斗开关）恒返回开关区域。
@@ -1077,12 +1095,15 @@ class TestArkTaskSpecialArena(_DebugOffTestCase):
         self.task.config["企业塔"] = False  # 关闭企业塔子流程，隔离特殊竞技场测试。
         self.task.config["关闭自动爬塔"] = self.task.default_config["关闭自动爬塔"]
         self.task.config["模拟室"] = False  # 关闭模拟室子流程，隔离特殊竞技场测试。
+        self.task.config["拦截战"] = False  # 关闭拦截战子流程，隔离特殊竞技场测试。
+        self.task.config["异常拦截战"] = False  # 关闭异常拦截战子流程，隔离特殊竞技场测试。
         self.task.config["新人竞技场"] = False  # 关闭新人竞技场子流程，隔离特殊竞技场测试。
         self.task.config["对手选择策略"] = self.task.default_config["对手选择策略"]
         self.task.config["特殊竞技场"] = True  # 特殊竞技场子流程测试统一开启。
         self.task.config["收取排名奖励"] = False  # 关闭收取排名奖励子流程，隔离特殊竞技场测试。
         self.task.clear_done("tribe_tower")
         self.task.clear_done("simulation")
+        self.task.clear_done("interception")
         self.task.clear_done("rookie_arena")
         self.task.clear_done("special_arena")
         self.task.clear_done("ranking_reward")
@@ -1242,11 +1263,14 @@ class TestArkTaskRankingReward(_DebugOffTestCase):
         self.task.config["企业塔"] = False  # 关闭企业塔子流程，隔离排名奖励测试。
         self.task.config["关闭自动爬塔"] = self.task.default_config["关闭自动爬塔"]
         self.task.config["模拟室"] = False  # 关闭模拟室子流程，隔离排名奖励测试。
+        self.task.config["拦截战"] = False  # 关闭拦截战子流程，隔离排名奖励测试。
+        self.task.config["异常拦截战"] = False  # 关闭异常拦截战子流程，隔离排名奖励测试。
         self.task.config["新人竞技场"] = False  # 关闭新人竞技场子流程，隔离排名奖励测试。
         self.task.config["特殊竞技场"] = False  # 关闭特殊竞技场子流程，隔离排名奖励测试。
         self.task.config["收取排名奖励"] = True  # 排名奖励子流程测试统一开启。
         self.task.clear_done("tribe_tower")
         self.task.clear_done("simulation")
+        self.task.clear_done("interception")
         self.task.clear_done("rookie_arena")
         self.task.clear_done("special_arena")
         self.task.clear_done("ranking_reward")
@@ -1345,6 +1369,232 @@ class TestArkTaskRankingReward(_DebugOffTestCase):
     def test_ranking_screen_registered(self):
         self.assertIn("ark_ranking", self.task.screens)  # 排名界面已注册。
         self.assertEqual(["ark_ranking_page"], self.task.screens["ark_ranking"]["features"])  # 以页面特征判定。
+
+
+class TestArkTaskInterception(_DebugOffTestCase):
+    """拦截战子流程测试：覆盖跳过/互斥/成功/失败/已完成跳过及通用与异常个体各分支。"""
+
+    task_class = ArkTask
+
+    config = config
+
+    def setUp(self):
+        super().setUp()
+        _isolate_task_config(self.task, 'ArkTask')
+        self.task.config["企业塔"] = False  # 关闭企业塔子流程，隔离拦截战测试。
+        self.task.config["关闭自动爬塔"] = self.task.default_config["关闭自动爬塔"]
+        self.task.config["模拟室"] = False  # 关闭模拟室子流程，隔离拦截战测试。
+        self.task.config["新人竞技场"] = False  # 关闭新人竞技场子流程，隔离拦截战测试。
+        self.task.config["对手选择策略"] = self.task.default_config["对手选择策略"]
+        self.task.config["特殊竞技场"] = False  # 关闭特殊竞技场子流程，隔离拦截战测试。
+        self.task.config["收取排名奖励"] = False  # 关闭收取排名奖励子流程，隔离拦截战测试。
+        self.task.config["拦截战"] = False  # 拦截战子流程测试默认关闭。
+        self.task.config["异常拦截战"] = False  # 异常拦截战子流程测试默认关闭。
+        self.task.clear_done("tribe_tower")
+        self.task.clear_done("simulation")
+        self.task.clear_done("interception")
+        self.task.clear_done("rookie_arena")
+        self.task.clear_done("special_arena")
+        self.task.clear_done("ranking_reward")
+        exit_patcher = patch.object(self.task, "_exit_to_lobby")  # 拦截主流程收尾返回大厅步骤，避免测试触碰真实窗口。
+        exit_patcher.start()
+        self.addCleanup(exit_patcher.stop)
+
+    def test_skip_when_both_disabled(self):
+        """通用与异常拦截战均未开启：整段跳过且不标记完成。"""
+        with patch.object(self.task, "_do_interception_flow", side_effect=AssertionError("均关闭时不应执行流程")), \
+                patch.object(self.task, "_nav_to_ark"):
+            self.task.run()
+        self.assertFalse(self.task.is_done("interception", "day"))
+
+    def test_skip_when_both_enabled_mutual_exclusion(self):
+        """两种拦截战同时开启（互斥配置）：整段跳过且不标记完成。"""
+        self.task.config["拦截战"] = True
+        self.task.config["异常拦截战"] = True
+        with patch.object(self.task, "_do_interception_flow", side_effect=AssertionError("互斥时不应执行流程")), \
+                patch.object(self.task, "_nav_to_ark"):
+            self.task.run()
+        self.assertFalse(self.task.is_done("interception", "day"))
+
+    def test_skip_when_already_done(self):
+        self.task.mark_done("interception", "day")  # 标记本周期已完成。
+        self.task.config["拦截战"] = True
+        with patch.object(self.task, "_do_interception_flow", side_effect=AssertionError("不应执行拦截战流程")), \
+                patch.object(self.task, "_nav_to_ark"):
+            self.task.run()
+        self.assertTrue(self.task.is_done("interception", "day"))
+
+    def test_success_marks_done(self):
+        self.task.config["拦截战"] = True
+        with patch.object(self.task, "_nav_to_ark"), \
+                patch.object(self.task, "_do_interception_flow") as flow_mock:
+            self.task.run()
+        flow_mock.assert_called_once()
+        self.assertTrue(self.task.is_done("interception", "day"))
+
+    def test_failure_not_marked_done(self):
+        self.task.config["拦截战"] = True
+        with patch.object(self.task, "try_step", side_effect=[True, False]):
+            self.task.run()
+        self.assertFalse(self.task.is_done("interception", "day"))
+
+    def test_flow_dispatches_to_common(self):
+        self.task.config["拦截战"] = True
+        with patch.object(self.task, "_nav_to_ark"), \
+                patch.object(self.task, "wait_click_feature"), \
+                patch.object(self.task, "wait_until", return_value=True) as wait_mock, \
+                patch.object(self.task, "is_screen", return_value=True), \
+                patch.object(self.task, "_do_common_interception") as common_mock, \
+                patch.object(self.task, "_do_anomaly_interception", side_effect=AssertionError("不应执行异常个体流程")):
+            self.task._do_interception_flow()
+        common_mock.assert_called_once()
+        self.assertEqual(2, wait_mock.call_args_list[0].kwargs["settle_time"])  # 页面特征需稳定命中，防动画早期单帧命中即分流。
+
+    def test_flow_dispatches_to_anomaly(self):
+        self.task.config["异常拦截战"] = True
+        with patch.object(self.task, "_nav_to_ark"), \
+                patch.object(self.task, "wait_click_feature"), \
+                patch.object(self.task, "wait_until", return_value=True) as wait_mock, \
+                patch.object(self.task, "is_screen", return_value=True), \
+                patch.object(self.task, "_do_anomaly_interception") as anomaly_mock:
+            self.task._do_interception_flow()
+        anomaly_mock.assert_called_once()
+        self.assertEqual(2, wait_mock.call_args_list[0].kwargs["settle_time"])  # 页面特征需稳定命中，防动画早期单帧命中即分流。
+
+    def test_common_flow_finishes_when_both_battles_unavailable(self):
+        """通用拦截战：首轮快速战斗可用→点击并战斗→次轮两种战斗均不可用→返回方舟。"""
+        self.task.config["拦截战"] = True
+        quick = Box(1, 1, 10, 10, confidence=1, name="box_common_interception_quick_battle_feature")
+        start = Box(2, 2, 10, 10, confidence=1, name="box_common_interception_start_battle_feature")
+        with patch.object(self.task, "is_screen", return_value=True), \
+                patch.object(self.task, "transition"), \
+                patch.object(self.task, "get_box_by_name", side_effect=[quick, quick, start]), \
+                patch.object(self.task, "is_feature_enabled", side_effect=[True, False, False]) as enabled_mock, \
+                patch.object(self.task, "click_box") as click_mock, \
+                patch.object(self.task, "_wait_interception_battle") as battle_mock, \
+                patch.object(self.task, "_back_through_screens") as back_mock:
+            self.task._do_common_interception()
+        self.assertEqual([quick, quick, start], [c.args[0] for c in enabled_mock.call_args_list])  # 判态区域依次为快速/快速/普通。
+        click_mock.assert_called_once_with(quick, after_sleep=2)  # 仅快速战斗被点击一次。
+        battle_mock.assert_called_once_with("common_interception_page")  # 战斗等待回到通用拦截战界面。
+        back_mock.assert_called_once_with("interception_page", "ark")  # 逐级返回方舟。
+
+    def test_common_flow_switches_tab_when_on_anomaly(self):
+        """入口停在异常个体标签页：先切换到通用拦截战标签再进入。"""
+        self.task.config["拦截战"] = True
+        quick = Box(1, 1, 10, 10, confidence=1, name="box_common_interception_quick_battle_feature")
+        start = Box(2, 2, 10, 10, confidence=1, name="box_common_interception_start_battle_feature")
+        with patch.object(self.task, "is_screen", side_effect=[False, True]), \
+                patch.object(self.task, "assert_screen") as assert_mock, \
+                patch.object(self.task, "transition") as transition_mock, \
+                patch.object(self.task, "get_box_by_name", side_effect=[quick, quick, start]), \
+                patch.object(self.task, "is_feature_enabled", side_effect=[True, False, False]), \
+                patch.object(self.task, "click_box"), \
+                patch.object(self.task, "_wait_interception_battle"), \
+                patch.object(self.task, "_back_through_screens"):
+            self.task._do_common_interception()
+        assert_mock.assert_called_once_with("anomaly_interception_page")  # 先确认停在异常个体标签。
+        self.assertEqual("common_interception_disable", transition_mock.call_args_list[0].kwargs["click_feature"])  # 切换标签。
+
+    def test_anomaly_flow_unavailable_returns_to_ark(self):
+        """异常个体不可进入（未解锁/次数用尽）：动画容忍轮询内持续禁用→不匹配 BOSS、不进队伍选择，直接返回方舟。"""
+        self.task.config["异常拦截战"] = True
+        enter = Box(3, 3, 10, 10, confidence=1, name="box_anomaly_interception_battle_enter")
+        with patch.object(self.task, "is_screen", return_value=True), \
+                patch.object(self.task, "get_box_by_name", return_value=enter), \
+                patch.object(self.task, "wait_until", return_value=False) as wait_mock, \
+                patch.object(self.task, "is_feature_enabled", return_value=False), \
+                patch.object(self.task, "_back_through_screens") as back_mock, \
+                patch.object(self.task, "_match_anomaly_boss", side_effect=AssertionError("不可进入时不应匹配BOSS")), \
+                patch.object(self.task, "transition", side_effect=AssertionError("不可进入时不应进入队伍选择")):
+            self.task._do_anomaly_interception()
+            entry_available = wait_mock.call_args_list[0].args[0]()  # 判定函数当前应判禁用（入口不可用）。
+        wait_mock.assert_called_once()  # 动画容忍轮询判定入口可用性。
+        self.assertEqual(8, wait_mock.call_args_list[0].kwargs["time_out"])  # 动画容忍窗口锁定。
+        self.assertEqual(1.5, wait_mock.call_args_list[0].kwargs["settle_time"])  # 稳定时长锁定。
+        self.assertFalse(entry_available)  # 判定函数当前返回禁用（入口不可用）。
+        back_mock.assert_called_once_with("ark")  # 从异常个体标签页直接返回方舟。
+
+    def test_anomaly_flow_quick_then_quick_only_ends(self):
+        """异常个体：入口动画容忍判为可用→首轮快速战斗→次轮不可快速且只进行快速战斗→结束返回方舟（不点普通战斗）。"""
+        self.task.config["异常拦截战"] = True
+        self.task.config["只进行快速战斗"] = True
+        enter = Box(3, 3, 10, 10, confidence=1, name="box_anomaly_interception_battle_enter")
+        quick = Box(4, 4, 10, 10, confidence=1, name="box_anomaly_interception_quick_battle_feature")
+        with patch.object(self.task, "is_screen", return_value=True), \
+                patch.object(self.task, "get_box_by_name", side_effect=[enter, quick, quick]), \
+                patch.object(self.task, "wait_until", return_value=True) as wait_mock, \
+                patch.object(self.task, "is_feature_enabled", side_effect=[True, False]), \
+                patch.object(self.task, "_match_anomaly_boss"), \
+                patch.object(self.task, "transition"), \
+                patch.object(self.task, "_select_anomaly_team_if_configured") as team_mock, \
+                patch.object(self.task, "click_box") as click_mock, \
+                patch.object(self.task, "_wait_interception_battle") as battle_mock, \
+                patch.object(self.task, "_back_through_screens") as back_mock:
+            self.task._do_anomaly_interception()
+        wait_mock.assert_called_once()  # 入口动画容忍轮询判为可用后进入流程。
+        team_mock.assert_called_once()  # 快速战斗前只选一次队伍。
+        click_mock.assert_called_once_with(quick, after_sleep=2)  # 仅快速战斗被点击。
+        battle_mock.assert_called_once_with("anomaly_interception_team_select_page")  # 战斗等待回到队伍选择界面。
+        back_mock.assert_called_once_with("anomaly_interception_page", "ark")  # 逐级返回方舟。
+
+    def test_select_anomaly_team_disabled_uses_team1_noop(self):
+        self.task.config["异常拦截队伍配置"] = False
+        with patch.object(self.task, "get_box_by_name", side_effect=AssertionError("关闭时不应取队伍区域")), \
+                patch.object(self.task, "click_box", side_effect=AssertionError("关闭时不应点击队伍")):
+            self.task._select_anomaly_team_if_configured()
+
+    def test_select_anomaly_team_clicks_until_activated(self):
+        self.task.config["异常拦截队伍配置"] = True
+        self.task.config["BOSS选择"] = "镜像容器"
+        self.task.config["镜像容器"] = "3"
+        team_box = Box(5, 5, 10, 10, confidence=1, name="box_anomaly_interception_team3")
+        with patch.object(self.task, "get_box_by_name", return_value=team_box), \
+                patch.object(self.task, "is_feature_enabled", side_effect=[False, True]), \
+                patch.object(self.task, "click_box") as click_mock:
+            self.task._select_anomaly_team_if_configured()
+        click_mock.assert_called_once_with(team_box, after_sleep=1)  # 队伍未激活点击一次后激活。
+
+    def test_match_anomaly_boss_noop_when_already_matching(self):
+        self.task.config["BOSS选择"] = "克拉肯"
+        object_box = Box(6, 6, 10, 10, confidence=1, name="box_anomaly_interception_object")
+        with patch.object(self.task, "get_box_by_name", return_value=object_box), \
+                patch.object(self.task, "ocr", return_value=True) as ocr_mock, \
+                patch.object(self.task, "wait_click_feature", side_effect=AssertionError("已匹配时不应切换")):
+            self.task._match_anomaly_boss()
+        ocr_mock.assert_called_once()  # 仅识别一次当前 BOSS。
+
+    def test_match_anomaly_boss_switches_then_matches(self):
+        self.task.config["BOSS选择"] = "死神"
+        object_box = Box(6, 6, 10, 10, confidence=1, name="box_anomaly_interception_object")
+        with patch.object(self.task, "get_box_by_name", return_value=object_box), \
+                patch.object(self.task, "ocr", side_effect=[False, True]) as ocr_mock, \
+                patch.object(self.task, "wait_click_feature") as click_mock:
+            self.task._match_anomaly_boss()
+        self.assertEqual(2, ocr_mock.call_count)  # 首检未命中→切换后再检命中。
+        click_mock.assert_called_once_with("anomaly_interception_object_selector", raise_if_not_found=True, after_sleep=1)
+
+    def test_wait_interception_battle_confirm_and_return(self):
+        confirm = Box(7, 7, 10, 10, confidence=1, name="confirm")
+        with patch.object(self.task, "wait_battle_finish", return_value=("success", confirm)), \
+                patch.object(self.task, "click_box") as click_mock, \
+                patch.object(self.task, "assert_screen") as assert_mock:
+            self.task._wait_interception_battle("common_interception_page")
+        click_mock.assert_called_once_with(confirm, after_sleep=2)  # 点击结算确认按钮。
+        assert_mock.assert_called_once_with("common_interception_page", time_out=15)  # 断言回到战斗前界面。
+
+    def test_wait_interception_battle_timeout_raises(self):
+        with patch.object(self.task, "wait_battle_finish", return_value=(None, None)), \
+                patch.object(self.task, "click_box", side_effect=AssertionError("超时不应点击")):
+            with self.assertRaises(WaitFailedException):
+                self.task._wait_interception_battle("common_interception_page")
+
+    def test_interception_screens_registered(self):
+        self.assertIn("interception_page", self.task.screens)  # 通用拦截战标签页已注册。
+        self.assertEqual(["common_interception_active"], self.task.screens["interception_page"]["features"])  # active 特征消歧。
+        self.assertIn("anomaly_interception_page", self.task.screens)  # 异常个体拦截战标签页已注册。
+        self.assertIn("common_interception_page", self.task.screens)  # 通用拦截战关卡页已注册。
+        self.assertIn("anomaly_interception_team_select_page", self.task.screens)  # 异常个体队伍选择页已注册。
 
 
 if __name__ == '__main__':
