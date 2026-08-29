@@ -586,7 +586,7 @@ class NikkeBaseTask(BaseTask):
         if self._close_notice_popup():  # 公告/活动横幅（右上角铃铛+关闭按钮）。
             return True  # 已关闭横幅弹窗。
         try:  # 遮罩 OCR 异常不应中断统一清理。
-            boxes = self.ocr(x=1 / 3, y=0.6, to_x=2 / 3, to_y=1, match=["点击领取奖励", "点击任意处"])  # 中下部区域查找领取奖励/任意处关闭遮罩按钮。
+            boxes = self.ocr(x=1 / 3, y=0.6, to_x=2 / 3, to_y=1, match=["点击领取奖励", "点击任意处", "点击进行"])  # 中下部区域查找领取奖励/任意处关闭遮罩按钮。
         except TaskDisabledException:  # 任务已被用户停止，必须让中断异常继续向上传播。
             raise  # 重新抛出，交由执行器结束任务。
         except Exception as e:  # 其它 OCR 失败。
@@ -728,7 +728,9 @@ class NikkeBaseTask(BaseTask):
         """按判定描述在当前帧检测是否处于该界面。
 
         features 与 keywords 同时配置时取「与」：所有特征命中 且 命中任一关键词。
-        absent 中的特征（消歧字段，默认空）任一命中则直接判负，作用于两条命中路径。
+        any_features（任一命中特征，与 features 的「全部命中」相对）与 keywords
+        同时配置时同样取「与」：任一特征命中 且 命中任一关键词。
+        absent 中的特征（消歧字段，默认空）任一命中则直接判负，作用于各条命中路径。
         """
         features = spec.get("features")  # 模板特征名列表。
         keywords = spec.get("keywords")  # OCR 关键词列表。
@@ -747,12 +749,44 @@ class NikkeBaseTask(BaseTask):
             if not self._match_ocr_keywords(spec):  # 同时配置了关键词则还需命中任一关键词。
                 return False  # 关键词未命中。
             return self._check_absent(absent)  # 关键词命中后再做 absent 检查。
+        if spec.get("any_features"):  # 任一命中特征：任一特征在当前帧命中即视为特征命中。
+            if not self._match_any_features(spec):  # 逐个检测，任一命中即通过。
+                return False  # 全部未命中。
+            if not keywords:  # 未配置关键词时任一特征命中即判定为该界面。
+                return self._check_absent(absent)  # absent 检查后返回。
+            if not self._match_ocr_keywords(spec):  # 同时配置了关键词则还需命中任一关键词。
+                return False  # 关键词未命中。
+            return self._check_absent(absent)  # 关键词命中后再做 absent 检查。
         if keywords:  # 无模板特征时退化为 OCR 关键词判定。
             if not self._match_ocr_keywords(spec):  # 按关键词判定。
                 return False  # 关键词未命中。
             return self._check_absent(absent)  # 关键词命中后再做 absent 检查。
         self.log_warning(f"界面 {spec} 未配置判定条件")  # 记录空配置。
         return False  # 空配置判定为不在该界面。
+
+    def _match_any_features(self, spec: dict) -> bool:
+        """any_features 判定：列表中任一特征在当前帧命中即返回 True（「或」语义）。
+
+        feature_box（可选，coco 区域特征名）限定匹配区域，缺失时退化为全屏匹配；
+        区域匹配不做帧级缓存（小区域模板匹配开销低，且轮询判定每轮都是新帧）。
+        """
+        raw_box = spec.get("feature_box")  # 可选匹配区域。
+        box = None  # None 表示全屏匹配。
+        if isinstance(raw_box, str):  # 区域限定为 coco 区域特征名。
+            try:  # 区域特征可能缺失。
+                box = self.get_box_by_name(raw_box)  # 按当前分辨率解析区域框。
+            except ValueError:  # 区域缺失时退化为全屏匹配。
+                box = None  # 置空走全屏逻辑。
+        for name in spec.get("any_features") or ():  # 逐个检测任一命中特征。
+            try:  # 特征可能已不存在（如 coco 重建后旧特征被移除）。
+                found = self.find_one(name, box=box) if box is not None \
+                    else self._find_feature_cached(name)  # 区域匹配或全屏缓存匹配。
+            except ValueError:  # 特征缺失时视为未命中，避免因 coco 变更导致异常冒泡。
+                self.log_warning(f"界面特征缺失: {name}")  # 记录缺失。
+                continue  # 检查下一个特征。
+            if found is not None:  # 任一特征命中。
+                return True  # 判定通过。
+        return False  # 全部未命中。
 
     def _check_absent(self, absent) -> bool:
         """absent 消歧检查：列表中任一特征在当前帧命中则返回 False。走与 features 相同的缓存查找路径。"""

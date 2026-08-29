@@ -26,6 +26,8 @@ spec fields (absent fields = current/legacy behavior):
 | Field | Default | Semantics |
 |---|---|---|
 | `features` | `()` | coco template feature names; ALL must match (AND). Prefer these — cheaper and more stable than OCR |
+| `any_features` | `()` | Any-hit feature names; a single match counts as the feature check passing (OR); when combined with `keywords`, the AND rule applies on top. For icon-any-of semantics (e.g. the cancel/log/skip icons on the advise conversation page) |
+| `feature_box` | `None` | Optional match region (a coco region feature name, resolved to current resolution), applies only to `any_features` matching; missing region falls back to full-screen matching |
 | `keywords` | `()` | OCR keyword list; ANY hit matches (OR). Only for pages without a stable template |
 | `ocr_box` | `None` | Optional OCR region: relative `[x, y, to_x, to_y]` or a coco region feature name (resolved to current resolution); missing feature falls back to full-screen OCR |
 | `absent` | `[]` | Disambiguation features; any match fails the screen outright (disambiguates adjacent screens with overlapping feature subsets) |
@@ -149,7 +151,7 @@ if not self.is_screen("my_page"):
 
 - Register global screens in `src/screens.py` (`SCREENS`); use `register_screen` only for task-private screens; `lobby` is already registered by the base class — do not re-register it.
 - Screen registration is **optional**: register only when you genuinely need to detect/wait for that screen (`is_screen`/`wait_screen`/`assert_screen`, as a recovery target, or for classification). Transient overlays (friend/mailbox) and click-only tasks need no extra registration.
-- spec field semantics follow the table above: `absent`/`priority`/`min_frames` default to legacy behavior; never repurpose them.
+- spec field semantics follow the table above: `absent`/`any_features`/`feature_box`/`priority`/`min_frames` default to legacy behavior; never repurpose them.
 - "Click entry -> confirm target screen" edges ALWAYS use `transition()` — exceptions limited to battle-settlement edges and in-loop re-confirmation asserts. Sub-flow idempotent entry gates use `ensure_screen()`; never hand-roll the "is_screen shortcut + wait-for-lobby + find entry + click entry" sequence.
 - `try_step` granularity is the **entry method**: wrap each lobby-starting self-contained sub-flow **once** in `run()`; never hand-roll ad-hoc retry/recovery logic.
 - Never bypass `_recover_to_lobby` with hard-coded "click home by coordinates" recovery.
@@ -163,7 +165,7 @@ if not self.is_screen("my_page"):
 
 ## Tests
 
-- `tests/TestScreenRecovery.py`: all `_screen_match` branches, `absent`/`priority`/`min_frames`, `transition()`, `try_step`, `dismiss_all_popups`, `_recover_to_lobby`.
+- `tests/TestScreenRecovery.py`: all `_screen_match` branches, `absent`/`any_features`/`priority`/`min_frames`, `transition()`, `try_step`, `dismiss_all_popups`, `_recover_to_lobby`.
 - `tests/TestFrameCache.py`: per-frame dedup and frame-change invalidation (including the `set_image` path).
 - `tests/TestScreenRegistryIntegrity.py`: static check that every feature referenced by `SCREENS` exists in `assets/coco_annotations.json` (CI blocks coco drift).
 - `tests/TestBattleWait.py`: battle polling and interrupt-sentinel fast-fail.

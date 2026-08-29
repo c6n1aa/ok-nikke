@@ -21,13 +21,14 @@ class TestScreenRegistryIntegrity(unittest.TestCase):
         return {category["name"] for category in coco.get("categories", [])}
 
     def test_registry_references_exist_in_coco(self):
-        # 收集全部界面的 features 元素与字符串形式 ocr_box（coco 区域特征名）。
+        # 收集全部界面的 features/any_features 元素与字符串形式 ocr_box/feature_box（coco 区域特征名）。
         references = {}  # 界面名 -> 该界面引用的特征名集合。
         for name, spec in SCREENS.items():
-            refs = set(spec.get("features") or [])
-            ocr_box = spec.get("ocr_box")
-            if isinstance(ocr_box, str):  # 字符串 ocr_box 视为 coco 区域特征名；相对坐标列表不在此列。
-                refs.add(ocr_box)
+            refs = set(spec.get("features") or []) | set(spec.get("any_features") or [])
+            for key in ("ocr_box", "feature_box"):  # 字符串形式的区域特征名同样视为 coco 引用。
+                box = spec.get(key)
+                if isinstance(box, str):
+                    refs.add(box)
             if refs:
                 references[name] = refs
         self.assertTrue(references, "SCREENS 里没有任何特征引用，校验形同虚设")
@@ -42,9 +43,10 @@ class TestScreenRegistryIntegrity(unittest.TestCase):
             self.fail("\n".join(lines))
 
     def test_no_empty_spec(self):
-        # 二次断言：每个界面至少配置 features 或 keywords 之一，防止误注册空 spec。
+        # 二次断言：每个界面至少配置 features/keywords/any_features 之一，防止误注册空 spec。
         empty = [name for name, spec in SCREENS.items()
-                 if not spec.get("features") and not spec.get("keywords")]
+                 if not spec.get("features") and not spec.get("keywords")
+                 and not spec.get("any_features")]
         self.assertEqual([], empty, f"以下界面没有任何判定条件: {empty}")
 
 
