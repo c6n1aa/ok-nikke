@@ -13,6 +13,10 @@
 
 包装 `ok.util.GlobalConfig.create_basic_options`：移除与本项目无关的选项、调高 `Trigger Interval` 默认值，并把启动器路径配置行（「启动器路径」）注入「基础设置」顶部；文件选择框默认打开桌面目录由 `_patch_file_selector_initial_directory` 支持（`initial_directory: 'desktop'`）。不要直接改 `ok.util.GlobalConfig`。
 
+### notification_tab.py
+
+包装 `ok.util.GlobalConfig.create_notification_options`，把通知全局配置的 `show_at_tab` 改为 `False`：MainWindow 不再为通知创建底部独立 tab，`SettingTab` 会把它作为可展开卡片收进「软件设置」页；同时裁掉系统通知以外的全部渠道配置项（Discord/Telegram/企业微信/QQ 等，`NotificationManager` 对缺键按禁用处理）并改写卡片描述。
+
 ### start_controller.py
 
 把 `ok.ui.qt.StartController.StartController` 替换为 `NikkeStartController`，其 `start_device` 流程：管理员检查 → 判断 `nikke.exe` 游戏主进程是否已在运行（若在运行则跳过启动器）→ 否则启动配置的启动器（`nikke_launcher.exe` 或 `.lnk`，自动解析）→ 在可配置区域内 OCR 找到并点击启动按钮 → 等待游戏窗口出现。没有直接启动回退：若未配置启动器且游戏未在运行，提示用户配置启动器或手动启动游戏。

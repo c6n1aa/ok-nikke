@@ -10,41 +10,8 @@ version = "dev"
 #不需要修改version, Github Action打包会自动修改
 
 
-def make_bottom_right_black(frame): #可选. 某些游戏截图时遮挡UID使用
-    """
-    Changes a portion of the frame's pixels at the bottom right to black.
-
-    Args:
-        frame: The input frame (NumPy array) from OpenCV.
-
-    Returns:
-        The modified frame with the bottom-right corner blackened.  Returns the original frame
-        if there's an error (e.g., invalid frame).
-    """
-    try:
-        height, width = frame.shape[:2]  # Get height and width
-
-        # Calculate the size of the black rectangle
-        black_width = int(0.13 * width)
-        black_height = int(0.025 * height)
-
-        # Calculate the starting coordinates of the rectangle
-        start_x = width - black_width
-        start_y = height - black_height
-
-        # Create a black rectangle (NumPy array of zeros)
-        black_rect = np.zeros((black_height, black_width, frame.shape[2]), dtype=frame.dtype)  # Ensure same dtype
-
-        # Replace the bottom-right portion of the frame with the black rectangle
-        frame[start_y:height, start_x:width] = black_rect
-
-        return frame
-    except Exception as e:
-        print(f"Error processing frame: {e}")
-        return frame
-
 config = {
-    'custom_tasks':True, # enable creating and editing custom tasks
+    'custom_tasks': False,  # 关闭后正式版不显示「脚本」「模板」tab, 也不加载 ok_tasks 自定义脚本
     'debug': False,  # Optional, default: False
     'config_folder': 'configs', #最好不要修改
     'global_configs': [],
