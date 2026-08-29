@@ -19,6 +19,10 @@ current_screen() 按 priority 降序、同优先级按插入顺序遍历，
 扩展字段（缺省 = 现状行为，现有条目未填充）：
 - absent: list[str]，消歧特征，任一在当前帧命中则该界面判定失败
   （用于特征子集重叠的相邻界面互斥）。
+- any_features: list[str]，任一命中特征，任一在当前帧命中即视为特征命中
+  （与 features 的「全部命中」相对，用于图标三选一等「或」语义判定）。
+- feature_box: str，可选匹配区域（coco 区域特征名），仅作用于 any_features
+  的特征匹配；缺失时退化为全屏匹配。
 - priority: int，默认 0。仅影响 current_screen() 的遍历顺序：
   按其降序、同优先级保持注册顺序；is_screen/wait_screen/assert_screen 不受影响。
 - min_frames: int，默认 1。仅作用于 wait_screen/assert_screen 的轮询判定，
@@ -54,6 +58,16 @@ SCREENS = {
     "anomaly_interception_page": {"features": ["anomaly_interception_page", "anomaly_interception_active"]},
     "common_interception_page": {"features": ["common_interception_page"]},
     "anomaly_interception_team_select_page": {"features": ["anomaly_interception_team_select_page"]},
+    # 前哨基地相关界面：前哨基地主页 → 指挥中心弹窗页 → 咨询列表页 → 咨询详情页 → 咨询对话页。
+    "outpost": {"features": ["command_center"], "keywords": ["前哨基地"], "ocr_box": "box_sub_pages_title"},
+    "command_center": {"keywords": ["指挥中心"], "ocr_box": "box_sub_pages_title"},
+    "advise": {"features": ["advise_page_icon"], "keywords": ["咨询"], "ocr_box": "box_sub_pages_title"},
+    "advise_nikke": {"features": ["advise_detail_page", "advise_gift"]},
+    # 咨询对话（谈话）页：三个对话图标（取消/记录/跳过）任一出现即判定，
+    # 走 any_features「任一命中」扩展字段（与 features 的「全部命中」相对），
+    # feature_box 为可选的匹配区域限定（字符串形式的 coco 区域特征名）。
+    "conversation": {"any_features": ["conversation_cancel", "conversation_log", "conversation_skip"],
+                     "feature_box": "box_conversation_icon"},
 }
 
 # 长等待中断哨兵：断线/维护/登录过期等致命中断弹窗的特征清单。

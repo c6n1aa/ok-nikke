@@ -11,6 +11,7 @@ from ok.ui.qt.common.design_system import configure_page_layout
 from src.tasks.DailyTask import DailyTask
 from src.tasks.HarvestTask import HarvestTask
 from src.tasks.OutpostDefenseTask import OutpostDefenseTask
+from src.tasks.OutpostTask import OutpostTask
 from src.tasks.ShopTask import ShopTask
 from src.tasks.CashShopTask import CashShopTask
 from src.tasks.ArkTask import ArkTask
@@ -112,6 +113,7 @@ class DailyTab(CustomTab):
     SUB_TASKS = [
         (HarvestTask, "收获"),
         (OutpostDefenseTask, "歼灭"),
+        (OutpostTask, "前哨基地"),
         (ShopTask, "商店"),
         (CashShopTask, "付费商店"),
         (ArkTask, "方舟"),

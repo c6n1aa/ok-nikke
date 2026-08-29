@@ -8,7 +8,7 @@
 - **类名/文件**：`src/tasks/<TaskName>.py`（PascalCase）
 - **说明**（description，中文）：一句话描述任务做什么
 - **done_keys**：无 或 `{"键名": "day|week|month"}`（纯编排/纯调试任务不写）
-- **配置项**：每行一个：`键名 / 默认值 / 类型(bool|drop_down|line_edit...) / 中文说明`；没有写"无"
+- **配置项**：每行一个：`键名 / 默认值 / 类型(bool|drop_down|line_edit...) / 中文说明`；没有写"无"；缩进为配置项的子配置
 - **触发**：onetime 或 trigger（trigger 需注明 trigger_interval）
 
 ## 屏幕与特征

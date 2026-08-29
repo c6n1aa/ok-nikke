@@ -115,6 +115,7 @@ config = {
         ["src.tasks.DailyTask", "DailyTask"],
         ["src.tasks.HarvestTask", "HarvestTask"],
         ["src.tasks.OutpostDefenseTask", "OutpostDefenseTask"],
+        ["src.tasks.OutpostTask", "OutpostTask"],
         ["src.tasks.ShopTask", "ShopTask"],
         ["src.tasks.CashShopTask", "CashShopTask"],
         ["src.tasks.ArkTask", "ArkTask"],

@@ -22,8 +22,9 @@ class TestScreenRecovery(TaskTestCase):
         self.task.register_screen("lobby", features=["ark"])
 
     def test_global_screens_registry_matches_migrated_specs(self):
-        # 集中式注册表收录全部 19 个界面：9 个迁移自任务 __init__、3 个竞技场界面、商店与方舟排名子页面、
-        # 4 个拦截战界面，外加冷启动正向锚点 login_page。顺序即 SCREENS 注册顺序（login_page 紧随 lobby）。
+        # 集中式注册表收录全部 24 个界面：9 个迁移自任务 __init__、3 个竞技场界面、商店与方舟排名子页面、
+        # 4 个拦截战界面、5 个前哨基地界面，外加冷启动正向锚点 login_page。
+        # 顺序即 SCREENS 注册顺序（login_page 紧随 lobby）。
         expected = {
             "lobby": {"features": ["ark", "lobby"]},
             "login_page": {"keywords": [LOGIN_PAGE_PATTERN], "ocr_box": "box_enter_game"},
@@ -45,6 +46,12 @@ class TestScreenRecovery(TaskTestCase):
             "anomaly_interception_page": {"features": ["anomaly_interception_page", "anomaly_interception_active"]},
             "common_interception_page": {"features": ["common_interception_page"]},
             "anomaly_interception_team_select_page": {"features": ["anomaly_interception_team_select_page"]},
+            "outpost": {"features": ["command_center"], "keywords": ["前哨基地"], "ocr_box": "box_sub_pages_title"},
+            "command_center": {"keywords": ["指挥中心"], "ocr_box": "box_sub_pages_title"},
+            "advise": {"features": ["advise_page_icon"], "keywords": ["咨询"], "ocr_box": "box_sub_pages_title"},
+            "advise_nikke": {"features": ["advise_detail_page", "advise_gift"]},
+            "conversation": {"any_features": ["conversation_cancel", "conversation_log", "conversation_skip"],
+                             "feature_box": "box_conversation_icon"},
         }
         self.assertEqual(list(expected), list(SCREENS))  # 顺序敏感：current_screen 按插入顺序首命中。
         self.assertEqual(expected, SCREENS)
@@ -132,6 +139,45 @@ class TestScreenRecovery(TaskTestCase):
         with patch.object(self.task, "find_one",
                           side_effect=lambda name: self._hit(name) if name == "simulation_mark" else None):
             self.assertTrue(self.task.is_screen("子集页"))  # 消歧特征未命中 → 正常判定。
+
+    def test_any_features_any_hit_matches(self):
+        # any_features 任一命中：任一特征命中即判定为该界面（与 features 的「全部命中」相对）；
+        # feature_box 限定匹配区域（区域存在时走 find_one 直查路径，不经帧级特征缓存）。
+        fake_box = Box(100, 100, 50, 50, confidence=1, name="box_conversation_icon")
+        with patch.object(self.task, "get_box_by_name", return_value=fake_box), \
+                patch.object(self.task, "find_one",
+                             side_effect=lambda name, **kw: self._hit(name) if name == "conversation_log" else None):
+            self.task.register_screen(
+                "谈话", any_features=["conversation_cancel", "conversation_log", "conversation_skip"],
+                feature_box="box_conversation_icon")
+            self.assertTrue(self.task.is_screen("谈话"))  # 第二个特征命中即通过。
+        with patch.object(self.task, "get_box_by_name", return_value=fake_box), \
+                patch.object(self.task, "find_one", return_value=None):
+            self.assertFalse(self.task.is_screen("谈话"))  # 全部未命中判负。
+
+    def test_any_features_with_missing_feature_box_falls_back_fullscreen(self):
+        # feature_box 缺失时退化为全屏匹配，不抛异常。
+        with patch.object(self.task, "get_box_by_name", side_effect=ValueError("missing")), \
+                patch.object(self.task, "find_one", side_effect=lambda name, **kw: self._hit(name)) as find_mock:
+            self.task.register_screen("谈话", any_features=["conversation_cancel"], feature_box="box_conversation_icon")
+            self.assertTrue(self.task.is_screen("谈话"))
+        find_mock.assert_called_once_with("conversation_cancel")  # 区域缺失退化为无 box 的全屏查找。
+
+    def test_any_features_with_keywords_and(self):
+        # any_features 与 keywords 同配时取「与」：任一特征命中且关键词命中才判定为该界面。
+        # 传 feature_box 走 find_one 直查路径（不经帧级特征缓存），两个场景才互不污染。
+        fake_box = Box(100, 100, 50, 50, confidence=1, name="box_icon")
+        with patch.object(self.task, "get_box_by_name", return_value=fake_box), \
+                patch.object(self.task, "find_one",
+                             side_effect=lambda name, **kw: self._hit(name) if name == "a_icon" else None), \
+                patch.object(self.task, "ocr", return_value=[Box(0, 0, 5, 5, confidence=1, name="聊天")]):
+            self.task.register_screen("联判", any_features=["a_icon", "b_icon"], keywords=["聊天"],
+                                      ocr_box="box_icon", feature_box="box_icon")
+            self.assertTrue(self.task.is_screen("联判"))
+        with patch.object(self.task, "get_box_by_name", return_value=fake_box), \
+                patch.object(self.task, "find_one", return_value=None), \
+                patch.object(self.task, "ocr", return_value=[Box(0, 0, 5, 5, confidence=1, name="聊天")]):
+            self.assertFalse(self.task.is_screen("联判"))  # 特征全部未命中，关键词命中也不算。
 
     def test_current_screen_respects_priority(self):
         # priority 仅影响 current_screen 遍历顺序：高优先级先返回；同优先级保持注册序。
