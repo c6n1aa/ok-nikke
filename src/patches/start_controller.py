@@ -39,11 +39,11 @@ class _CaptureContext:
 
 class NikkeStartController(start_controller_module.StartController):
     LAUNCHER_START_TIMEOUT = 60
-    LAUNCHER_BUTTON_SEARCH_TIMEOUT = 120
+    LAUNCHER_BUTTON_SEARCH_TIMEOUT = 60
     LAUNCHER_POLL_INTERVAL = 1.0
     # 加载完成判定：窗口出现后最短等 1 秒，尺寸连续 1 秒内变化不超过容差即视为稳定。
     # 要求"完全不变"会把边框阴影/DPI 缩放的 1-2px 抖动误判为不稳定，导致 OCR 迟迟不开始；
-    # 因此放宽为容差判定并缩短等待，OCR 循环本身有 120s 超时兜底，早点开始无风险。
+    # 因此放宽为容差判定并缩短等待，OCR 循环本身有 60s 超时兜底，早点开始无风险。
     LAUNCHER_SETTLE_SECONDS = 1
     LAUNCHER_STABLE_SECONDS = 1
     LAUNCHER_SIZE_TOLERANCE = 10  # 窗口尺寸稳定判定容差（像素）。
@@ -289,7 +289,10 @@ class NikkeStartController(start_controller_module.StartController):
                     return True
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
-                    communicate.starting_emulator.emit(True, '启动器启动按钮未找到，请手动启动游戏!', 0)
+                    # emit(True, msg, 0) 会被 MainWindow.starting_emulator 处理：
+                    # 切回启动页 + alert_error(msg, tray=True) 弹通知（含托盘），同时 return False 中断启动流程，
+                    # 使 _do_start 不会调用 og.executor.start()，任务不会被执行。
+                    communicate.starting_emulator.emit(True, '启动按钮未找到，请检查是否已经登录以及网络环境', 0)
                     return False
                 communicate.starting_emulator.emit(False, None, int(remaining))
                 time.sleep(self.LAUNCHER_POLL_INTERVAL)
