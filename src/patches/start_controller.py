@@ -5,7 +5,6 @@ import cv2
 import win32con
 import win32gui
 
-import ok
 import ok.ui.qt.StartController as start_controller_module
 from ok import Logger, og
 from ok.device.capture_methods.bitblt_utils import clean_up_bitblt, capture_by_bitblt
@@ -74,6 +73,7 @@ class NikkeStartController(start_controller_module.StartController):
         if not self._wait_until_device_ready(refresh_first=not initial_refresh_done):
             return False
         self._ensure_min_game_window_size()
+        self._bring_game_window_to_front()
         communicate.starting_emulator.emit(True, None, 0)
         return True
 
@@ -105,6 +105,22 @@ class NikkeStartController(start_controller_module.StartController):
                 f'game window resized to {target_width}x{target_height}, now {hwnd_window.width}x{hwnd_window.height}')
         except Exception as e:
             logger.error(f'ensure min game window size error', e)
+
+    def _bring_game_window_to_front(self):
+        # 启动完成后把游戏窗口切到前台：WGC/BitBlt 捕获与 pynput 点击都依赖前台，
+        # 否则任务 run() 开头取帧拿不到画面、点击静默跳过。
+        # 优先用框架 HwndWindow.bring_to_front（仅 ShowWindow/BringWindowToTop/
+        # SetForegroundWindow，不含 AttachThreadInput——后者会把本线程输入队列与游戏
+        # 线程绑定，与 GUI 按钮点击的焦点争夺叠加引发跨进程输入队列死锁）。
+        try:
+            hwnd_window = getattr(og.device_manager, 'hwnd_window', None)
+            if hwnd_window is None or not getattr(hwnd_window, 'hwnd', 0):
+                logger.warning('game window not attached, skip bring to front')
+                return
+            if not hwnd_window.bring_to_front():
+                logger.warning('hwnd_window.bring_to_front returned False')
+        except Exception as e:
+            logger.warning(f'bring game window to front failed: {e}')
 
     def _start_device_via_launcher(self, device, launcher_path):
         exe = self._resolve_launcher_exe(launcher_path)
