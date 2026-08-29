@@ -170,10 +170,11 @@ class TestRaidTaskCoopFlow(_DebugOffTestCase):
         home_box = _fake_box("common_home", 0, 0, 5, 5)
         esc_box = _fake_box("box_battle_finish_text", 100, 100, 20, 10)
         ocr_seq = [[_fake_box("剩余次数 1/3")], [_fake_box("0/3")]]
-        with patch.object(self.task, "is_screen", return_value=False), patch.object(self.task, "wait_until_lobby_after_start", return_value=True), patch.object(self.task, "dismiss_all_popups"), patch.object(self.task, "get_box_by_name", side_effect=lambda n: {"box_lobby_left_side_panel": panel, "box_coop_count": count_box}.get(n, _fake_box(n))), patch.object(self.task, "_recover_to_lobby", return_value=True), patch.object(self.task, "find_one", side_effect=lambda name, **kw: {"coop": coop_box, "common_home": home_box}.get(name)), patch.object(self.task, "click_box") as click_mock, patch.object(self.task, "wait_screen", side_effect=_ws_ensure_then_confirm()) as wait_screen_mock, patch.object(self.task, "ocr", side_effect=ocr_seq), patch.object(self.task, "wait_feature") as wait_mock, patch.object(self.task, "wait_click_feature") as wait_click_mock, patch.object(self.task, "sleep"), patch.object(self.task, "wait_battle_finish", return_value=("success", esc_box)), patch.object(self.task, "wait_for_lobby") as lobby_mock:
+        with patch.object(self.task, "is_screen", return_value=False), patch.object(self.task, "wait_until_lobby_after_start", return_value=True), patch.object(self.task, "dismiss_all_popups"), patch.object(self.task, "get_box_by_name", side_effect=lambda n: {"box_lobby_left_side_panel": panel, "box_coop_count": count_box}.get(n, _fake_box(n))), patch.object(self.task, "_recover_to_lobby", return_value=True), patch.object(self.task, "find_one", side_effect=lambda name, **kw: {"coop": coop_box, "common_home": home_box}.get(name)), patch.object(self.task, "click_box") as click_mock, patch.object(self.task, "wait_screen", side_effect=_ws_ensure_then_confirm()) as wait_screen_mock, patch.object(self.task, "ocr", side_effect=ocr_seq), patch.object(self.task, "wait_feature") as wait_mock, patch.object(self.task, "wait_click_feature") as wait_click_mock, patch.object(self.task, "assert_screen") as assert_mock, patch.object(self.task, "sleep"), patch.object(self.task, "wait_battle_finish", return_value=("success", esc_box)), patch.object(self.task, "wait_for_lobby") as lobby_mock:
             self.task._do_coop_flow()
         wait_mock.assert_any_call("coop_match_page", time_out=10, raise_if_not_found=True)
         wait_click_mock.assert_any_call("coop_accpet", time_out=60, raise_if_not_found=True, after_sleep=1)
+        assert_mock.assert_any_call("coop_nikke_select_page", time_out=20)  # 接受后独立确认进入选择界面，不再经 transition。
         esc_clicked = any(c.args[0]==esc_box for c in click_mock.call_args_list)
         self.assertTrue(esc_clicked)
         lobby_mock.assert_called_once()
@@ -181,7 +182,7 @@ class TestRaidTaskCoopFlow(_DebugOffTestCase):
         panel = _fake_box("box_lobby_left_side_panel", 0, 0, 100, 100)
         coop_box = _fake_box("coop", 5, 5, 10, 10)
         count_box = _fake_box("box_coop_count", 20, 20, 30, 10)
-        with patch.object(self.task, "is_screen", return_value=False), patch.object(self.task, "wait_until_lobby_after_start", return_value=True), patch.object(self.task, "dismiss_all_popups"), patch.object(self.task, "get_box_by_name", side_effect=lambda n: {"box_lobby_left_side_panel": panel, "box_coop_count": count_box}.get(n, _fake_box(n))), patch.object(self.task, "_recover_to_lobby", return_value=True), patch.object(self.task, "find_one", return_value=coop_box), patch.object(self.task, "click_box"), patch.object(self.task, "wait_screen", side_effect=_ws_ensure_then_confirm()), patch.object(self.task, "ocr", return_value=[_fake_box("1/3")]), patch.object(self.task, "wait_feature", return_value=_fake_box("coop_match_page")), patch.object(self.task, "wait_click_feature", return_value=_fake_box("coop_accpet")), patch.object(self.task, "sleep"), patch.object(self.task, "wait_battle_finish", return_value=(None, None)):
+        with patch.object(self.task, "is_screen", return_value=False), patch.object(self.task, "wait_until_lobby_after_start", return_value=True), patch.object(self.task, "dismiss_all_popups"), patch.object(self.task, "get_box_by_name", side_effect=lambda n: {"box_lobby_left_side_panel": panel, "box_coop_count": count_box}.get(n, _fake_box(n))), patch.object(self.task, "_recover_to_lobby", return_value=True), patch.object(self.task, "find_one", return_value=coop_box), patch.object(self.task, "click_box"), patch.object(self.task, "wait_screen", side_effect=_ws_ensure_then_confirm()), patch.object(self.task, "ocr", return_value=[_fake_box("1/3")]), patch.object(self.task, "wait_feature", return_value=_fake_box("coop_match_page")), patch.object(self.task, "wait_click_feature", return_value=_fake_box("coop_accpet")), patch.object(self.task, "assert_screen", return_value=True), patch.object(self.task, "sleep"), patch.object(self.task, "wait_battle_finish", return_value=(None, None)):
             with self.assertRaises(WaitFailedException):
                 self.task._do_coop_flow()
     def test_get_panel_box_missing_raises(self):
@@ -272,6 +273,7 @@ class TestDailyTaskRaidIntegration(_DebugOffTestCase):
         _isolate_task_config(daily, 'DailyTask')
         daily.config["收获"] = False
         daily.config["歼灭"] = False
+        daily.config["前哨基地"] = False  # 与 DailyTask.default_config 的键名一致，隔离新子流程。
         daily.config["商店"] = False
         daily.config["付费商店"] = False
         daily.config["方舟"] = True

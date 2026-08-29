@@ -92,9 +92,9 @@ class RaidTask(NikkeBaseTask):  # 定义讨伐任务类，包含协同作战与�
             self.wait_feature("coop_match_page", time_out=10, raise_if_not_found=True)  # F 识别 coop_match_page 确认匹配弹窗已出现。
             self.click_box("box_coop_normal", after_sleep=1)  # G 点击 box_coop_normal（文档写 box_normal，实际为 box_coop_normal）选择普通难度。
             self.click_box("box_coop_confirm", after_sleep=1)  # H 点击 box_coop_confirm 确认匹配。
-            self.transition("coop_nikke_select_page", click_feature="coop_accpet", time_out=60, wait_confirm=10, after_sleep=1)  # I 等待识别 coop_accpet 并点击接受匹配，确认进入 NIKKE 选择界面。
-            self.sleep(3)  # J 等待 3 秒（界面动画稳定）。
-            self.click_box("box_coop_ready", after_sleep=1)  # K 点击 box_coop_ready 准备就绪。
+            self.wait_click_feature("coop_accpet", time_out=60, raise_if_not_found=True, after_sleep=1)  # I 等待接受匹配弹窗出现（队友接受时间不定，最长 60 秒）并点击接受。
+            self.assert_screen("coop_nikke_select_page", time_out=20)  # I2 确认已进入 NIKKE 选择界面：等队友接受+加载实测最长约 8 秒，给足余量；不走 transition 以免总预算挤压确认窗口、且不会对一次性弹窗做无效补点。
+            self.click_box("box_coop_ready", after_sleep=10)  # K 点击 box_coop_ready 准备就绪。
             result, confirm_box = self.wait_battle_finish(time_out=240)  # L 等待战斗结束 wait_battle_finish（节流轮询，只检测不点击）。
             if result is None:  # 超时未检测到结算界面。
                 raise WaitFailedException("等待协同作战战斗结束超时")  # 抛异常由 try_step 恢复。
