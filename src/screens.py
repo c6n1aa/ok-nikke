@@ -31,7 +31,7 @@ current_screen() 按 priority 降序、同优先级按插入顺序遍历，
 
 import re  # 登录页关键词用正则（OCR 部分匹配，忽略大小写）。
 
-LOGIN_PAGE_PATTERN = re.compile(r"TOUCH TO\s+CONTINUE", re.IGNORECASE)  # 登录页进入游戏提示文字（TOUCH TO CONTINUE）。
+LOGIN_PAGE_PATTERN = re.compile(r"TOUCH\s+TO\s+CONTINUE", re.IGNORECASE)  # 登录页进入游戏提示文字（TOUCH TO CONTINUE）。
 
 SCREENS = {
     "lobby": {"features": ["ark", "lobby"]},
@@ -58,7 +58,7 @@ SCREENS = {
     "anomaly_interception_page": {"features": ["anomaly_interception_page", "anomaly_interception_active"]},
     "common_interception_page": {"features": ["common_interception_page"]},
     "anomaly_interception_team_select_page": {"features": ["anomaly_interception_team_select_page"]},
-    # 前哨基地相关界面：前哨基地主页 → 指挥中心弹窗页 → 咨询列表页 → 咨询详情页 → 咨询对话页。
+    # 前哨基地相关界面：前哨基地主页 → 指挥中心页 → 咨询列表页 → 咨询详情页 → 咨询对话页。
     "outpost": {"features": ["command_center"], "keywords": ["前哨基地"], "ocr_box": "box_sub_pages_title"},
     "command_center": {"keywords": ["指挥中心"], "ocr_box": "box_sub_pages_title"},
     "advise": {"features": ["advise_page_icon"], "keywords": ["咨询"], "ocr_box": "box_sub_pages_title"},
