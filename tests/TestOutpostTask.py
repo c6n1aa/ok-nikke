@@ -8,8 +8,8 @@ from ok.feature.Box import Box
 from ok.test.TaskTestCase import TaskTestCase
 
 from src.config import config
-from src.tasks.OutpostTask import _ADVISE_MAX_SWITCH, OutpostTask, _normalize_answer_text, \
-    _normalize_query_name
+from src.tasks.OutpostTask import _ADVISE_MAX_SWITCH, _SINGLE_OPTION_CLICK_X, OutpostTask, \
+    _normalize_answer_text, _normalize_query_name
 
 _TEST_CONFIG_DIR = os.path.join('dev_tools', 'test_configs')
 
@@ -64,6 +64,8 @@ class TestOutpostTaskMeta(_DebugOffTestCase):
 
     def test_is_completed_only_counts_enabled(self):
         _isolate_task_config(self.task, 'OutpostTask')
+        self.task.config["派遣"] = True  # 配置可能被真实 configs/ 带偏（未重置为默认），显式对齐默认口径。
+        self.task.config["咨询"] = True
         self.task.clear_done_all()
         self.assertFalse(self.task.is_completed())
         self.task.mark_done("bulletin_board", "day")
@@ -120,6 +122,9 @@ class TestOutpostTaskMeta(_DebugOffTestCase):
         with patch.object(self.task, "get_box_by_name", return_value=_named_box("box_advise_count")), \
                 patch.object(self.task, "ocr", return_value=[_text_box("0/10")]):
             self.assertTrue(self.task._advise_count_zero())
+        with patch.object(self.task, "get_box_by_name", return_value=_named_box("box_advise_count")), \
+                patch.object(self.task, "ocr", return_value=[_text_box("O/10")]):
+            self.assertTrue(self.task._advise_count_zero())  # OCR 把分子的 0 误识为 O 时仍判用尽。
         with patch.object(self.task, "get_box_by_name", return_value=_named_box("box_advise_count")), \
                 patch.object(self.task, "ocr", return_value=[_text_box("10/10")]):
             self.assertFalse(self.task._advise_count_zero())  # "10/10" 不能因子串包含被误判为 0。
@@ -468,7 +473,7 @@ class TestOutpostTaskAdviseOnce(_DebugOffTestCase):
                          [c.args for c in assert_mock.call_args_list])  # 等谈话界面→确认回详情。
         answer_mock.assert_called_once_with(rows)
 
-    def _answer_with(self, find_one_side_effect, ocr_boxes, rows):
+    def _answer_with(self, find_one_side_effect, ocr_boxes, rows, time_side_effect=None):
         """公共补丁栈执行 _answer_conversation，返回 click_relative/click_box mock。"""
         with patch.object(self.task, "get_box_by_name",
                           side_effect=lambda name: _named_box(name)), \
@@ -476,7 +481,10 @@ class TestOutpostTaskAdviseOnce(_DebugOffTestCase):
                 patch.object(self.task, "click_relative") as relative_mock, \
                 patch.object(self.task, "click_box") as click_mock, \
                 patch.object(self.task, "ocr", return_value=ocr_boxes), \
-                patch.object(self.task, "sleep"):
+                patch.object(self.task, "sleep"), \
+                patch("src.tasks.OutpostTask.time") as time_mock:
+            time_mock.time.side_effect = time_side_effect if time_side_effect is not None \
+                else itertools.count(step=0.1)  # 默认单调递增时钟，避免超时误触发。
             self.task._answer_conversation(rows)
         return relative_mock, click_mock
 
@@ -527,6 +535,38 @@ class TestOutpostTaskAdviseOnce(_DebugOffTestCase):
         self.assertEqual(1, click_mock.call_count)
         self.assertIn(click_mock.call_args.args[0], [option1, option2])  # 随机点选项框兜底。
 
+    def test_answer_clicks_single_option_to_advance(self):
+        option1 = Box(938, 1067, 23, 22, confidence=1, name="advise_option1")
+        option2 = Box(938, 1043, 23, 22, confidence=1, name="advise_option2")
+        # 第1拍只出现选项1开始计时；第2拍仍单个且超过确认窗口→点击推进；第3拍双框出现进入作答。
+        with patch.object(self.task, "get_box_by_name",
+                          side_effect=lambda name: _named_box(name)), \
+                patch.object(self.task, "find_one",
+                             side_effect=[option1, None, option1, None, option1, option2, None]), \
+                patch.object(self.task, "click_relative") as relative_mock, \
+                patch.object(self.task, "click_box") as click_mock, \
+                patch.object(self.task, "ocr", return_value=[]), \
+                patch.object(self.task, "sleep"), \
+                patch("src.tasks.OutpostTask.time") as time_mock:
+            time_mock.time.side_effect = [100, 100, 101.5, 102]
+            self.task._answer_conversation([])
+        relative_mock.assert_called_once_with(0.7, 0.85, after_sleep=0.5)  # 确认窗口内仍以点空白推进。
+        self.assertEqual(2, click_mock.call_count)  # 推进点击 + 作答点击（无 rows 走随机兜底）。
+        first = click_mock.call_args_list[0]
+        self.assertIs(first.args[0], option1)  # 直接点匹配到的角标框。
+        self.assertEqual(_SINGLE_OPTION_CLICK_X, first.kwargs["relative_x"])  # 框内相对 X 右移点框体。
+        self.assertEqual(1, first.kwargs["after_sleep"])
+
+    def test_answer_waits_confirm_window_before_single_click(self):
+        option1 = _named_box("advise_option1")
+        option2 = _named_box("advise_option2")
+        # 单框刚出现未过确认窗口就出现双框：不能误点第一框，直接进入作答。
+        relative_mock, click_mock = self._answer_with(
+            [option1, None, option1, option2, None], [], [("提问", "好", "坏")],
+            time_side_effect=[100, 100, 100.2, 100.2])
+        relative_mock.assert_called_once_with(0.7, 0.85, after_sleep=0.5)  # 确认窗口内点空白。
+        click_mock.assert_called_once()  # 只有作答点击，没有推进点击。
+
 
 class TestOutpostDailyIntegration(_DebugOffTestCase):
     """验证日常编排：前哨基地开关开启时 DailyTask 调度 OutpostTask，关闭则跳过。"""
@@ -548,7 +588,8 @@ class TestOutpostDailyIntegration(_DebugOffTestCase):
         daily = self._build_daily()
         self.assertTrue(daily.default_config["前哨基地"])  # 日常默认开启前哨基地。
         with patch.object(daily, "ensure_screen", return_value=True), \
-                patch.object(daily, "run_task_by_class") as run_mock:
+                patch.object(daily, "run_task_by_class") as run_mock, \
+                patch.object(daily, "_daily_end_flow"):  # 收尾流程会真实抓帧/置前窗口，必须拦截（不碰真实环境）。
             daily.config["前哨基地"] = True
             daily.run()
             self.assertIn(OutpostTask, [c.args[0] for c in run_mock.call_args_list])  # 开启时被调度。

@@ -1,3 +1,4 @@
+import cv2  # OpenCV 模块，咨询次数 OCR 前对裁剪图做固定倍率放大。
 import os  # 路径拼接模块，定位 assets/db/advise.db 咨询数据库。
 import random  # 随机模块，答案匹配无法决策时随机二选一。
 import re  # 正则模块，OCR 关键词部分匹配与答案文本规范化。
@@ -10,10 +11,16 @@ from src.tasks.NikkeBaseTask import NikkeBaseTask  # 项目基类，所有任务
 
 # 派遣公告栏窗口标题匹配模式：OCR 部分匹配（框架对 re.Pattern 走 re.search，兼容尾随标点）。
 _DISPATCH_BOARD_TITLE_PATTERN = re.compile("派遣公告栏")
-# 咨询剩余次数计数匹配模式：提取 "X/10" 的分子（[0Oo] 兼容 OCR 对数字 0 的字母误识）。
-_ADVISE_COUNT_PATTERN = re.compile(r"(\d+)\s*/\s*1[0Oo]")
+# 咨询剩余次数计数匹配模式：提取 "X/10" 的分子。分子与分母的 0 均容忍 OCR 误识为 O/o，
+# 匹配后分子统一归一（O/o→0）再判 0（实测 OCR 会把分子的 0 识成 O 导致漏判用尽）。
+_ADVISE_COUNT_PATTERN = re.compile(r"([0-9Oo]+)\s*/\s*1[0Oo]")
 # 咨询对话推进的最大等待秒数：超时说明对话未按预期推进到作答时机，抛异常由 try_step 恢复。
 _CONVERSATION_MAX_WAIT = 120
+# 单个选项框判定为推进选项前需持续在场的秒数：作答双框可能先后渲染，防止把先出现的框误当推进选项点掉。
+_SINGLE_OPTION_CONFIRM = 1.0
+# 点击单个推进选项时传给 click_box 的框内相对 X（乘角标宽度）：角标贴在框体左缘不可点，
+# 取 10 即点角标右侧的框体，且随模板缩放自适应分辨率。
+_SINGLE_OPTION_CLICK_X = 10
 # 点击 advise_next 后角色名称未变更的最大重试次数：超限视为无法切换，优雅结束咨询流程。
 _ADVISE_NEXT_MAX_RETRY = 5
 # 咨询流程切换角色的上限：超过后强行结束，防止异常界面状态下无限循环。
@@ -200,7 +207,7 @@ class OutpostTask(NikkeBaseTask):  # 前哨基地任务：执行派遣公告栏�
                 return  # 由调用方标记完成。
 
     def _read_advise_name(self):  # OCR 咨询详情页角色名称区域，返回文本（无识别结果返回空串）。
-        box = self._box_or_fail("box_advise_nikke")  # 名称区域。
+        box = self._box_or_fail("box_advise_nikke_name")  # 详情页名字条区域（区别于列表页点击槽 box_advise_nikke）。
         texts = self.ocr(box=box)  # 区域内 OCR 获取全部文本框。
         return texts[0].name if texts else ""  # 取第一个文本框作为角色名称。
 
@@ -217,10 +224,15 @@ class OutpostTask(NikkeBaseTask):  # 前哨基地任务：执行派遣公告栏�
         box = self._optional_box("box_advise_count")  # 次数区域（缺失视为未用尽，交由切换上限兜底）。
         if box is None:  # 区域缺失。
             return False  # 视为未用尽。
-        texts = self.ocr(box=box)  # 区域内 OCR 获取计数文本。
+        # 次数文本是细体小字，小图直读会把 "10" 的 1 吞掉识成 "0/0"，3 倍放大后各分辨率实测稳定。
+        texts = self.ocr(box=box, frame_processor=lambda image: cv2.resize(
+            image, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC))  # 区域内放大后 OCR 获取计数文本。
         joined = " ".join((item.name or "") for item in texts)  # 拼接全部识别文本。
         matches = _ADVISE_COUNT_PATTERN.findall(joined)  # 提取全部 X/10 计数的分子。
-        return any(numerator == "0" for numerator in matches)  # 任一分子为 0 即已用尽。
+        if not matches:  # OCR 未识别到任何 X/10 计数（区域错位或计数文本未渲染）。
+            self.log_warning(f"咨询次数区域未识别到计数文本：raw='{joined}'")  # 打印原文以便定位。
+        # 分子里的 O/o 归一为 0 后再判是否用尽（OCR 常把 0 误识为 O）。
+        return any(m.replace("O", "0").replace("o", "0") == "0" for m in matches)  # 任一分子为 0 即已用尽。
 
     def _advise_once(self, name, advise_box):  # 执行一次完整咨询：确认弹窗→对话推进→答题→跳过→回详情。
         self.click_box(advise_box, after_sleep=1)  # 点击咨询按钮。
@@ -235,12 +247,23 @@ class OutpostTask(NikkeBaseTask):  # 前哨基地任务：执行派遣公告栏�
     def _answer_conversation(self, rows):  # 对话推进循环：点空白直到出现正式回答选项框，再按爱心/答案匹配选择。
         mark_box = self._box_or_fail("box_advise_option_mark")  # 选项框标记区域。
         deadline = time.time() + _CONVERSATION_MAX_WAIT  # 对话推进超时时刻。
-        while True:  # 单个选项框不是正式回答，必须两个选项框同时出现才是作答时机。
+        single_since = None  # 单个选项框首次出现的时刻，持续超过确认窗口才判定为推进选项。
+        while True:  # 两个选项框同时出现才是作答时机；单个选项框持续在场则是推进选项，点掉才能继续。
             option1 = self.find_one("advise_option1", box=mark_box)  # 选项框 1。
             option2 = self.find_one("advise_option2", box=mark_box)  # 选项框 2。
+            now = time.time()
             if option1 is not None and option2 is not None:  # 正式回答选项已出现。
                 break  # 进入作答。
-            if time.time() > deadline:  # 对话迟迟未推进到作答时机。
+            single = option1 if (option1 is not None and option2 is None) else (
+                option2 if (option2 is not None and option1 is None) else None)  # 恰好一个：推进选项或双框渲染间隙。
+            if single is not None and single_since is not None \
+                    and now - single_since >= _SINGLE_OPTION_CONFIRM:  # 单框持续在场超确认窗口。
+                self.click_box(single, relative_x=_SINGLE_OPTION_CLICK_X,
+                               after_sleep=1)  # 点角标右侧的框体推进对话（角标本体不可点）。
+                single_since = None  # 点击后重新观测。
+                continue
+            single_since = now if single is not None else None  # 单框开始计时；无框清零重新等。
+            if now > deadline:  # 对话迟迟未推进到作答时机。
                 raise WaitFailedException("等待咨询回答选项框超时")  # 抛异常由 try_step 恢复。
             self.click_relative(_CONVERSATION_BLANK_X, _CONVERSATION_BLANK_Y,
                                 after_sleep=0.5)  # 点击屏幕右下中部空白推进对话。
