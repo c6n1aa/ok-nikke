@@ -3,6 +3,10 @@ from ok.task.exceptions import WaitFailedException  # 导入等待失败异常�
 
 from src.tasks.NikkeBaseTask import NikkeBaseTask  # 导入项目基类，所有任务统一继承它。
 
+# 个人突袭结果页点击空白的相对坐标（屏幕右下中部空白区，同 OutpostTask 咨询对话的推进点击）。
+_SOLO_RAID_RESULT_BLANK_X = 0.7
+_SOLO_RAID_RESULT_BLANK_Y = 0.85
+
 
 class RaidTask(NikkeBaseTask):  # 定义讨伐任务类，包含协同作战与个人突袭两个子流程。
 
@@ -34,6 +38,15 @@ class RaidTask(NikkeBaseTask):  # 定义讨伐任务类，包含协同作战与�
 
     def _find_panel_entry(self, name, panel):  # 在左侧面板内灰度识别指定入口（coop/solo_raid），命中返回 Box 否则 None。
         return self.find_one(name, box=panel, use_gray_scale=True)  # 在面板区域内灰度匹配目标入口（灰度可弱化颜色干扰）。
+
+    def _try_return_to_lobby(self):  # 子流程收尾容错回大厅：能找到 common_home 就点击，再等待大厅确认，失败不抛异常。
+        try:  # 返回大厅容错。
+            home = self.find_one("common_home")  # 查找大厅按钮。
+            if home is not None:  # 找到大厅按钮。
+                self.click_box(home, after_sleep=1)  # 点击大厅按钮返回大厅。
+            self.wait_for_lobby(time_out=10, raise_if_not_found=False)  # 等待确认回到大厅，超时不抛异常。
+        except Exception as e:  # 返回大厅异常不影响标记完成。
+            self.log_warning(f"返回大厅失败: {e}")  # 记录异常。
 
     def _is_coop_finished(self):  # 判断协同作战次数是否已用尽（OCR 识别 0/3）。
         try:  # 先判断协同作战功能入口是否可用（灰白禁用视为已完成）。
@@ -104,13 +117,7 @@ class RaidTask(NikkeBaseTask):  # 定义讨伐任务类，包含协同作战与�
                 self.click_box("box_battle_finish_text", after_sleep=1)  # 兜底点击胜利结算确认区域。
             self.assert_screen("coop_page")  # 循环回到 C：确认已回到协同作战页面。
         # 循环结束，尝试返回大厅。
-        try:  # 返回大厅容错。
-            home = self.find_one("common_home")  # 查找大厅按钮。
-            if home is not None:  # 找到大厅按钮。
-                self.click_box(home, after_sleep=1)  # 点击大厅按钮返回大厅。
-            self.wait_for_lobby(time_out=10, raise_if_not_found=False)  # 等待确认回到大厅，超时不抛异常。
-        except Exception as e:  # 返回大厅异常不影响标记完成。
-            self.log_warning(f"返回大厅失败: {e}")  # 记录异常。
+        self._try_return_to_lobby()  # 容错回大厅：点 common_home 并等待大厅确认，失败不影响标记完成。
 
     def _do_coop(self):  # 协同作战子流程：开关与完成状态检查后以恢复协议执行主流程。
         if not self.config.get("协同作战"):  # 用户未启用协同作战。
@@ -168,6 +175,25 @@ class RaidTask(NikkeBaseTask):  # 定义讨伐任务类，包含协同作战与�
         self.log_info(f"个人突袭快速战斗结束: {result}")  # 记录结算结果。
         self.click_box(confirm_box, after_sleep=1)  # 点击结算确认关闭结果画面。
 
+    def _handle_solo_raid_challenge_mode(self):  # 挑战模式落点分流：当前页仍带 solo_raid_page 特征，点 common_home 回大厅并视为当日已完成。
+        if self.find_one("solo_raid_challenge_mode") is None:  # 未识别到挑战模式特征。
+            return False  # 非挑战模式落点，交回主流程正常判定剩余次数。
+        self.log_info("个人突袭处于挑战模式，视为已完成，返回大厅。")  # 记录分流原因。
+        self._try_return_to_lobby()  # 点击 common_home 返回大厅（容错，失败不影响标记完成）。
+        return True  # 告知主流程当日已完成。
+
+    def _handle_solo_raid_result_page(self):  # 结果页落点分流：结果页不会到达 solo_raid_page，点屏幕右下空白关闭并视为当日已完成。
+        try:  # 先刷新一帧再识别，避免用到补点点击掉弹窗前的旧帧。
+            self.next_frame()
+        except Exception as e:  # 无可用帧时忽略，用现有帧兜底识别。
+            self.log_warning(f"结果页识别前刷新帧失败: {e}")  # 记录刷新失败。
+        if self.find_one("solo_raid_result") is None:  # 未识别到结果页特征。
+            return False  # 非结果页落点，交回调用方按原异常恢复。
+        self.log_info("识别到个人突袭结果页，视为已完成，点击空白关闭。")  # 记录分流原因。
+        self.click_relative(_SOLO_RAID_RESULT_BLANK_X, _SOLO_RAID_RESULT_BLANK_Y, after_sleep=1)  # 点击屏幕右下中部空白关闭结果页。
+        self._try_return_to_lobby()  # 关闭后若仍停在其他页面则点 common_home 回大厅（容错）。
+        return True  # 告知主流程当日已完成。
+
     def _do_solo_raid_flow(self):  # 个人突袭主流程：从大厅出发，优先快速战斗扫荡，否则逐次普通出战直到全部不可用（re-entrant，由 try_step 包裹）。
         def find_solo_entry():  # B 在 box_lobby_left_side_panel 识别个人突袭入口（ensure_screen 进入大厅之后才解析）。
             panel = self._get_panel_box()  # 获取左侧面板区域。
@@ -177,7 +203,17 @@ class RaidTask(NikkeBaseTask):  # 定义讨伐任务类，包含协同作战与�
             return raid_box  # 返回入口框或 None。
 
         # A 幂等就位个人突袭页：已在页面直接返回；否则分流恢复/冷启动后从大厅点入口。
-        if not self.ensure_screen("solo_raid_page", entry=find_solo_entry, wait_confirm=10, after_sleep=1):  # 入口缺失视为已完成，直接返回（由调用方标记完成）。
+        # retry_click=0 禁用原地补点：补点会把已弹出的结果页点掉，重试交给 try_step 整体恢复。
+        try:
+            if not self.ensure_screen("solo_raid_page", entry=find_solo_entry, wait_confirm=10, after_sleep=1,
+                                      retry_click=0):  # 入口缺失视为已完成，直接返回（由调用方标记完成）。
+                return
+        except WaitFailedException:  # 点击入口后未确认到个人突袭页。
+            if self._handle_solo_raid_result_page():  # 识别到结果页：点空白关闭，视为当日已完成。
+                return
+            raise  # 非结果页落点：原样抛出，交由 try_step 恢复重试。
+        # A2 入口落点分流（排在最前）：挑战模式页仍带 solo_raid_page 特征，就位成功后先判挑战模式。
+        if self._handle_solo_raid_challenge_mode():  # 识别到挑战模式：点 common_home 回大厅，视为当日已完成。
             return
         rounds = 0  # 出战轮次保护计数，防止按钮状态误判导致死循环。
         while True:  # 循环直到没有可用的出战方式。
@@ -194,13 +230,7 @@ class RaidTask(NikkeBaseTask):  # 定义讨伐任务类，包含协同作战与�
             self.log_info("个人突袭无可用出战方式，结束。")  # D/E 均 false：当日次数已用尽或功能未解锁。
             break  # E -- false --> END。
         # 循环结束，尝试返回大厅。
-        try:  # 返回大厅容错。
-            home = self.find_one("common_home")  # 查找大厅按钮。
-            if home is not None:  # 找到大厅按钮。
-                self.click_box(home, after_sleep=1)  # 点击大厅按钮返回大厅。
-            self.wait_for_lobby(time_out=10, raise_if_not_found=False)  # 等待确认回到大厅，超时不抛异常。
-        except Exception as e:  # 返回大厅异常不影响标记完成。
-            self.log_warning(f"返回大厅失败: {e}")  # 记录异常。
+        self._try_return_to_lobby()  # 容错回大厅：点 common_home 并等待大厅确认，失败不影响标记完成。
 
     def _do_solo_raid(self):  # 个人突袭子流程：开关与完成状态检查后以恢复协议执行主流程。
         if not self.config.get("个人突袭"):  # 用户未启用个人突袭。
