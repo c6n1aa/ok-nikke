@@ -6,6 +6,9 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
 jobs:
   build:
 
@@ -56,21 +59,43 @@ jobs:
           Get-ChildItem -Path ".\tests\*.py" | ForEach-Object {
               Write-Host "Running tests in $($_.FullName)"
               python -m unittest $_.FullName
+              if ($LASTEXITCODE -ne 0) { throw "Tests failed in $($_.FullName)" }
           }
 
-      - name: Build with PyAppify Action
+      - name: Build launcher with PyAppify Action
         id: build-app
-        uses: ok-oldking/pyappify-action@master #使用pyappify打包exe
+        uses: ok-oldking/pyappify-action@master #只编译启动器exe, 不再走NSIS安装器
+        with:
+          build_exe_only: true
+
+      - name: Package portable zip
+        shell: pwsh
+        run: |
+          # 运行启动器 setup 命令, 在 exe 同目录生成 data(内嵌Python/venv/按tag克隆的代码); -p 需与 pyappify.yml 的 profile 名一致
+          $appDir = Join-Path "pyappify_dist" "ok-nikke-maid"
+          New-Item -ItemType Directory -Path $appDir -Force | Out-Null
+          $exe = Join-Path $appDir "ok-nikke-maid.exe"
+          Copy-Item "${{ steps.build-app.outputs.exe-path }}" $exe
+          & $exe -c setup -p Release
+          if ($LASTEXITCODE -ne 0) { throw "pyappify setup failed with exit code $LASTEXITCODE" }
+          if (-not (Test-Path (Join-Path $appDir "data"))) { throw "pyappify setup did not generate the data folder" }
+          # 清掉打包过程中产生的缓存/日志, 不进便携包
+          Remove-Item (Join-Path $appDir "cache") -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item (Join-Path $appDir "logs") -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item (Join-Path $appDir "EBWebView") -Recurse -Force -ErrorAction SilentlyContinue
+          Compress-Archive -Path $appDir -DestinationPath "pyappify_dist\ok-nikke-maid-win32-portable.zip" -Force
 
       - name: Release
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
           draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
           body: |
             ###  更新日志
               请查看提交记录。
-            ### 下载包说明
-              * [ok-nikke-maid-win32-China-setup.exe](https://github.com/c6n1aa/ok-nikke-maid/releases/download/${{ github.ref_name }}/ok-nikke-maid-win32-China-setup.exe) 完整安装包.
-              * [ok-nikke-maid-win32-Global-setup.exe](https://github.com/c6n1aa/ok-nikke-maid/releases/download/${{ github.ref_name }}/ok-nikke-maid-win32-Global-setup.exe) full package with dependencies.
-          files: pyappify_dist/*
+            ### 下载说明
+              * [ok-nikke-maid-win32-portable.zip](https://github.com/c6n1aa/ok-nikke-maid/releases/download/${{ github.ref_name }}/ok-nikke-maid-win32-portable.zip) 完整便携包: 解压到任意目录, 运行其中的 ok-nikke-maid.exe (需管理员权限), 应用内可自动更新。
+              * Full portable package: extract anywhere, run ok-nikke-maid.exe as administrator. In-app auto-update supported.
+              * 无需下载 Source code, 仅供存档用。
+          files: pyappify_dist/ok-nikke-maid-win32-portable.zip

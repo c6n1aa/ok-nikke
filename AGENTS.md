@@ -10,6 +10,7 @@ ok-nikke-maid 是基于 PyPI `ok-script`（2.x）构建的《NIKKE》Windows 客
 - **禁止新增 `.qss`、硬编码颜色、控件级 `setStyleSheet`**；布局复用 `ok.ui.qt.common.design_system` 令牌。
 - **`assets/images/*.png` 是模板图集，不是游戏截图**，不要读画面/OCR/理解 UI。
 - 不覆写 `click_box`；战斗结束等结果用 `wait_battle_finish`，不用 `wait_feature`/`wait_ocr` 忙轮询。
+- **测试不碰真实环境**：`wait_for_lobby`（真实置前窗口）、`dismiss_all_popups`（真实抓帧+OCR）等必经方法必须 `patch.object` 拦截并断言参数。
 
 ## 关键机制
 
@@ -26,7 +27,7 @@ ok-nikke-maid 是基于 PyPI `ok-script`（2.x）构建的《NIKKE》Windows 客
 - `src/ui/`：自定义 tab（当前仅 `DailyTab`，经 `src/config.py` 的 `custom_tabs` 注册）。
 - 资产：`assets/coco_annotations.json`（COCO 标注）+ `assets/images/`（图集）+ `assets/template/`（手动裁剪小图）。
 - 运行时产物（`configs/`/`logs/`/`screenshots/` 等）与框架本体（`ok/` 等）不入仓，以 `.gitignore` 为准；开发时使用或生产的一次性脚本/中间产物放 `dev_tools/`（已 gitignore），XAL 标注导入在 `scripts/import_xal.py`。
-- CI：`.github/workflows/build.yml`（监听 `v*` tag → 测试+打包+Release）、`docs.yml`（部署 mkdocs）。
+- CI：`.github/workflows/build.yml`（监听 `v*` tag → 测试 + pyappify 编译启动器 + 打包便携 zip + Release，不出 NSIS 安装器）、`docs.yml`（部署 mkdocs）。
 
 ## 环境与命令
 
@@ -51,7 +52,6 @@ ok-nikke-maid 是基于 PyPI `ok-script`（2.x）构建的《NIKKE》Windows 客
 ## 测试策略
 
 - 测试放 `tests/` 下，命名 `TestXxxTask.py` 对应 `src/tasks/XxxTask.py`；继承 `ok.test.TaskTestCase`，设 `task_class`（参考 `docs/after_quick_start/README.md` §3）。现成范例见 `tests/TestShopTask.py`/`tests/TestArkTask.py`（覆盖成功/跳过/失败/已完成跳过分支）。
-- **不碰真实环境**：`wait_for_lobby`（真实置前窗口）、`dismiss_all_popups`（真实抓帧+OCR）等必经方法必须 `patch.object` 拦截并断言参数。
 - mock 保证被测循环可终止：`while True` 流程（如爬塔）用 `side_effect` 有限序列，别 `return_value` 死循环。
 - 被测流程内 `sleep` 一律 patch；引用（方法名、config 键名）以源码为准。
 - 小范围机械改动（改参数名/方法名，不动功能或业务逻辑）不必跑测试；其余按影响面只跑相关单个测试文件。**全量必须逐文件独立进程**（CI/`run_tests.ps1` 方式），连跑多文件会因 ok 单例无法重建产生假错误。
