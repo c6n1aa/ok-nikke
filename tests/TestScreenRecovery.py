@@ -1,4 +1,5 @@
 import unittest
+import re
 from unittest.mock import patch
 
 from ok.feature.Box import Box
@@ -419,6 +420,49 @@ class TestScreenRecovery(TaskTestCase):
                 clear_condition=lambda: self.task.is_screen("lobby"), time_out=5)
         self.assertTrue(result)
         self.assertEqual(2, close_mock.call_count)  # 第一轮先关弹窗，第二轮确认无弹窗后才认条件。
+
+    def test_try_close_one_popup_matches_split_proceed_text(self):
+        # 好感度提升遮罩「点击进行下一步」常被 OCR 拆成「点击进行下一」+「步」两个框：
+        # 字符串全等匹配不到，必须靠正则部分匹配命中并点击关闭。
+        proceed = Box(900, 880, 120, 30, confidence=1, name="点击进行下一")
+        with patch.object(self.task, "_close_rupee_flash_sale_popup", return_value=False), \
+                patch.object(self.task, "_close_notice_popup", return_value=False), \
+                patch.object(self.task, "ocr", return_value=[proceed]) as ocr_mock, \
+                patch.object(self.task, "click_box") as click_mock:
+            result = self.task._try_close_one_popup()
+        self.assertTrue(result)
+        click_mock.assert_called_once_with(proceed, after_sleep=1)  # 命中拆框提示文字并点击关闭遮罩。
+        patterns = ocr_mock.call_args.kwargs["match"]  # 传给 OCR 的关键词。
+        self.assertTrue(all(isinstance(p, re.Pattern) for p in patterns))  # 全部关键词均为正则（部分匹配）。
+        self.assertTrue(any(p.search("点击进行下一") for p in patterns))  # 拆框文本可被部分匹配命中。
+        self.assertTrue(any(p.search("点击领取奖励！") for p in patterns))  # 领奖提示带噪声也可命中。
+        self.assertTrue(any(p.search("点击任意处继续") for p in patterns))  # 任意处提示带噪声也可命中。
+
+    def test_close_overlay_default_keyword_is_pattern(self):
+        # close_overlay 默认关键词必须传给 OCR 的是正则（部分匹配），兼容拆框/噪声文本。
+        with patch.object(self.task, "ocr", return_value=[]) as ocr_mock, \
+                patch.object(self.task, "sleep"):
+            self.task.close_overlay(time_out=1, require_click=False)
+        keywords = ocr_mock.call_args.kwargs["match"]
+        self.assertTrue(all(isinstance(p, re.Pattern) for p in keywords))
+        self.assertTrue(any(p.search("点击领取奖励！") for p in keywords))
+
+    def test_recover_to_lobby_home_region_fallback(self):
+        # 咨询等界面的主页按钮坐标与标注有偏差：精确匹配失败后走左下角区域兜底匹配，仍可点击回大厅。
+        fake_home = Box(100, 100, 50, 50, confidence=1, name="common_home")
+        with patch.object(self.task, "next_frame"), \
+                patch.object(self.task, "dismiss_all_popups", return_value=False), \
+                patch.object(self.task, "is_screen", return_value=False), \
+                patch.object(self.task, "feature_exists", return_value=True), \
+                patch.object(self.task, "find_one", side_effect=[None, fake_home]) as find_mock, \
+                patch.object(self.task, "click_box") as click_mock, \
+                patch.object(self.task, "wait_for_lobby", return_value=True):
+            result = self.task._recover_to_lobby()
+        self.assertTrue(result)
+        self.assertEqual(2, find_mock.call_count)  # 先按标注位置精确匹配，失败后区域兜底。
+        self.assertEqual("common_home", find_mock.call_args_list[0].args[0])
+        self.assertIn("box", find_mock.call_args_list[1].kwargs)  # 兜底调用限定左下角区域。
+        click_mock.assert_called_once()
 
 
 if __name__ == '__main__':

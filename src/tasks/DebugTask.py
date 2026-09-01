@@ -84,7 +84,7 @@ class DebugTask(NikkeBaseTask):  # 实机调试任务：供「开发工具」tab
                 bell = self.find_scaled_template("notice_bell", template_path, threshold=0.75)  # 查找铃铛。
                 if bell is not None:  # 命中铃铛。
                     break  # 停止尝试。
-            mask = self.ocr(x=1 / 3, y=0.6, to_x=2 / 3, to_y=1, match=["点击领取奖励"])  # 检测遮罩。
+            mask = self.ocr(x=1 / 3, y=0.6, to_x=2 / 3, to_y=1, match=[self._MASK_CLAIM_PATTERN])  # 检测遮罩（正则部分匹配，与关闭逻辑一致）。
         except Exception as e:  # 检测异常。
             return f'检测异常: {e}'  # 返回异常。
         parts = []  # 收集检测结果。

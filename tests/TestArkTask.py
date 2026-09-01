@@ -459,6 +459,17 @@ class TestArkTask(_DebugOffTestCase):
         click_mock.assert_not_called()  # 未命中按钮（如已被失败恢复带回大厅）跳过点击。
         lobby_mock.assert_called_once_with(time_out=10, raise_if_not_found=False)  # 仍等待确认回到大厅。
 
+    def test_exit_to_lobby_home_region_fallback(self):
+        self.exit_patcher.stop()  # 还原真实 _exit_to_lobby 以验证其本体逻辑。
+        home = Box(10, 10, 20, 20, confidence=1, name="common_home")  # 兜底命中的大厅按钮框。
+        with patch.object(self.task, "find_one", side_effect=[None, home]) as find_mock, \
+                patch.object(self.task, "click_box") as click_mock, \
+                patch.object(self.task, "wait_for_lobby", return_value=True):
+            self.task._exit_to_lobby()
+        self.assertEqual(2, find_mock.call_count)  # 咨询等界面按钮坐标偏移：精确匹配失败后左下角区域兜底。
+        self.assertIn("box", find_mock.call_args_list[1].kwargs)  # 兜底调用限定左下角区域。
+        click_mock.assert_called_once_with(home, after_sleep=1)  # 兜底命中后正常点击返回大厅。
+
 
 class TestArkTaskSimulation(_DebugOffTestCase):
     """模拟室子流程测试：覆盖成功/跳过/失败/已完成跳过等主要分支。"""
@@ -711,7 +722,8 @@ class TestDailyTaskArkIntegration(_DebugOffTestCase):
         with patch.object(daily, "ensure_screen", return_value=True), \
                 patch.object(daily, "run_task_by_class", side_effect=fake_run_task_by_class), \
                 patch.object(daily, "get_task_by_class", return_value=ark), \
-                patch.object(daily, "log_info") as log_mock:
+                patch.object(daily, "_daily_end_flow"), \
+                patch.object(daily, "log_info") as log_mock:  # 收尾流程会真实抓帧/置前窗口，必须拦截（不碰真实环境）。
             daily.run()
         notify_calls = [c for c in log_mock.call_args_list if c.kwargs.get("notify")]
         self.assertEqual(1, len(notify_calls))

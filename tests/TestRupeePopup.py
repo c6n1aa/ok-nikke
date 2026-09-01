@@ -1,4 +1,5 @@
 import unittest  # 单元测试模块。
+import re  # 正则模块：遮罩关键词现均为 re.Pattern，断言需用到。
 from unittest.mock import patch  # mock 模块，用于替换耗时/副作用方法。
 
 from src.config import config  # 导入项目配置（含 feature_set 与模板配置）。
@@ -79,7 +80,7 @@ class TestRupeeFlashSalePopup(TaskTestCase):
             self.assertFalse(self.task._close_rupee_flash_sale_popup())  # 应返回未处理。
 
     def test_try_close_one_popup_uses_click_anywhere_keyword(self):
-        """无模板弹窗命中时，遮罩 OCR 关键词同时包含“点击领取奖励”与“点击任意处”。"""
+        """无模板弹窗命中时，遮罩 OCR 关键词均为正则（部分匹配），且覆盖领奖/任意处两类提示文本。"""
         mask = self._box(name='mask')  # 模拟遮罩按钮命中框。
 
         with patch.object(self.task, '_close_rupee_flash_sale_popup', return_value=False), \
@@ -89,8 +90,9 @@ class TestRupeeFlashSalePopup(TaskTestCase):
                 patch.object(self.task, 'sleep'):
             self.assertTrue(self.task._try_close_one_popup())  # 遮罩被点击关闭。
         match = ocr_mock.call_args.kwargs['match']  # 读取传给 OCR 的关键词列表。
-        self.assertIn("点击领取奖励", match)  # 原有遮罩关键词保留。
-        self.assertIn("点击任意处", match)  # 新增“点击任意处”关键词生效。
+        self.assertTrue(all(isinstance(p, re.Pattern) for p in match))  # 全部关键词均为正则（部分匹配，兼容 OCR 拆框/噪声）。
+        self.assertTrue(any(p.search("点击领取奖励") for p in match))  # 原有领奖遮罩关键词保留。
+        self.assertTrue(any(p.search("点击任意处") for p in match))  # 「点击任意处」关键词生效。
 
 
 if __name__ == '__main__':

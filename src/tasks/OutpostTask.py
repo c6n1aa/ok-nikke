@@ -242,6 +242,7 @@ class OutpostTask(NikkeBaseTask):  # 前哨基地任务：执行派遣公告栏�
         self._answer_conversation(rows)  # 点击空白推进对话，出现选项框后按爱心/答案匹配点击。
         self.wait_click_feature("conversation_skip", box=self._box_or_fail("box_conversation_icon"),
                                 raise_if_not_found=True, after_sleep=1)  # 在对话图标区识别并点击跳过，结束剩余对话。
+        self.dismiss_all_popups(wait_for_popup=False, time_out=5)  # 好感度等级提升遮罩（点击进行下一步）会压暗详情页特征并吞掉切换点击，回详情页前先清掉。
         self.assert_screen("advise_nikke", time_out=15)  # 确认回到咨询详情界面。
 
     def _answer_conversation(self, rows):  # 对话推进循环：点空白直到出现正式回答选项框，再按爱心/答案匹配选择。

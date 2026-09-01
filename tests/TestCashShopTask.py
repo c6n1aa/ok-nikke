@@ -165,7 +165,7 @@ class TestCashShopTask(_DebugOffTestCase):
                 patch.object(self.task, "_exit_to_lobby") as exit_mock:
             self.task._combined_step()
         enter_mock.assert_called_once()
-        setup_mock.assert_called_once()
+        setup_mock.assert_not_called()  # STEP UP 领取当前已在 _combined_step 源码中停用（注释掉），断言与源码一致。
         ordinary_mock.assert_called_once()
         exit_mock.assert_called_once()
 

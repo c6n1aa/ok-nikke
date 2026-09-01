@@ -460,6 +460,7 @@ class TestOutpostTaskAdviseOnce(_DebugOffTestCase):
                 patch.object(self.task, "_query_advise_rows", return_value=rows) as query_mock, \
                 patch.object(self.task, "assert_screen") as assert_mock, \
                 patch.object(self.task, "_answer_conversation") as answer_mock, \
+                patch.object(self.task, "dismiss_all_popups") as dismiss_mock, \
                 patch.object(self.task, "get_box_by_name", side_effect=lambda name: _named_box(name)), \
                 patch.object(self.task, "sleep"):
             self.task._advise_once("拉毗", advise_box)
@@ -468,6 +469,7 @@ class TestOutpostTaskAdviseOnce(_DebugOffTestCase):
         self.assertEqual(["advise_confirm", "conversation_skip"], clicked_features)  # 确认弹窗→跳过对话。
         skip_call = click_feature_mock.call_args_list[-1]
         self.assertEqual("box_conversation_icon", skip_call.kwargs["box"].name)  # 跳过按钮限定在对话图标区。
+        dismiss_mock.assert_called_once_with(wait_for_popup=False, time_out=5)  # 跳过后先清好感度提升遮罩再断言回详情页。
         query_mock.assert_called_once_with("拉毗")  # 以角色名查询答案库。
         self.assertEqual([("conversation",), ("advise_nikke",)],
                          [c.args for c in assert_mock.call_args_list])  # 等谈话界面→确认回详情。

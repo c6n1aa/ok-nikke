@@ -297,7 +297,8 @@ class TestDailyTaskRaidIntegration(_DebugOffTestCase):
         raid_ran = []
 
         with patch.object(daily, "ensure_screen", return_value=True), \
-                patch.object(daily, "run_task_by_class") as run_mock:
+                patch.object(daily, "run_task_by_class") as run_mock, \
+                patch.object(daily, "_daily_end_flow"):  # 收尾流程会真实抓帧/置前窗口，必须拦截（不碰真实环境）。
             # 拦截 run_task_by_class：仅验证调用顺序与开关判断，不真正执行子任务。
             run_mock.side_effect = lambda cls: raid_ran.append(cls.__name__) if cls is RaidTask else None
             daily.run()

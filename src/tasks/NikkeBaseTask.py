@@ -180,9 +180,21 @@ class NikkeBaseTask(BaseTask):
         self.bring_game_to_front()  # 先把游戏窗口切到前台，确保 pynput 点击生效。
         return self.wait_feature("ark", time_out=time_out, raise_if_not_found=raise_if_not_found)
 
+    def _find_home_button(self):
+        """查找大厅按钮：先按标注位置（默认 variance 容差）匹配，未命中再在屏幕左下角区域内全范围模板匹配兜底。
+
+        咨询等界面的 home/back 按钮坐标与其他界面有数像素偏差，超出默认容差导致
+        特征锚点匹配失败；兜底区域限定左下角，避免误命中画面中部元素。
+        """
+        home = self.find_one("common_home")  # 标注位置精确匹配。
+        if home is not None:  # 精确命中。
+            return home  # 直接返回。
+        return self.find_one("common_home",
+                             box=self.box_of_screen(0, 0.8, 0.25, 1))  # 兜底：左下角区域（按钮锚点在 y≈0.93，覆盖 ±0.02 以上偏移）。
+
     def _exit_to_lobby(self):
         """退出当前子页面返回大厅（幂等：失败恢复已带回大厅时找不到主页按钮，只确认不点击）。"""
-        home = self.find_one("common_home")  # 查找大厅按钮。
+        home = self._find_home_button()  # 查找大厅按钮（含左下角区域兜底）。
         if home is not None:  # 找到则点击返回大厅。
             self.click_box(home, after_sleep=1)  # 点击大厅按钮并等待。
         self.wait_for_lobby(time_out=10, raise_if_not_found=False)  # 等待确认回到大厅，超时不报错由上层处理。
@@ -532,7 +544,13 @@ class NikkeBaseTask(BaseTask):
             self.sleep(after_sleep)  # 等待指定时间。
         return result  # 返回可用性判定结果。
 
-    def close_overlay(self, keywords=("点击领取奖励",), time_out=5, after_sleep=1, max_clicks=3,
+    # 遮罩提示文字 OCR 关键词：框架对字符串是全等匹配，OCR 常把提示拆成多个文本框
+    # （如实测「点击进行下一步」被拆成「点击进行下一」+「步」），一律用正则走部分匹配。
+    _MASK_CLAIM_PATTERN = re.compile("点击领取奖励")  # 领奖遮罩提示。
+    _MASK_ANYWHERE_PATTERN = re.compile("点击任意处")  # 点击任意处关闭遮罩提示。
+    _CLICK_TO_PROCEED_PATTERN = re.compile("点击进行")  # 「点击进行下一步」好感度提升等遮罩提示。
+
+    def close_overlay(self, keywords=None, time_out=5, after_sleep=1, max_clicks=3,
                       require_click=True):
         """点击遮罩窗按钮关闭弹窗，避免后续点击被遮罩拦截。
 
@@ -543,7 +561,7 @@ class NikkeBaseTask(BaseTask):
         time_out 超时，方便处理点击后延迟弹出的遮罩。
 
         Args:
-            keywords: OCR 匹配关键词（支持正则），默认“点击领取奖励”。
+            keywords: OCR 匹配关键词（支持正则），缺省为领奖遮罩提示（正则部分匹配）。
             time_out: 等待遮罩出现/关闭的最长时间（秒）。
             after_sleep: 点击后的固定等待时间（秒）。
             max_clicks: 最多连续点击次数，防止异常时死循环。
@@ -552,6 +570,8 @@ class NikkeBaseTask(BaseTask):
         Returns:
             True 表示至少点击过一次；require_click=False 且未点到时返回 False。
         """
+        if keywords is None:  # 未指定关键词。
+            keywords = (self._MASK_CLAIM_PATTERN,)  # 默认领奖遮罩提示（正则部分匹配，兼容 OCR 拆框/噪声）。
         start = time.time()  # 记录开始时间，用于超时控制。
         clicked = False  # 标记是否至少成功点击过一次。
         clicks = 0  # 统计连续点击次数。
@@ -586,7 +606,9 @@ class NikkeBaseTask(BaseTask):
         if self._close_notice_popup():  # 公告/活动横幅（右上角铃铛+关闭按钮）。
             return True  # 已关闭横幅弹窗。
         try:  # 遮罩 OCR 异常不应中断统一清理。
-            boxes = self.ocr(x=1 / 3, y=0.6, to_x=2 / 3, to_y=1, match=["点击领取奖励", "点击任意处", "点击进行"])  # 中下部区域查找领取奖励/任意处关闭遮罩按钮。
+            boxes = self.ocr(x=1 / 3, y=0.6, to_x=2 / 3, to_y=1,
+                             match=[self._MASK_CLAIM_PATTERN, self._MASK_ANYWHERE_PATTERN,
+                                    self._CLICK_TO_PROCEED_PATTERN])  # 中下部区域查找领奖/任意处/进行下一步遮罩提示（正则部分匹配）。
         except TaskDisabledException:  # 任务已被用户停止，必须让中断异常继续向上传播。
             raise  # 重新抛出，交由执行器结束任务。
         except Exception as e:  # 其它 OCR 失败。
@@ -1037,7 +1059,7 @@ class NikkeBaseTask(BaseTask):
             return True  # 恢复成功。
         try:
             if self.feature_exists("common_home"):  # 存在大厅按钮特征则点击回大厅。
-                home = self.find_one("common_home")  # 查找大厅按钮。
+                home = self._find_home_button()  # 查找大厅按钮（含左下角区域兜底，覆盖咨询等按钮坐标偏移的界面）。
                 if home is not None:  # 找到才点击。
                     self.click_box(home, after_sleep=1)  # 点击大厅按钮返回大厅。
         except TaskDisabledException:  # 任务已被用户停止，必须让中断异常继续向上传播。
