@@ -445,30 +445,62 @@ class TestArkTask(_DebugOffTestCase):
         home = Box(10, 10, 20, 20, confidence=1, name="common_home")  # 命中的大厅按钮框。
         with patch.object(self.task, "find_one", return_value=home), \
                 patch.object(self.task, "click_box") as click_mock, \
+                patch.object(self.task, "dismiss_all_popups") as dismiss_mock, \
                 patch.object(self.task, "wait_for_lobby", return_value=True) as lobby_mock:
             self.task._exit_to_lobby()
         click_mock.assert_called_once_with(home, after_sleep=1)  # 命中按钮即点击返回大厅。
         lobby_mock.assert_called_once_with(time_out=10, raise_if_not_found=False)  # 点击后等待确认回到大厅。
+        dismiss_mock.assert_not_called()  # 首轮即确认回大厅，不触发清理重试。
 
     def test_exit_to_lobby_no_home_skips_click_and_still_waits(self):
         self.exit_patcher.stop()  # 还原真实 _exit_to_lobby 以验证其本体逻辑。
         with patch.object(self.task, "find_one", return_value=None), \
                 patch.object(self.task, "click_box") as click_mock, \
+                patch.object(self.task, "dismiss_all_popups") as dismiss_mock, \
                 patch.object(self.task, "wait_for_lobby", return_value=True) as lobby_mock:
             self.task._exit_to_lobby()
         click_mock.assert_not_called()  # 未命中按钮（如已被失败恢复带回大厅）跳过点击。
         lobby_mock.assert_called_once_with(time_out=10, raise_if_not_found=False)  # 仍等待确认回到大厅。
+        dismiss_mock.assert_not_called()  # 首轮即确认回大厅，不触发清理重试。
 
     def test_exit_to_lobby_home_region_fallback(self):
         self.exit_patcher.stop()  # 还原真实 _exit_to_lobby 以验证其本体逻辑。
         home = Box(10, 10, 20, 20, confidence=1, name="common_home")  # 兜底命中的大厅按钮框。
         with patch.object(self.task, "find_one", side_effect=[None, home]) as find_mock, \
                 patch.object(self.task, "click_box") as click_mock, \
+                patch.object(self.task, "dismiss_all_popups"), \
                 patch.object(self.task, "wait_for_lobby", return_value=True):
             self.task._exit_to_lobby()
         self.assertEqual(2, find_mock.call_count)  # 咨询等界面按钮坐标偏移：精确匹配失败后左下角区域兜底。
         self.assertIn("box", find_mock.call_args_list[1].kwargs)  # 兜底调用限定左下角区域。
         click_mock.assert_called_once_with(home, after_sleep=1)  # 兜底命中后正常点击返回大厅。
+
+    def test_exit_to_lobby_retries_after_swallowed_click(self):
+        # 遮罩吞点击场景：首轮确认失败 → 清理遮罩弹窗 → 补点一轮后确认回大厅。
+        self.exit_patcher.stop()  # 还原真实 _exit_to_lobby 以验证其本体逻辑。
+        home = Box(10, 10, 20, 20, confidence=1, name="common_home")  # 命中的大厅按钮框。
+        with patch.object(self.task, "find_one", return_value=home), \
+                patch.object(self.task, "click_box") as click_mock, \
+                patch.object(self.task, "dismiss_all_popups") as dismiss_mock, \
+                patch.object(self.task, "wait_for_lobby", side_effect=[False, True]) as lobby_mock:
+            self.task._exit_to_lobby()
+        self.assertEqual(2, click_mock.call_count)  # 首轮被吞，补点一轮。
+        dismiss_mock.assert_called_once_with(wait_for_popup=False, time_out=5)  # 两轮之间清理一次遮罩。
+        self.assertEqual(2, lobby_mock.call_count)  # 每轮点击后都等待确认。
+        for call in lobby_mock.call_args_list:
+            self.assertEqual({"time_out": 10, "raise_if_not_found": False}, call.kwargs)
+
+    def test_exit_to_lobby_gives_up_silently_after_retry(self):
+        # 两轮均未确认回大厅：静默返回，交由上层失败恢复兜底（不抛异常）。
+        self.exit_patcher.stop()  # 还原真实 _exit_to_lobby 以验证其本体逻辑。
+        home = Box(10, 10, 20, 20, confidence=1, name="common_home")  # 命中的大厅按钮框。
+        with patch.object(self.task, "find_one", return_value=home), \
+                patch.object(self.task, "click_box") as click_mock, \
+                patch.object(self.task, "dismiss_all_popups") as dismiss_mock, \
+                patch.object(self.task, "wait_for_lobby", return_value=False):
+            self.task._exit_to_lobby()
+        self.assertEqual(2, click_mock.call_count)  # 两轮各点一次。
+        dismiss_mock.assert_called_once_with(wait_for_popup=False, time_out=5)  # 仅两轮之间清理一次。
 
 
 class TestArkTaskSimulation(_DebugOffTestCase):

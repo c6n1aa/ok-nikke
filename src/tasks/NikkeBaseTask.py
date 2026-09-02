@@ -193,11 +193,21 @@ class NikkeBaseTask(BaseTask):
                              box=self.box_of_screen(0, 0.8, 0.25, 1))  # 兜底：左下角区域（按钮锚点在 y≈0.93，覆盖 ±0.02 以上偏移）。
 
     def _exit_to_lobby(self):
-        """退出当前子页面返回大厅（幂等：失败恢复已带回大厅时找不到主页按钮，只确认不点击）。"""
-        home = self._find_home_button()  # 查找大厅按钮（含左下角区域兜底）。
-        if home is not None:  # 找到则点击返回大厅。
-            self.click_box(home, after_sleep=1)  # 点击大厅按钮并等待。
-        self.wait_for_lobby(time_out=10, raise_if_not_found=False)  # 等待确认回到大厅，超时不报错由上层处理。
+        """退出当前子页面返回大厅（幂等：失败恢复已带回大厅时找不到主页按钮，只确认不点击）。
+
+        好感度升级等遮罩常在回到详情页后约 0.5~1 秒才延迟弹出，时机不可预测，「点击前清理」
+        拦不住；改为结果导向：点击主页按钮后确认回到大厅，未确认则清理吞点击的遮罩后补点一轮。
+        """
+        for attempt in range(2):  # 首轮直点；未确认回大厅则清理遮罩弹窗后补点一轮。
+            home = self._find_home_button()  # 查找大厅按钮（含左下角区域兜底）。
+            if home is not None:  # 找到则点击返回大厅。
+                self.click_box(home, after_sleep=1)  # 点击大厅按钮并等待。
+            if self.wait_for_lobby(time_out=10, raise_if_not_found=False):  # 已确认回到大厅。
+                return  # 成功收尾。
+            if attempt == 0:  # 首轮未确认：点击可能被延迟弹出的遮罩吞掉。
+                self.log_warning("返回大厅未确认，清理弹窗后重试")  # 暴露遮罩吞点击的异常路径。
+                self.dismiss_all_popups(wait_for_popup=False, time_out=5)  # 清理遮罩后进入补点轮。
+        self.log_warning("返回大厅两轮仍未确认，交由上层恢复兜底")  # 保持静默语义，但留下诊断日志。
 
     _NOTICE_BELL_TEMPLATES = (  # 公告弹窗铃铛模板列表：公告(notice_bell1)与活动(notice_bell2)弹窗图标样式略有差异，依次尝试任一命中即可。
         os.path.join('assets', 'template', 'common', 'notice_bell1.png'),  # 活动弹窗铃铛模板，来自 2560x1440 截图。
