@@ -1,6 +1,8 @@
 import re  # 正则模块，用于 OCR 关键词的部分匹配。
 import time  # 时间模块，用于竞技场入口赛跑的补点计时。
 
+import cv2  # OpenCV，战力数字区域 OCR 前的放大预处理。
+
 from ok import og  # 全局单例，读取当前执行任务以判断是否由日常编排。
 from ok.task.exceptions import WaitFailedException  # 界面断言/战斗超时抛出的框架等待失败异常。
 
@@ -476,7 +478,7 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
 
     def _do_rookie_arena_flow(self):  # 新人竞技场整体流程：竞技场→新人竞技场→循环免费挑战→逐级返回方舟。
         self._nav_to_arena()  # 确保处于竞技场界面（正常已就位；失败恢复回大厅后由此重新进入）。
-        hit = self._click_entry_race_closed("rookie_arena", "rookie_arena", after_sleep=2)  # 点击新人竞技场入口并赛跑确认（目标界面 vs 赛季结束横幅）。
+        hit = self._click_entry_race_closed("rookie_arena", "rookie_arena")  # 点击新人竞技场入口并赛跑确认（目标界面 vs 赛季结束横幅）。
         if hit == "closed":  # 休赛期：入口在画面但已关闭，点击只弹出赛季结束横幅。
             self.log_info("新人竞技场赛季已结束，本周期视为已完成")  # 记录休赛期收尾。
             self._back_through_screens("ark")  # 未进入子页面，从竞技场界面一次返回方舟。
@@ -527,7 +529,9 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
             return None  # 读取失败。
         if box is None:  # 区域无效（如无可用帧）。
             return None  # 读取失败。
-        texts = self.ocr(box=box)  # 区域内 OCR 获取全部文本框。
+        # 战力是细描边小数字，直读易丢/错字符；2.5 倍 CUBIC 放大后 OCR（该倍数经竞技场战力区域插值矩阵实测最优）。
+        texts = self.ocr(box=box, frame_processor=lambda image: cv2.resize(
+            image, None, fx=2.5, fy=2.5, interpolation=cv2.INTER_CUBIC))  # 区域内 OCR 获取全部文本框。
         if not texts:  # 无识别结果。
             return None  # 读取失败。
         digits = re.sub(r"\D", "", texts[-1].name or "")  # 取最后一段文字并去除非数字字符。
@@ -629,7 +633,7 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
 
     def _do_special_arena_flow(self):  # 特殊竞技场整体流程：竞技场→特殊竞技场→领取累计奖励→逐级返回方舟。
         self._nav_to_arena()  # 确保处于竞技场界面（正常已就位；失败恢复回大厅后由此重新进入）。
-        hit = self._click_entry_race_closed("special_arena", "special_arena", after_sleep=2)  # 点击特殊竞技场入口并赛跑确认。
+        hit = self._click_entry_race_closed("special_arena", "special_arena")  # 点击特殊竞技场入口并赛跑确认。
         if hit == "closed":  # 休赛期：入口在画面但已关闭，点击只弹出赛季结束横幅。
             self.log_info("特殊竞技场赛季已结束，本周期视为已完成")  # 记录休赛期收尾。
             self._back_through_screens("ark")  # 未进入子页面，从竞技场界面一次返回方舟。
