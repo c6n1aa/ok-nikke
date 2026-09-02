@@ -398,7 +398,7 @@
         },
         {
             "id": 67,
-            "file_name": "images/6.png",
+            "file_name": "images/2.png",
             "width": 2560,
             "height": 1440
         },
@@ -416,18 +416,12 @@
         },
         {
             "id": 70,
-            "file_name": "images/0.png",
-            "width": 2560,
-            "height": 1440
-        },
-        {
-            "id": 71,
             "file_name": "images/10.png",
             "width": 2560,
             "height": 1440
         },
         {
-            "id": 72,
+            "id": 71,
             "file_name": "images/0.png",
             "width": 2560,
             "height": 1440
@@ -2638,10 +2632,10 @@
             "bbox": [
                 1318,
                 721,
-                145,
-                54
+                116,
+                50
             ],
-            "area": 7830,
+            "area": 5800,
             "iscrowd": 0
         },
         {
@@ -2677,10 +2671,10 @@
             "bbox": [
                 1317,
                 923,
-                144,
-                56
+                116,
+                50
             ],
-            "area": 8064,
+            "area": 5800,
             "iscrowd": 0
         },
         {
@@ -2690,10 +2684,10 @@
             "bbox": [
                 1318,
                 1124,
-                144,
-                53
+                116,
+                49
             ],
-            "area": 7632,
+            "area": 5684,
             "iscrowd": 0
         },
         {
@@ -2728,11 +2722,11 @@
             "category_id": 177,
             "bbox": [
                 1486,
-                388,
-                136,
-                53
+                399,
+                84,
+                38
             ],
-            "area": 7208,
+            "area": 3192,
             "iscrowd": 0
         },
         {
@@ -2974,12 +2968,12 @@
             "image_id": 67,
             "category_id": 196,
             "bbox": [
-                1211,
-                126,
-                41,
-                38
+                939,
+                289,
+                201,
+                36
             ],
-            "area": 1558,
+            "area": 7236,
             "iscrowd": 0
         },
         {
@@ -3143,19 +3137,6 @@
             "image_id": 70,
             "category_id": 209,
             "bbox": [
-                1468,
-                1203,
-                44,
-                18
-            ],
-            "area": 792,
-            "iscrowd": 0
-        },
-        {
-            "id": 210,
-            "image_id": 71,
-            "category_id": 210,
-            "bbox": [
                 1013,
                 795,
                 562,
@@ -3165,9 +3146,9 @@
             "iscrowd": 0
         },
         {
-            "id": 211,
-            "image_id": 71,
-            "category_id": 211,
+            "id": 210,
+            "image_id": 70,
+            "category_id": 210,
             "bbox": [
                 915,
                 795,
@@ -3178,9 +3159,9 @@
             "iscrowd": 0
         },
         {
-            "id": 212,
-            "image_id": 71,
-            "category_id": 212,
+            "id": 211,
+            "image_id": 70,
+            "category_id": 211,
             "bbox": [
                 939,
                 906,
@@ -3191,9 +3172,9 @@
             "iscrowd": 0
         },
         {
-            "id": 213,
-            "image_id": 71,
-            "category_id": 213,
+            "id": 212,
+            "image_id": 70,
+            "category_id": 212,
             "bbox": [
                 975,
                 1042,
@@ -3204,9 +3185,9 @@
             "iscrowd": 0
         },
         {
-            "id": 214,
-            "image_id": 71,
-            "category_id": 214,
+            "id": 213,
+            "image_id": 70,
+            "category_id": 213,
             "bbox": [
                 2363,
                 22,
@@ -3217,9 +3198,9 @@
             "iscrowd": 0
         },
         {
-            "id": 215,
-            "image_id": 71,
-            "category_id": 215,
+            "id": 214,
+            "image_id": 70,
+            "category_id": 214,
             "bbox": [
                 2241,
                 20,
@@ -3230,9 +3211,9 @@
             "iscrowd": 0
         },
         {
-            "id": 216,
-            "image_id": 71,
-            "category_id": 216,
+            "id": 215,
+            "image_id": 70,
+            "category_id": 215,
             "bbox": [
                 2234,
                 0,
@@ -3243,9 +3224,9 @@
             "iscrowd": 0
         },
         {
-            "id": 217,
-            "image_id": 71,
-            "category_id": 217,
+            "id": 216,
+            "image_id": 70,
+            "category_id": 216,
             "bbox": [
                 938,
                 1043,
@@ -3256,9 +3237,9 @@
             "iscrowd": 0
         },
         {
-            "id": 218,
-            "image_id": 72,
-            "category_id": 218,
+            "id": 217,
+            "image_id": 71,
+            "category_id": 217,
             "bbox": [
                 2405,
                 25,
@@ -4312,51 +4293,46 @@
         },
         {
             "id": 209,
-            "name": "advise_count_zero",
-            "supercategory": ""
-        },
-        {
-            "id": 210,
             "name": "box_advise_option",
             "supercategory": ""
         },
         {
-            "id": 211,
+            "id": 210,
             "name": "box_advise_option_mark",
             "supercategory": ""
         },
         {
-            "id": 212,
+            "id": 211,
             "name": "advise_option1",
             "supercategory": ""
         },
         {
-            "id": 213,
+            "id": 212,
             "name": "advise_option_heart",
             "supercategory": ""
         },
         {
-            "id": 214,
+            "id": 213,
             "name": "conversation_cancel",
             "supercategory": ""
         },
         {
-            "id": 215,
+            "id": 214,
             "name": "conversation_log",
             "supercategory": ""
         },
         {
-            "id": 216,
+            "id": 215,
             "name": "box_conversation_icon",
             "supercategory": ""
         },
         {
-            "id": 217,
+            "id": 216,
             "name": "advise_option2",
             "supercategory": ""
         },
         {
-            "id": 218,
+            "id": 217,
             "name": "conversation_skip",
             "supercategory": ""
         }
