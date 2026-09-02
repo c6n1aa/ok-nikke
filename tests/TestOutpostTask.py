@@ -377,6 +377,7 @@ class TestOutpostTaskAdvise(_DebugOffTestCase):
         with patch.object(self.task, "transition"), \
                 patch.object(self.task, "wait_click_feature"), \
                 patch.object(self.task, "assert_screen"), \
+                patch.object(self.task, "wait_screen", return_value=True), \
                 patch.object(self.task, "get_box_by_name", side_effect=lambda name: _named_box(name)), \
                 patch.object(self.task, "is_feature_enabled", side_effect=[True, True, True]), \
                 patch.object(self.task, "click_box") as click_box_mock, \
@@ -398,6 +399,7 @@ class TestOutpostTaskAdvise(_DebugOffTestCase):
         with patch.object(self.task, "transition"), \
                 patch.object(self.task, "wait_click_feature"), \
                 patch.object(self.task, "assert_screen"), \
+                patch.object(self.task, "wait_screen", return_value=True) as wait_screen_mock, \
                 patch.object(self.task, "get_box_by_name", side_effect=lambda name: _named_box(name)), \
                 patch.object(self.task, "is_feature_enabled", side_effect=[True, True]), \
                 patch.object(self.task, "click_box") as click_box_mock, \
@@ -414,13 +416,29 @@ class TestOutpostTaskAdvise(_DebugOffTestCase):
         self.assertEqual(5, dismiss_mock.call_count)  # 每次重试前清理弹窗。
         for call in dismiss_mock.call_args_list:
             self.assertFalse(call.kwargs["wait_for_popup"])  # 快速清理语义。
+        self.assertEqual(10, wait_screen_mock.call_count)  # 每次重试点后确认一次、清理后复核一次。
+        for call in wait_screen_mock.call_args_list:
+            self.assertEqual(("advise_nikke",), call.args)  # 复核以咨询详情页特征在场为准。
         exit_mock.assert_called_once()  # 无法切换时优雅结束。
+
+    def test_switch_advise_nikke_rechecks_after_popup_dismiss(self):
+        # 延迟弹出的好感度升级遮罩盖住已切换的新详情页：点击其实已生效，特征被压暗导致首轮确认失败；
+        # 清理遮罩后复核成功，不得再补点（补点会跳过当前角色）。
+        with patch.object(self.task, "get_box_by_name", side_effect=lambda name: _named_box(name)), \
+                patch.object(self.task, "click_box") as click_mock, \
+                patch.object(self.task, "wait_screen", side_effect=[False, True]), \
+                patch.object(self.task, "_read_advise_name", return_value="白雪公主"), \
+                patch.object(self.task, "dismiss_all_popups") as dismiss_mock:
+            self.assertTrue(self.task._switch_advise_nikke("拉毗"))
+        click_mock.assert_called_once()  # 清理后复核已成功，不得补点跳过角色。
+        dismiss_mock.assert_called_once_with(wait_for_popup=False, time_out=5)  # 确认失败后清理遮罩。
 
     def test_flow_switch_cap_force_ends(self):
         counter = itertools.count()  # 每次读取返回新名称，模拟一直能切换成功。
         with patch.object(self.task, "transition"), \
                 patch.object(self.task, "wait_click_feature"), \
                 patch.object(self.task, "assert_screen"), \
+                patch.object(self.task, "wait_screen", return_value=True), \
                 patch.object(self.task, "get_box_by_name", side_effect=lambda name: _named_box(name)), \
                 patch.object(self.task, "is_feature_enabled", side_effect=lambda box: True), \
                 patch.object(self.task, "click_box") as click_box_mock, \

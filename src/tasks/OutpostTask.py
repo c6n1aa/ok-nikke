@@ -211,14 +211,21 @@ class OutpostTask(NikkeBaseTask):  # 前哨基地任务：执行派遣公告栏�
         texts = self.ocr(box=box)  # 区域内 OCR 获取全部文本框。
         return texts[0].name if texts else ""  # 取第一个文本框作为角色名称。
 
-    def _switch_advise_nikke(self, name):  # 点击 advise_next 切换角色，返回是否确认切换成功（名称变更）。
+    def _switch_advise_nikke(self, name):  # 点击 advise_next 切换角色，返回是否确认切换成功。
         next_box = self._box_or_fail("advise_next")  # 下一个按钮区域。
-        for _ in range(_ADVISE_NEXT_MAX_RETRY):  # 有限重试：弹窗遮挡或吞点击时清理后补点。
+        for _ in range(_ADVISE_NEXT_MAX_RETRY):  # 有限重试：弹窗遮挡或吞点击时清理后复核。
             self.click_box(next_box, after_sleep=1)  # 点击下一个角色。
-            if self._read_advise_name() != name:  # 角色名称已变更，切换成功。
+            if self._is_advise_switched(name):  # 详情页特征在场且名字变更：切换成功。
                 return True  # 切换成功。
-            self.dismiss_all_popups(wait_for_popup=False, time_out=5)  # 清理可能遮挡的弹窗后重试。
+            self.dismiss_all_popups(wait_for_popup=False, time_out=5)  # 清理可能压屏的遮罩弹窗。
+            if self._is_advise_switched(name):  # 复核：点击可能已生效只是被延迟弹出的遮罩盖住。
+                return True  # 复核确认切换成功，避免补点把已生效的切换再点一次跳过角色。
         return False  # 重试用尽仍未切换成功。
+
+    def _is_advise_switched(self, name):  # 确认已切到其他角色：详情页特征在场且 OCR 名字变更。
+        if not self.wait_screen("advise_nikke", time_out=2):  # 等待详情页特征就位（兼顾切换动画与遮罩压屏）。
+            return False  # 特征不在场：名字区域可能被遮罩文本污染（OCR 垃圾≠原名会误判），不可信。
+        return self._read_advise_name() != name  # 特征在场后才比较名字，避免遮罩污染造成假成功。
 
     def _advise_count_zero(self):  # OCR 咨询次数区域判断是否已用尽（出现 0/10）。
         box = self._optional_box("box_advise_count")  # 次数区域（缺失视为未用尽，交由切换上限兜底）。
