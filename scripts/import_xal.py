@@ -9,8 +9,8 @@
         -> 复制/重命名 image -> 内部链式调用 compress_coco 拼图 + 改写 file_name
 不依赖外部 xanylabeling CLI，不重复实现拼图算法。
 
-用法（必须在仓库根目录运行，使 ok_templates/ 与 assets/ 路径生效）：
-    python scripts/import_xal.py                 # 生成到 ./assets（覆盖 images/ 与 coco_annotations.json）
+用法（目录一律相对仓库根解析，任意 cwd 下都能跑；绝对路径按原样使用）：
+    python scripts/import_xal.py                 # 生成到 <仓库根>/assets（覆盖 images/ 与 coco_annotations.json）
     python scripts/import_xal.py --target 临时目录  # 生成到指定目录（用于 diff/验证，不动正式 assets）
 """
 import argparse
@@ -20,8 +20,15 @@ import os
 
 from ok.feature.FeatureSet import compress_copy_coco  # 框架自带：复制图 + 内部 compress_coco 拼图。
 
-SRC = 'ok_templates'  # XAL 标注与截图所在目录。
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))  # 脚本所在目录。
+ROOT = os.path.dirname(SCRIPT_DIR)  # 仓库根目录（scripts/ 的上一级）。
+SRC = os.path.join(ROOT, 'ok_templates')  # XAL 标注与截图所在目录（不依赖 cwd）。
 TMP_COCO_NAME = 'coco_annotations.json'  # 临时 COCO 文件名；compress_copy_coco 以 basename 落盘为同名。
+
+
+def resolve(path):
+    """把路径解析为绝对路径：相对路径按仓库根解析，绝对路径原样返回。"""
+    return path if os.path.isabs(path) else os.path.join(ROOT, path)
 
 
 def is_xal(data):
@@ -80,10 +87,10 @@ def build_xal_coco(src_dir):
     return {'images': images, 'annotations': annotations, 'categories': categories}
 
 
-def import_xal(target_dir='assets'):
+def import_xal(target_dir=None):
     """主流程：解析 XAL → 临时 COCO → 框架 compress_copy_coco 打包到 target_dir。"""
     src_dir = os.path.abspath(SRC)  # XAL 目录绝对路径。
-    target_dir = os.path.abspath(target_dir)  # 输出目录绝对路径。
+    target_dir = os.path.abspath(resolve(target_dir or 'assets'))  # 输出目录绝对路径（相对路径按仓库根解析）。
     # 临时 COCO 写在 ok_templates 下：compress_copy_coco 要求 coco_json 与 image_folder 同级，
     # 内部会按 coco_folder 解析 file_name；放其它目录会找不到 XAL 截图。
     tmp_coco = os.path.join(src_dir, TMP_COCO_NAME)
@@ -105,8 +112,8 @@ def import_xal(target_dir='assets'):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])  # 命令行入口。
-    parser.add_argument('--target', default='assets',  # 输出目录，默认覆盖 assets/。
-                        help='output directory (default: assets)')
+    parser.add_argument('--target', default='assets',  # 输出目录，默认覆盖仓库根 assets/。
+                        help='output directory, relative to repo root (default: assets)')
     args = parser.parse_args()
     import_xal(args.target)
 
