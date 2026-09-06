@@ -3,7 +3,8 @@
 ## 发布相关文件
 
 - `.github/workflows/build.yml`：监听 `v*` tag，运行测试、用 pyappify-action 只编译启动器 exe（`build_exe_only`），再执行 `ok-nikke.exe -c setup -p Release` 生成 `data/`（内嵌 Python + venv + 按 tag 克隆的代码），压缩成便携 zip 并创建 GitHub Release。不使用 NSIS 安装器。
-- `pyappify.yml`：定义应用名称、入口、图标、Python 版本和更新仓库。单一 `Release` profile，不再区分 China/Global；profile 名与 workflow 中 `setup` 步骤的 `-p` 参数保持一致。
+- `pyappify.yml`：定义应用名称、入口、图标、Python 版本和更新仓库。单一 `Release` profile；profile 名与 workflow 中 `setup` 步骤的 `-p` 参数保持一致。
+- `pyappify-cn.yml` / `pyappify-global.yml`：随便携包一起放到包根目录的更新源配置。当前两者 `git_url` 都指向 GitHub（国内镜像未建），用户首次运行前把其一重命名为 `pyappify.yml` 即可选择更新源。
 - `deploy.txt`：定义同步到独立更新仓库的文件（当前使用源码仓库更新，未启用）。
 
 ## 发布产物
@@ -11,6 +12,8 @@
 每个 tag 只发布一个文件：
 
 - `ok-nikke-win32-portable.zip`：完整便携包（启动器 exe + `data/` 全部依赖），解压到任意目录后运行其中的 `ok-nikke.exe`（需管理员权限）。
+
+便携包根目录会附带 `pyappify-cn.yml` 与 `pyappify-global.yml`。首次运行前，按网络环境把其中一个重命名为 `pyappify.yml`（与 `ok-nikke.exe` 同目录），启动器会读取它作为更新源配置；当前两者均指向 GitHub，国内镜像仓库建好后 `pyappify-cn.yml` 会改为镜像地址。
 
 应用内更新由启动器通过 git tag 完成（fetch `git_url` → checkout → 依赖变化时重跑 pip），与发布产物形态无关；`git_url` 由仓库中的 `pyappify.yml` 驱动，修改后随下一版生效，无需重编启动器。
 

@@ -80,6 +80,9 @@ jobs:
           Get-Content $setupErr -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_ }
           if ($setup.ExitCode -ne 0) { throw "pyappify setup failed with exit code $($setup.ExitCode)" }
           if (-not (Test-Path (Join-Path $appDir "data"))) { throw "pyappify setup did not generate the data folder" }
+          # 放更新源配置文件到包根目录, 供用户首次运行前按环境重命名为 pyappify.yml 选择更新源
+          Copy-Item "pyappify-cn.yml" (Join-Path $appDir "pyappify-cn.yml")
+          Copy-Item "pyappify-global.yml" (Join-Path $appDir "pyappify-global.yml")
           # 清掉打包过程中产生的缓存/日志, 不进便携包
           Remove-Item (Join-Path $appDir "cache") -Recurse -Force -ErrorAction SilentlyContinue
           Remove-Item (Join-Path $appDir "logs") -Recurse -Force -ErrorAction SilentlyContinue
