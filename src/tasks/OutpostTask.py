@@ -273,8 +273,11 @@ class OutpostTask(NikkeBaseTask):  # 前哨基地任务：执行派遣公告栏�
             single_since = now if single is not None else None  # 单框开始计时；无框清零重新等。
             if now > deadline:  # 对话迟迟未推进到作答时机。
                 raise WaitFailedException("等待咨询回答选项框超时")  # 抛异常由 try_step 恢复。
-            self.click_relative(_CONVERSATION_BLANK_X, _CONVERSATION_BLANK_Y,
-                                after_sleep=0.5)  # 点击屏幕右下中部空白推进对话。
+            if single is None:  # 无选项框时点空白推进对话。
+                self.click_relative(_CONVERSATION_BLANK_X, _CONVERSATION_BLANK_Y,
+                                    after_sleep=0.5)  # 点击屏幕右下中部空白推进对话。
+            else:  # 单框在场未过确认窗口：静候复检，不点空白以免抖动漏检单框。
+                self.sleep(0.5)  # 等单框持续在场通过确认窗口后再点框体推进。
         heart = self.find_one("advise_option_heart", box=mark_box)  # 好感爱心标记（直接标在正确选项上）。
         if heart is not None:  # 爱心可见时直接点击爱心所在选项。
             self.click_box(heart, after_sleep=1)  # 点击爱心。

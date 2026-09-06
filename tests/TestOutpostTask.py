@@ -558,7 +558,7 @@ class TestOutpostTaskAdviseOnce(_DebugOffTestCase):
     def test_answer_clicks_single_option_to_advance(self):
         option1 = Box(938, 1067, 23, 22, confidence=1, name="advise_option1")
         option2 = Box(938, 1043, 23, 22, confidence=1, name="advise_option2")
-        # 第1拍只出现选项1开始计时；第2拍仍单个且超过确认窗口→点击推进；第3拍双框出现进入作答。
+        # 第1拍只出现选项1开始计时（静候不点空白避免抖动漏检）；第2拍仍单个且超过确认窗口→点击推进；第3拍双框出现进入作答。
         with patch.object(self.task, "get_box_by_name",
                           side_effect=lambda name: _named_box(name)), \
                 patch.object(self.task, "find_one",
@@ -566,11 +566,12 @@ class TestOutpostTaskAdviseOnce(_DebugOffTestCase):
                 patch.object(self.task, "click_relative") as relative_mock, \
                 patch.object(self.task, "click_box") as click_mock, \
                 patch.object(self.task, "ocr", return_value=[]), \
-                patch.object(self.task, "sleep"), \
+                patch.object(self.task, "sleep") as sleep_mock, \
                 patch("src.tasks.OutpostTask.time") as time_mock:
             time_mock.time.side_effect = [100, 100, 101.5, 102]
             self.task._answer_conversation([])
-        relative_mock.assert_called_once_with(0.7, 0.85, after_sleep=0.5)  # 确认窗口内仍以点空白推进。
+        relative_mock.assert_not_called()  # 单框在场时不点空白，避免抖动漏检单框。
+        sleep_mock.assert_called_once_with(0.5)  # 确认窗口内静候复检直到单框持续在场。
         self.assertEqual(2, click_mock.call_count)  # 推进点击 + 作答点击（无 rows 走随机兜底）。
         first = click_mock.call_args_list[0]
         self.assertIs(first.args[0], option1)  # 直接点匹配到的角标框。
@@ -580,11 +581,11 @@ class TestOutpostTaskAdviseOnce(_DebugOffTestCase):
     def test_answer_waits_confirm_window_before_single_click(self):
         option1 = _named_box("advise_option1")
         option2 = _named_box("advise_option2")
-        # 单框刚出现未过确认窗口就出现双框：不能误点第一框，直接进入作答。
+        # 单框刚出现未过确认窗口就出现双框：不能误点第一框，静候后双框出现直接进入作答。
         relative_mock, click_mock = self._answer_with(
             [option1, None, option1, option2, None], [], [("提问", "好", "坏")],
             time_side_effect=[100, 100, 100.2, 100.2])
-        relative_mock.assert_called_once_with(0.7, 0.85, after_sleep=0.5)  # 确认窗口内点空白。
+        relative_mock.assert_not_called()  # 单框在场时不点空白，避免抖动漏检单框。
         click_mock.assert_called_once()  # 只有作答点击，没有推进点击。
 
 
