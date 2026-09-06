@@ -108,7 +108,9 @@ self.try_step(step_fn, name=None, retries=2, recover=True, raise_on_fail=True) -
 
 ## 弹窗与临时子页面约定
 
-- **不把好友/邮箱/公告等模态弹窗注册为界面**——它们是「什么挡着我」的独立维度，由 `dismiss_all_popups`/`close_overlay` 处理。
+- **不把好友/邮箱/公告/登录奖励等模态弹窗注册为界面**——它们是「什么挡着我」的独立维度，由 `dismiss_all_popups`/`close_overlay` 处理。
+- **新增弹窗只挂 `_try_close_one_popup`**（`NikkeBaseTask` 加 `_close_xxx_popup`，每次只走一步，多段由 `dismiss_all_popups` 逐轮推进）：一次挂接覆盖冷启动/恢复/子流程全部清理入口；顺序**按遮挡层级从上到下**（卢比 → 公告 → 遮罩 → 登录奖励面板），压上层的先关，否则下层关闭按钮会跳过上层遮罩。
+- **皮肤会变的弹窗只挑不随皮肤变的判据**：登录奖励每期样式不同，「全部领取」认文字（OCR），关闭 X 用只留图形的小图模板（新皮肤追加 `_DAILY_LOGIN_CLOSE_TEMPLATES`）；判可领与否看按钮底色，OCR 只给白字框，按 `_DAILY_LOGIN_CLAIM_PAD` 外扩后再 `is_feature_enabled`。
 - **不把塔卡/关卡选择、队伍编成等流程内顺序子页面注册为界面**——它们顶替父页面、父特征消失，流程内靠特征/坐标推进；注意这些页面不一定有 `common_home`。
 - 进入流程前先 `dismiss_all_popups` 再判定界面；`_nav_*` 型入口沿用「刷新帧 → 判定 → 清弹窗 → 再刷新 → 再判定」两段式。
 - `close_overlay` 默认 `require_click=True`：必须成功点击关闭至少一次遮罩，超时未点到抛 `WaitFailedException`；恢复流程等容错场景必须传 `require_click=False`。

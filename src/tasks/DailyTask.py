@@ -76,6 +76,7 @@ class DailyTask(NikkeBaseTask):  # 定义清日常总编排的父任务类。
         self._claim_current_tab(claim_box)  # 打开弹窗默认停留的 tab 先领到变灰。
         visited = set()  # 已切换过的徽章区域名：红点未及时消失时防止反复切换，保证收尾必然终止。
         while self._switch_to_tab_with_red_dot(visited):  # 还有带红点的未访问 tab 就切换过去。
+            self.dismiss_all_popups(time_out=5)  # 清理领取后可能出现的奖励遮罩/弹窗，回到任务弹窗。
             self._claim_current_tab(claim_box)  # 领取刚切换到的 tab，领到变灰。
 
     def _claim_current_tab(self, claim_box):  # 领取当前 tab 全部可领奖励：领取按钮可用（彩色）就点，直到变灰。

@@ -215,6 +215,13 @@ class NikkeBaseTask(BaseTask):
     )
     _COMMON_CLOSE_TEMPLATE = os.path.join('assets', 'template', 'common', 'common_close.png')  # 通用关闭按钮模板，来自 2560x1440 截图。
     _ENTER_GAME_TEXT = re.compile("TOUCH TO CONTINUE", re.IGNORECASE)  # 进入游戏提示文字，OCR 部分匹配并忽略大小写。
+    # 登录奖励（DAILY LOGIN）弹窗判据：七天制小型登录奖励每期面板皮肤不同，判据一律取
+    # 不受皮肤影响的部分——「全部领取」认文字（OCR），关闭按钮认 X 图形（模板只留图形本身）。
+    _DAILY_LOGIN_CLAIM_ALL_TEXT = re.compile("全部领取")  # 「全部领取」按钮文字，OCR 部分匹配（兼容拆框/噪声）。
+    _DAILY_LOGIN_CLAIM_PAD = (0.2, 0.36)  # 文字框外扩比例（宽, 高）：OCR 只框到白字，外扩取到按钮底色才能判断可领与否；用比例而非固定像素，保证各分辨率下都不超出按钮本体。
+    _DAILY_LOGIN_CLOSE_TEMPLATES = (  # 面板右上角关闭 X 模板列表；出现新皮肤样式时追加即可，依次尝试任一命中。
+        os.path.join('assets', 'template', 'daily_login', 'daily_login_close.png'),  # 来自 2560x1440 截图。
+    )
 
     def _close_notice_popup(self):
         """在屏幕中上部依次尝试多个公告铃铛模板，命中后向右延伸查找通用关闭按钮并点击，返回是否成功点击。"""
@@ -264,6 +271,64 @@ class NikkeBaseTask(BaseTask):
             self.log_info("已点击卢比限时特卖入口。")  # 记录点击动作。
             return True  # 返回已处理。
         return False  # 当前帧无卢比限时特卖相关界面。
+
+    def _find_daily_login_claim_all(self):
+        """在屏幕底部区域 OCR 识别登录奖励弹窗的「全部领取」按钮文字，返回匹配框或 None。
+
+        走 OCR 而非模板：七天制登录奖励每期皮肤不同，按钮配色/尺寸随之变化，
+        但「全部领取」这行文字固定不变。
+        """
+        boxes = self.ocr(box=self.box_of_screen(1 / 3, 0.85, 0.7, 1.0),  # 按钮恒在面板底部。
+                         match=[self._DAILY_LOGIN_CLAIM_ALL_TEXT])  # 正则部分匹配。
+        return boxes[0] if boxes else None  # 文字长在按钮上，命中即按钮存在。
+
+    def _daily_login_button_box(self, text_box):
+        """把 OCR 得到的「全部领取」文字框按 _DAILY_LOGIN_CLAIM_PAD 比例外扩到按钮底色区域。
+
+        OCR 只框到白色文字，彩色可领与灰白已领完两种状态下文字都是白的，无法据此区分；
+        外扩取到按钮底色后才能用 is_feature_enabled 判定。外扩用比例而非固定像素，
+        保证在 1600x900 等小分辨率下也不会撑出按钮本体而混进背景色。
+        """
+        pad_w = text_box.width * self._DAILY_LOGIN_CLAIM_PAD[0]  # 水平外扩量。
+        pad_h = text_box.height * self._DAILY_LOGIN_CLAIM_PAD[1]  # 垂直外扩量。
+        return Box(text_box.x - pad_w, text_box.y - pad_h,  # 左上各外扩一份。
+                   text_box.width + pad_w * 2, text_box.height + pad_h * 2,  # 尺寸两端各加一份。
+                   name="daily_login_claim_button")  # 命名便于日志/调试识别。
+
+    def _find_daily_login_close(self):
+        """在屏幕右上区域依次尝试各期关闭按钮模板，返回第一个命中的框或 None。
+
+        七天制登录奖励每期面板皮肤不同，关闭 X 的背景纹理/描边随之变化，故模板只保留
+        X 图形本身（不含周边背景）以应对该变化；出现新样式时把裁剪好的小图路径追加到
+        _DAILY_LOGIN_CLOSE_TEMPLATES 即可，无需改动本方法。
+        """
+        for template_path in self._DAILY_LOGIN_CLOSE_TEMPLATES:  # 依次尝试每个关闭按钮模板。
+            found = self.find_scaled_template(  # 关闭 X 恒在面板右上角约 x 0.62、y 0.095。
+                "daily_login_close", template_path,
+                box=self.box_of_screen(0.5, 0.03, 0.8, 0.2),
+            )
+            if found is not None:  # 当前模板命中。
+                return found  # 停止尝试后续模板。
+        return None  # 所有模板均未命中，当前帧无该弹窗（或遇到未收录的新皮肤）。
+
+    def _close_daily_login_popup(self):
+        """处理登录奖励（DAILY LOGIN）弹窗：有可领奖励先点「全部领取」，无可领则点右上角关闭按钮。
+
+        每次只走一步，由 dismiss_all_popups 逐轮调用完成「领取 → 关奖励遮罩 → 关闭弹窗」
+        整段流程——领取后弹出的奖励遮罩由上一层的遮罩分支处理，不在本方法内处理。
+        可领与否用按钮底色判定（彩色可领 / 灰白已领完），避免已领完时反复点击同一步。
+        """
+        claim = self._find_daily_login_claim_all()  # 查找「全部领取」文字。
+        if claim is not None and self.is_feature_enabled(self._daily_login_button_box(claim)):  # 底色彩色 = 仍有可领奖励。
+            self.click_box(claim, after_sleep=1)  # 点击领取，奖励遮罩交由下一轮的遮罩分支关闭。
+            self.log_info("已点击登录奖励全部领取。")  # 记录动作。
+            return True  # 返回已处理。
+        close = self._find_daily_login_close()  # 无可领（按钮灰白/缺失）时直接关闭弹窗。
+        if close is not None:  # 关闭按钮存在。
+            self.click_box(close, after_sleep=1)  # 点击关闭按钮关闭整个弹窗。
+            self.log_info("已关闭登录奖励弹窗。")  # 记录动作。
+            return True  # 返回已处理。
+        return False  # 当前帧无登录奖励弹窗。
 
     def _click_enter_game(self):
         """在 coco 特征 box_enter_game 区域内 OCR 识别 TOUCH TO CONTINUE 并点击进入游戏，返回是否点击。"""
@@ -607,8 +672,10 @@ class NikkeBaseTask(BaseTask):
         return clicked  # 超时或点满次数后返回当前状态。
 
     def _try_close_one_popup(self, after_sleep=1):
-        """尝试关闭当前帧上的一个弹窗：先卢比限时特卖，再公告/活动横幅，最后领取奖励/点击任意处遮罩。返回是否成功关掉一个。
+        """尝试关闭当前帧上的一个弹窗：卢比限时特卖 → 公告/活动横幅 → 领取奖励/点击任意处遮罩 → 登录奖励弹窗。返回是否成功关掉一个。
 
+        顺序按遮挡层级从上到下：遮罩压在登录奖励面板之上，故面板排在遮罩之后——
+        否则「点完全部领取弹出的奖励遮罩」会被面板的关闭按钮抢先跳过后者的点击。
         每次只关一个，由 dismiss_all_popups 循环调用，避免一次点击后界面动画未完成导致误判。
         """
         if self._close_rupee_flash_sale_popup():  # 卢比限时特卖（两段式：入口横幅点击后弹详情，再点关闭确认）。
@@ -628,6 +695,14 @@ class NikkeBaseTask(BaseTask):
             self.click_box(boxes[0], after_sleep=after_sleep)  # 点击关闭遮罩。
             self.log_info("点击遮罩按钮关闭弹窗。")  # 记录关闭动作。
             return True  # 已关闭一个遮罩。
+        try:  # 登录奖励面板含 OCR 与模板匹配，异常同样不应中断统一清理。
+            if self._close_daily_login_popup():  # 位于遮罩之下，故排在遮罩之后处理。
+                return True  # 已处理登录奖励弹窗。
+        except TaskDisabledException:  # 任务已被用户停止，必须让中断异常继续向上传播。
+            raise  # 重新抛出，交由执行器结束任务。
+        except Exception as e:  # OCR/模板匹配失败。
+            self.log_warning(f"登录奖励弹窗清理失败: {e}")  # 记录失败原因。
+            return False  # 本帧视为无可关闭的弹窗。
         return False  # 本帧没有可关闭的弹窗。
 
     def dismiss_all_popups(self, clear_condition=None, time_out=10, after_sleep=1, max_passes=6,
