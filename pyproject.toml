@@ -1,7 +1,7 @@
 [project]
-name = "ok-nikke-maid"
+name = "ok-nikke"
 version = "0.0.1"
-description = "ok-nikke-maid automation app"
+description = "ok-nikke automation app"
 requires-python = ">=3.12,<3.13"
 dependencies = []
 

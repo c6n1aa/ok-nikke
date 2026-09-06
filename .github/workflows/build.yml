@@ -37,14 +37,9 @@ jobs:
           lfs: true
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Set UTF-8 encoding
-        run: |
-          set PYTHONIOENCODING=utf-8
-          set PYTHONLEGACYWINDOWSSTDIO=utf-8
-          echo PYTHONIOENCODING=utf-8 >> $GITHUB_ENV
 
       - name: Install dependencies
         run: |
@@ -72,18 +67,24 @@ jobs:
         shell: pwsh
         run: |
           # 运行启动器 setup 命令, 在 exe 同目录生成 data(内嵌Python/venv/按tag克隆的代码); -p 需与 pyappify.yml 的 profile 名一致
-          $appDir = Join-Path "pyappify_dist" "ok-nikke-maid"
+          $appDir = Join-Path "pyappify_dist" "ok-nikke"
           New-Item -ItemType Directory -Path $appDir -Force | Out-Null
-          $exe = Join-Path $appDir "ok-nikke-maid.exe"
+          $exe = Join-Path $appDir "ok-nikke.exe"
           Copy-Item "${{ steps.build-app.outputs.exe-path }}" $exe
-          & $exe -c setup -p Release
-          if ($LASTEXITCODE -ne 0) { throw "pyappify setup failed with exit code $LASTEXITCODE" }
+          # launcher 是 windows_subsystem="windows" 的 GUI 程序, `&` 不会等待也拿不到退出码;
+          # 必须用 Start-Process -Wait -PassThru 阻塞到 setup 完成并读取 ExitCode
+          $setupOut = Join-Path "pyappify_dist" "setup.stdout.log"
+          $setupErr = Join-Path "pyappify_dist" "setup.stderr.log"
+          $setup = Start-Process -FilePath $exe -ArgumentList "-c","setup","-p","Release" -Wait -PassThru -RedirectStandardOutput $setupOut -RedirectStandardError $setupErr
+          Get-Content $setupOut -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_ }
+          Get-Content $setupErr -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_ }
+          if ($setup.ExitCode -ne 0) { throw "pyappify setup failed with exit code $($setup.ExitCode)" }
           if (-not (Test-Path (Join-Path $appDir "data"))) { throw "pyappify setup did not generate the data folder" }
           # 清掉打包过程中产生的缓存/日志, 不进便携包
           Remove-Item (Join-Path $appDir "cache") -Recurse -Force -ErrorAction SilentlyContinue
           Remove-Item (Join-Path $appDir "logs") -Recurse -Force -ErrorAction SilentlyContinue
           Remove-Item (Join-Path $appDir "EBWebView") -Recurse -Force -ErrorAction SilentlyContinue
-          Compress-Archive -Path $appDir -DestinationPath "pyappify_dist\ok-nikke-maid-win32-portable.zip" -Force
+          Compress-Archive -Path $appDir -DestinationPath "pyappify_dist\ok-nikke-win32-portable.zip" -Force
 
       - name: Release
         uses: softprops/action-gh-release@v2
@@ -95,7 +96,7 @@ jobs:
             ###  更新日志
               请查看提交记录。
             ### 下载说明
-              * [ok-nikke-maid-win32-portable.zip](https://github.com/c6n1aa/ok-nikke-maid/releases/download/${{ github.ref_name }}/ok-nikke-maid-win32-portable.zip) 完整便携包: 解压到任意目录, 运行其中的 ok-nikke-maid.exe (需管理员权限), 应用内可自动更新。
-              * Full portable package: extract anywhere, run ok-nikke-maid.exe as administrator. In-app auto-update supported.
+              * [ok-nikke-win32-portable.zip](https://github.com/c6n1aa/ok-nikke/releases/download/${{ github.ref_name }}/ok-nikke-win32-portable.zip) 完整便携包: 解压到任意目录, 运行其中的 ok-nikke.exe (需管理员权限), 应用内可自动更新。
+              * Full portable package: extract anywhere, run ok-nikke.exe as administrator. In-app auto-update supported.
               * 无需下载 Source code, 仅供存档用。
-          files: pyappify_dist/ok-nikke-maid-win32-portable.zip
+          files: pyappify_dist/ok-nikke-win32-portable.zip

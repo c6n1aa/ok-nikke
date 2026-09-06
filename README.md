@@ -1,8 +1,8 @@
-# ok-nikke-maid
+# ok-nikke
 
 [English](README_en.md) | 中文
 
-ok-nikke-maid 是一个基于 [ok-script](https://github.com/ok-oldking/ok-script) 的 Python 自动化应用，为《NIKKE：胜利女神》（Goddess of Victory: NIKKE）Windows 客户端提供带 GUI 的自动化。
+ok-nikke 是一个基于 [ok-script](https://github.com/ok-oldking/ok-script) 的 Python 自动化应用，为《NIKKE：胜利女神》（Goddess of Victory: NIKKE）Windows 客户端提供带 GUI 的自动化。
 
 ## 文档
 

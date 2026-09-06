@@ -1,8 +1,8 @@
-# ok-nikke-maid 框架升级计划（ok-script 1.0.189 → 2.0.2）
+# ok-nikke 框架升级计划（ok-script 1.0.189 → 2.0.2）
 
 > 创建日期：2026-08-19
 > 升级分支：`upgrade-framework`（基于 `dev` 创建）
-> 涉及仓库：ok-nikke-maid（本仓库）、ok-script（框架）、ok-script-app（模板）
+> 涉及仓库：ok-nikke（本仓库）、ok-script（框架）、ok-script-app（模板）
 > 文档状态：已评审，待执行
 
 ---
@@ -27,7 +27,7 @@
 
 | 仓库 | 当前依赖版本 | 说明 |
 |---|---|---|
-| ok-nikke-maid（本仓库） | `ok-script==1.0.189` | requirements.txt 精确锁定 |
+| ok-nikke（本仓库） | `ok-script==1.0.189` | requirements.txt 精确锁定 |
 | ok-script-app（模板） | `ok-script==2.0.0b7` | 模板已迁移 2.x，**但停在 beta** |
 | ok-script（框架） | pypi 最新 **2.0.2**（正式版） | 本地仓库 HEAD = v2.0.2 + 5 未推送提交 |
 

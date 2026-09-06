@@ -171,7 +171,7 @@ profiles:
 * `ok-ww-win32-online-setup.exe`: 在线安装包，需要联网下载资源，不推荐普通用户使用。
 * `ok-ww-win32.zip`: **构建加速文件**。它包含了本次构建的启动器 `.exe`，**无法直接运行**，其主要目的是用于加速下一次的构建流程。
 
-> **本项目（ok-nikke-maid）的实际做法不同**：`pyappify.yml` 只保留单一 `Release` profile，`build.yml` 使用 `build_exe_only: true` 只编译启动器 exe，再执行 `ok-nikke-maid.exe -c setup -p Release` 生成 `data/` 后直接压缩为便携包，最终只发布 `ok-nikke-maid-win32-portable.zip`（解压即用），不使用 NSIS 安装器。详见 [打包与发布](../release.md)。
+> **本项目（ok-nikke）的实际做法不同**：`pyappify.yml` 只保留单一 `Release` profile，`build.yml` 使用 `build_exe_only: true` 只编译启动器 exe，再执行 `ok-nikke.exe -c setup -p Release` 生成 `data/` 后直接压缩为便携包，最终只发布 `ok-nikke-win32-portable.zip`（解压即用），不使用 NSIS 安装器。详见 [打包与发布](../release.md)。
 
 ### 加速构建速度 { #加速构建速度 }
 

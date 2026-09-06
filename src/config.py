@@ -63,13 +63,13 @@ config = {
     },
     'links': { # 关于里显示的链接, 可选
             'default': {
-                'github': 'https://github.com/c6n1aa/ok-nikke-maid',
-                'share': 'Download from https://github.com/c6n1aa/ok-nikke-maid',
-                'faq': 'https://github.com/c6n1aa/ok-nikke-maid'
+                'github': 'https://github.com/c6n1aa/ok-nikke',
+                'share': 'Download from https://github.com/c6n1aa/ok-nikke',
+                'faq': 'https://github.com/c6n1aa/ok-nikke'
             }
         },
     'screenshots_folder': "screenshots", #截图存放目录, 每次重新启动会清空目录
-    'gui_title': 'ok-nikke-maid',  #窗口名
+    'gui_title': 'ok-nikke',  #窗口名
     'template_matching': { # 可选, 如使用OpenCV的模板匹配
         'coco_feature_json': os.path.join('assets', 'coco_annotations.json'), #coco格式标记, 需要png图片, 在debug模式运行后, 会对进行切图仅保留被标记部分以减少图片大小
         'default_horizontal_variance': 0.002, #默认x偏移, 查找不传box的时候, 会根据coco坐标, match偏移box内的

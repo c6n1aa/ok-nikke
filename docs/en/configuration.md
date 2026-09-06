@@ -4,7 +4,7 @@
 
 Review at least these settings in `src/config.py`:
 
-- `gui_title`: application window title, currently `ok-nikke-maid`.
+- `gui_title`: application window title, currently `ok-nikke`.
 - `gui_icon`: GUI icon path.
 - `supported_resolution`: supported aspect ratio and minimum resolution.
 - `links`: project, support, and community links.
@@ -51,5 +51,5 @@ Replace `icons/icon.png` and `icons/icon.ico`. Keeping the filenames avoids extr
 Edit the app name, profile names, and `git_url` values in `pyappify.yml`:
 
 - Use a separate lightweight update repository for production.
-- For early testing the source repository `https://github.com/c6n1aa/ok-nikke-maid.git` is used.
+- For early testing the source repository `https://github.com/c6n1aa/ok-nikke.git` is used.
 - With a separate update repository, update the sync targets and secrets in `.github/workflows/build.yml`.

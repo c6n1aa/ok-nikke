@@ -1,10 +1,10 @@
-name: "ok-nikke-maid"
+name: "ok-nikke"
 uac: true
 icon: "icons/icon.png"
 profiles:
   # profile 名改动时需同步 .github/workflows/build.yml 中 setup 步骤的 -p 参数
   - name: "Release"
-    git_url: "https://github.com/c6n1aa/ok-nikke-maid.git"
+    git_url: "https://github.com/c6n1aa/ok-nikke.git"
     admin: true
     main_script: "main.py"
     requires_python: "3.12"

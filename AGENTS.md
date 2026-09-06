@@ -1,6 +1,6 @@
 # AGENTS.md
 
-ok-nikke-maid 是基于 PyPI `ok-script`（2.x）构建的《NIKKE》Windows 客户端 GUI 自动化应用。技术栈：PySide6 + qfluentwidgets（GUI）、OpenCV 模板匹配 + onnxocr（识别）。仓库：<https://github.com/c6n1aa/ok-nikke-maid> 。本文只写给 coding agent 的规则与命令，背景细节看代码或 `docs/`。
+ok-nikke 是基于 PyPI `ok-script`（2.x）构建的《NIKKE》Windows 客户端 GUI 自动化应用。技术栈：PySide6 + qfluentwidgets（GUI）、OpenCV 模板匹配 + onnxocr（识别）。仓库：<https://github.com/c6n1aa/ok-nikke> 。本文只写给 coding agent 的规则与命令，背景细节看代码或 `docs/`。
 
 ## 红线
 

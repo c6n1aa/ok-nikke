@@ -1,7 +1,7 @@
-site_name: ok-nikke-maid
+site_name: ok-nikke
 site_description: NIKKE Windows 原生游戏自动化应用，基于 ok-script。
-repo_name: c6n1aa/ok-nikke-maid
-repo_url: https://github.com/c6n1aa/ok-nikke-maid
+repo_name: c6n1aa/ok-nikke
+repo_url: https://github.com/c6n1aa/ok-nikke
 edit_uri: edit/master/docs/
 
 docs_dir: docs
