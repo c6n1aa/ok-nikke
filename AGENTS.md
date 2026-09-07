@@ -25,7 +25,7 @@ ok-nikke 是基于 PyPI `ok-script`（2.x）构建的《NIKKE》Windows 客户�
 - `src/patches/`：ok-script 猴子补丁唯一入口（`basic_options`/`start_controller`/`runtime`/`tasks_tab`），各补丁职责见 `src/patches/README.md`。
 - `src/screens.py`：界面识别单一数据源（`SCREENS` 注册表 + `INTERRUPTS` 中断哨兵）。
 - `src/ui/`：自定义 tab（当前仅 `DailyTab`，经 `src/config.py` 的 `custom_tabs` 注册）。
-- 资产：`assets/coco_annotations.json`（COCO 标注）+ `assets/images/`（图集）+ `assets/template/`（手动裁剪小图）。
+- 资产：`assets/coco_annotations.json`（COCO 标注）+ `assets/images/`（图集）+ `assets/template/`（手动裁剪小图）+ `assets/db/advise.db`（咨询答案库，由 `nikke-advise-data` 仓库构建后复制导入；本仓库不存源数据与构建脚本）。
 - 运行时产物（`configs/`/`logs/`/`screenshots/` 等）与框架本体（`ok/` 等）不入仓，以 `.gitignore` 为准；开发时使用或生产的一次性脚本/中间产物放 `dev_tools/`（已 gitignore），XAL 标注导入在 `scripts/import_xal.py`。
 - CI：`.github/workflows/build.yml`（监听 `v*` tag → 测试 + pyappify 编译启动器 + 打包便携 zip + Release，不出 NSIS 安装器）、`docs.yml`（部署 mkdocs）。
 
