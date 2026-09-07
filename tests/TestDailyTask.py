@@ -75,8 +75,10 @@ class TestDailyTask(TaskTestCase):
         wait_mock.assert_called_once_with("mission_page", time_out=10, raise_if_not_found=True)  # 确认任务弹窗稳定打开。
         self.assertEqual(1, enabled_mock.call_count)  # 领取按钮首次判定即灰白，直接结束领取。
         self.assertEqual(
-            [call("box_mission_weekly_badge"), call("box_mission_msq_badge"), call("box_mission_achievement_badge")],
-            dot_mock.call_args_list)  # 依次检查三个 tab 徽章红点。
+            [call("box_mission_weekly_badge", template_path='assets/template/common/badge.png'),
+             call("box_mission_msq_badge", template_path='assets/template/common/badge.png'),
+             call("box_mission_achievement_badge", template_path='assets/template/common/badge.png')],
+            dot_mock.call_args_list)  # 依次检查三个 tab 徽章红点（模板匹配优先）。
 
     def test_claim_current_tab_clicks_until_disabled(self):
         fake_box = Box(0, 0, 10, 10, name="box_mission_claim")  # 领取按钮区域桩。
@@ -101,7 +103,7 @@ class TestDailyTask(TaskTestCase):
         fake_box = Box(0, 0, 10, 10, name="box_mission_subtitle")  # 副标题区域桩。
         dot = Box(100, 200, 20, 20, name="red_dot_color")  # 红点命中框桩。
         with patch.object(self.task, "get_box_by_name", return_value=fake_box), \
-                patch.object(self.task, "find_red_dot", side_effect=[dot, None, None]), \
+                patch.object(self.task, "find_red_dot", side_effect=[dot, None, None]) as dot_mock, \
                 patch.object(self.task, "click_box") as click_mock, \
                 patch.object(self.task, "wait_ocr") as ocr_mock:
             switched = self.task._switch_to_tab_with_red_dot(set())  # 周任务徽章有红点，其余无。
@@ -111,7 +113,19 @@ class TestDailyTask(TaskTestCase):
         kwargs = ocr_mock.call_args.kwargs  # 读取关键字参数。
         self.assertIsNotNone(kwargs["match"].search("Weekly Mission"))  # 周任务副标题正则可命中。
         self.assertEqual(fake_box, kwargs["box"])  # 限定在副标题区域。
-        self.assertTrue(kwargs["raise_if_not_found"])  # 确认失败抛异常交由 try_step 恢复。
+        self.assertFalse(kwargs["raise_if_not_found"])  # 确认失败不再抛异常，改为跳过该 tab。
+        self.assertEqual('assets/template/common/badge.png', dot_mock.call_args.kwargs['template_path'])  # 红点走模板匹配优先。
+
+    def test_switch_to_tab_skips_when_subtitle_not_confirmed(self):
+        fake_box = Box(0, 0, 10, 10, name="box_mission_subtitle")  # 副标题区域桩。
+        dot = Box(100, 200, 20, 20, name="red_dot_color")  # 红点命中框桩。
+        with patch.object(self.task, "get_box_by_name", return_value=fake_box), \
+                patch.object(self.task, "find_red_dot", side_effect=[dot, None, None]), \
+                patch.object(self.task, "click_box") as click_mock, \
+                patch.object(self.task, "wait_ocr", return_value=None):
+            switched = self.task._switch_to_tab_with_red_dot(set())  # 点击后副标题始终未确认。
+        self.assertFalse(switched)  # 未发生有效切换，返回 False。
+        self.assertEqual(1, click_mock.call_count)  # 仅点了第一个徽章，确认失败后跳过而非抛异常。
 
     def test_claim_box_missions_terminates_when_red_dot_persists(self):
         fake_box = Box(0, 0, 10, 10, name="box")  # 通用区域桩（领取按钮/副标题共用）。

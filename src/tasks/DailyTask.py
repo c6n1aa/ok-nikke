@@ -22,6 +22,7 @@ class DailyTask(NikkeBaseTask):  # 定义清日常总编排的父任务类。
         (re.compile(r"CHALLENGE", re.IGNORECASE), "box_mission_achievement_badge"),  # 成就（挑战）tab。
     )
     _CLAIM_MAX_CLICKS = 20  # 单个 tab 领取点击次数上限：点击未生效时防止死循环。
+    _RED_DOT_TEMPLATE = 'assets/template/common/badge.png'  # 通知红点模板：模板匹配优先命中角标红点，减少徽章图标被颜色兜底误判为红点。
 
     def __init__(self, *args, **kwargs):  # 初始化任务元数据与配置。
         super().__init__(*args, **kwargs)  # 必须先调用父类初始化。
@@ -91,13 +92,15 @@ class DailyTask(NikkeBaseTask):  # 定义清日常总编排的父任务类。
         for keyword, badge in self._MISSION_TABS:  # 依次检查三个 tab 的徽章红点。
             if badge in visited:  # 已访问过的 tab 不再进入，防止红点残留导致反复切换。
                 continue
-            red_dot = self.find_red_dot(badge)  # 在徽章区域检测通知红点。
+            red_dot = self.find_red_dot(badge, template_path=self._RED_DOT_TEMPLATE)  # 在徽章区域检测通知红点（模板匹配优先，减少徽章图标被颜色兜底误判）。
             if red_dot is None:  # 无红点说明该 tab 无待领内容。
                 continue
             self.click_box(red_dot, after_sleep=1)  # 点击红点所在徽章，切换到对应 tab。
             visited.add(badge)  # 记录该 tab 已访问。
-            self.wait_ocr(match=keyword, box=self.get_box_by_name("box_mission_subtitle"), time_out=5, raise_if_not_found=True)  # 确认副标题已切到目标 tab，失败抛 WaitFailedException 交由 try_step 恢复。
-            return True  # 已切换到新 tab。
+            if not self.wait_ocr(match=keyword, box=self.get_box_by_name("box_mission_subtitle"), time_out=5, raise_if_not_found=False):  # 确认副标题已切到目标 tab。
+                self.log_warning(f"切换 {badge} 后副标题未确认，跳过该 tab。")  # 点击未生效（红点误报等）时记录并继续，避免中断整个收尾流程。
+                continue  # 跳到下一个徽章，不因单个 tab 切换失败中止领取。
+            return True  # 已切换到新 tab 并确认副标题。
         return False  # 三个徽章均无未访问的红点，领取收尾完成。
 
     def run(self):  # 父任务执行入口，按顺序编排子流程。
