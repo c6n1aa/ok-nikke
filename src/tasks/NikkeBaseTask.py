@@ -192,6 +192,18 @@ class NikkeBaseTask(BaseTask):
         return self.find_one("common_home",
                              box=self.box_of_screen(0, 0.8, 0.25, 1))  # 兜底：左下角区域（按钮锚点在 y≈0.93，覆盖 ±0.02 以上偏移）。
 
+    def _find_back_button(self):
+        """查找返回按钮：先按标注位置（默认 variance 容差）匹配，未命中再在屏幕左下角区域内全范围模板匹配兜底。
+
+        咨询详情等界面的 home/back 按钮坐标与其他界面有数像素偏差，超出默认容差导致
+        特征锚点匹配失败；兜底区域限定左下角，避免误命中画面中部元素。
+        """
+        back = self.find_one("common_back")  # 标注位置精确匹配。
+        if back is not None:  # 精确命中。
+            return back  # 直接返回。
+        return self.find_one("common_back",
+                             box=self.box_of_screen(0, 0.8, 0.25, 1))  # 兜底：左下角区域（按钮锚点在 y≈0.9，覆盖偏移）。
+
     def _exit_to_lobby(self):
         """退出当前子页面返回大厅（幂等：失败恢复已带回大厅时找不到主页按钮，只确认不点击）。
 

@@ -31,7 +31,7 @@ class TestScreenRecovery(TaskTestCase):
             "login_page": {"keywords": [LOGIN_PAGE_PATTERN], "ocr_box": "box_enter_game"},
             "ark": {"features": ["ark_tribe_tower", "ark_simulation_room"]},
             "tribe_tower": {"features": ["tribe_tower_mark"]},
-            "simulation_room": {"features": ["simulation_mark"]},
+            "simulation_room": {"any_features": ["simulation_mark", "simulation_overclock_update"]},
             "shop": {"keywords": ["百货商店"], "ocr_box": "box_sub_pages_title"},
             "cash_shop": {"keywords": ["付费商店"], "ocr_box": "box_sub_pages_title"},
             "coop_page": {"features": ["coop_page"]},
@@ -463,6 +463,23 @@ class TestScreenRecovery(TaskTestCase):
         self.assertEqual("common_home", find_mock.call_args_list[0].args[0])
         self.assertIn("box", find_mock.call_args_list[1].kwargs)  # 兜底调用限定左下角区域。
         click_mock.assert_called_once()
+
+    def test_find_back_button_region_fallback(self):
+        # 咨询详情页的返回按钮坐标也有偏移：精确匹配失败后走左下角区域兜底，与主页按钮同款实现。
+        fake_back = Box(100, 100, 50, 50, confidence=1, name="common_back")
+        with patch.object(self.task, "find_one", side_effect=[None, fake_back]) as find_mock:
+            result = self.task._find_back_button()
+        self.assertIs(fake_back, result)
+        self.assertEqual(2, find_mock.call_count)  # 先按标注位置精确匹配，失败后区域兜底。
+        self.assertEqual("common_back", find_mock.call_args_list[0].args[0])
+        self.assertIn("box", find_mock.call_args_list[1].kwargs)  # 兜底调用限定左下角区域。
+
+    def test_find_back_button_exact_match(self):
+        fake_back = Box(100, 100, 50, 50, confidence=1, name="common_back")
+        with patch.object(self.task, "find_one", return_value=fake_back) as find_mock:
+            result = self.task._find_back_button()
+        self.assertIs(fake_back, result)
+        find_mock.assert_called_once_with("common_back")  # 精确命中不再兜底。
 
 
 if __name__ == '__main__':

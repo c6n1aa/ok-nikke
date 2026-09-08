@@ -38,7 +38,8 @@ SCREENS = {
     "login_page": {"keywords": [LOGIN_PAGE_PATTERN], "ocr_box": "box_enter_game"},
     "ark": {"features": ["ark_tribe_tower", "ark_simulation_room"]},
     "tribe_tower": {"features": ["tribe_tower_mark"]},
-    "simulation_room": {"features": ["simulation_mark"]},
+    # 模拟室：超频更新弹窗会遮住室徽 simulation_mark，故把该弹窗也列为判据（命中即已进入）。
+    "simulation_room": {"any_features": ["simulation_mark", "simulation_overclock_update"]},
     "shop": {"keywords": ["百货商店"], "ocr_box": "box_sub_pages_title"},
     "cash_shop": {"keywords": ["付费商店"], "ocr_box": "box_sub_pages_title"},
     "coop_page": {"features": ["coop_page"]},
