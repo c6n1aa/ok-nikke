@@ -14,6 +14,7 @@ from src.tasks.OutpostDefenseTask import OutpostDefenseTask
 from src.tasks.OutpostTask import OutpostTask
 from src.tasks.ShopTask import ShopTask
 from src.tasks.CashShopTask import CashShopTask
+from src.tasks.RecruitTask import RecruitTask
 from src.tasks.ArkTask import ArkTask
 from src.tasks.RaidTask import RaidTask
 
@@ -113,9 +114,10 @@ class DailyTab(CustomTab):
     SUB_TASKS = [
         (HarvestTask, "收获"),
         (OutpostDefenseTask, "歼灭"),
-        (OutpostTask, "前哨基地"),
-        (ShopTask, "商店"),
         (CashShopTask, "付费商店"),
+        (ShopTask, "商店"),
+        (RecruitTask, "招募"),
+        (OutpostTask, "前哨基地"),
         (ArkTask, "方舟"),
         (RaidTask, "Raid"),
     ]

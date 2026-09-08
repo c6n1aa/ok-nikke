@@ -8,6 +8,7 @@ from src.tasks.OutpostDefenseTask import OutpostDefenseTask  # 导入歼灭子�
 from src.tasks.OutpostTask import OutpostTask  # 导入前哨基地子任务（派遣/咨询）。
 from src.tasks.ShopTask import ShopTask  # 导入商店子任务。
 from src.tasks.CashShopTask import CashShopTask  # 导入付费商店子任务。
+from src.tasks.RecruitTask import RecruitTask  # 导入招募子任务（友情点/折扣普通招募）。
 from src.tasks.ArkTask import ArkTask  # 导入方舟子任务（企业塔/模拟室/拦截战/竞技场）。
 from src.tasks.RaidTask import RaidTask  # 导入讨伐子任务（协同作战/个人突袭）。
 
@@ -31,18 +32,20 @@ class DailyTask(NikkeBaseTask):  # 定义清日常总编排的父任务类。
         self.default_config.update({  # 父任务配置：为每个子流程放一个常驻开关。
             "收获": True,  # 收获子流程的开关。
             "歼灭": True,  # 歼灭子流程的开关。
-            "前哨基地": True,  # 前哨基地子流程的开关。
-            "商店": True,  # 商店子流程的开关。
             "付费商店": True,  # 付费商店子流程的开关。
+            "商店": True,  # 商店子流程的开关。
+            "招募": True,  # 招募子流程的开关。
+            "前哨基地": True,  # 前哨基地子流程的开关。
             "方舟": True,  # 方舟子流程的开关。
             "Raid": True,  # Raid子流程的开关。
         })
         self.config_description.update({  # 每个配置项的帮助文本。
             "收获": "是否执行收获（友情点、邮箱）。",
             "歼灭": "是否执行前哨基地歼灭。",
-            "前哨基地": "是否执行前哨基地（派遣/咨询）。",
-            "商店": "是否执行商店购买（普通/竞技场/废铁）。",
             "付费商店": "是否执行付费商店免费礼包领取（STEP UP/每日/每周/每月）。",
+            "商店": "是否执行商店购买（普通/竞技场/废铁）。",
+            "招募": "是否执行招募（友情点/折扣普通招募）。",
+            "前哨基地": "是否执行前哨基地（派遣/咨询）。",
             "方舟": "是否执行方舟（企业塔/模拟室/拦截战/竞技场）。",
             "Raid": "是否执行限时挑战活动（协同作战/个人突袭）。",
         })
@@ -117,12 +120,14 @@ class DailyTask(NikkeBaseTask):  # 定义清日常总编排的父任务类。
             self.run_task_by_class(HarvestTask)  # 运行收获子任务，子任务读取自己的配置。
         if self.config.get("歼灭"):  # 只有开关开启时才执行歼灭。
             self.run_task_by_class(OutpostDefenseTask)  # 运行歼灭子任务，子任务读取自己的配置。
-        if self.config.get("前哨基地"):  # 只有开关开启时才执行前哨基地。
-            self.run_task_by_class(OutpostTask)  # 运行前哨基地子任务（派遣/咨询），子任务读取自己的配置。
-        if self.config.get("商店"):  # 只有开关开启时才执行商店。
-            self.run_task_by_class(ShopTask)  # 运行商店子任务，子任务读取自己的配置。
         if self.config.get("付费商店"):  # 只有开关开启时才执行付费商店。
             self.run_task_by_class(CashShopTask)  # 运行付费商店子任务，子任务读取自己的配置。
+        if self.config.get("商店"):  # 只有开关开启时才执行商店。
+            self.run_task_by_class(ShopTask)  # 运行商店子任务，子任务读取自己的配置。
+        if self.config.get("招募"):  # 只有开关开启时才执行招募。
+            self.run_task_by_class(RecruitTask)  # 运行招募子任务，子任务读取自己的配置。
+        if self.config.get("前哨基地"):  # 只有开关开启时才执行前哨基地。
+            self.run_task_by_class(OutpostTask)  # 运行前哨基地子任务（派遣/咨询），子任务读取自己的配置。
         if self.config.get("方舟"):  # 只有开关开启时才执行方舟。
             self.run_task_by_class(ArkTask)  # 运行方舟子任务，子任务读取自己的配置。
         if self.config.get("Raid"):  # 只有开关开启时才执行讨伐。

@@ -42,6 +42,7 @@ SCREENS = {
     "simulation_room": {"any_features": ["simulation_mark", "simulation_overclock_update"]},
     "shop": {"keywords": ["百货商店"], "ocr_box": "box_sub_pages_title"},
     "cash_shop": {"keywords": ["付费商店"], "ocr_box": "box_sub_pages_title"},
+    "recruit_page": {"keywords": ["招募队员"], "ocr_box": "box_sub_pages_title"},
     "coop_page": {"features": ["coop_page"]},
     "coop_nikke_select_page": {"features": ["coop_nikke_select_page"]},
     "solo_raid_page": {"features": ["solo_raid_page"]},
