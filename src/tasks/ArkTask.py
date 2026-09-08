@@ -490,7 +490,8 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
                 encounter = self.get_box_by_name("box_rookie_arena_o1_free_encounter")  # 以1号对手免费挑战区域判断免费次数是否还有剩余。
             except ValueError:  # 特征缺失。
                 encounter = None  # 视为免费次数已用尽。
-            if encounter is None or not self.is_feature_enabled(encounter):  # 特征缺失或灰白禁用态说明免费次数已用尽。
+            # 动画容忍：按钮未渲染完成时色彩判态会误判为禁用，轮询等其稳定为可用。
+            if encounter is None or not self.wait_until(lambda: self.is_feature_enabled(encounter), time_out=5, settle_time=1):
                 self.log_info("新人竞技场免费挑战次数已用尽")  # 记录结束原因。
                 break  # 结束循环。
             target = self._rookie_arena_pick_opponent()  # 按对手选择策略确定要挑战的对手免费挑战区域名。

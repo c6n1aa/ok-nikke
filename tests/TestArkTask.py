@@ -726,7 +726,31 @@ class TestArkTaskSimulation(_DebugOffTestCase):
 
     def test_simulation_screen_registered(self):
         self.assertIn("simulation_room", self.task.screens)  # 模拟室界面已注册。
-        self.assertEqual(["simulation_mark"], self.task.screens["simulation_room"]["features"])  # 以室徽特征判定。
+        self.assertEqual(["simulation_mark", "simulation_overclock_update"],
+                         self.task.screens["simulation_room"]["any_features"])  # 室徽或超频更新弹窗任一命中即判定。
+
+    def test_simulation_screen_matched_by_overclock_update_popup(self):
+        """回归：超频更新弹窗遮挡室徽时仍判定为模拟室（否则 transition 判未进入、整段跳过）。"""
+        def find_feature(name, *args, **kwargs):
+            return Box(1186, 547, 187, 29, confidence=1,
+                       name=name) if name == "simulation_overclock_update" else None  # 仅弹窗命中，室徽被遮挡。
+
+        with patch.object(self.task, "_find_feature_cached", side_effect=find_feature):
+            self.assertTrue(self.task.is_screen("simulation_room"))  # 弹窗只在模拟室出现，命中即视为已进入。
+
+    def test_simulation_screen_matched_by_mark(self):
+        """无弹窗的正常帧：室徽命中即判定为模拟室。"""
+        def find_feature(name, *args, **kwargs):
+            return Box(1172, 680, 96, 93, confidence=1,
+                       name=name) if name == "simulation_mark" else None  # 仅室徽命中。
+
+        with patch.object(self.task, "_find_feature_cached", side_effect=find_feature):
+            self.assertTrue(self.task.is_screen("simulation_room"))
+
+    def test_simulation_screen_not_matched_without_evidence(self):
+        """两者均未命中（如仍在方舟界面）时不得判定为模拟室。"""
+        with patch.object(self.task, "_find_feature_cached", return_value=None):
+            self.assertFalse(self.task.is_screen("simulation_room"))
 
 
 class TestDailyTaskArkIntegration(_DebugOffTestCase):
@@ -989,9 +1013,14 @@ class TestArkTaskRookieArena(_DebugOffTestCase):
                 return next(encounters)
             return toggle
 
+        def fake_wait_until(condition, time_out=0, pre_action=None, post_action=None, settle_time=-1, raise_if_not_found=False):
+            if settle_time == 0:  # 入口赛跑：首帧短路。
+                return True
+            return condition()  # 免费挑战动画容忍：按 is_feature_enabled 实测结果返回。
+
         stack = ExitStack()
         stack.enter_context(patch.object(self.task, "_nav_to_arena"))
-        race_mock = stack.enter_context(patch.object(self.task, "wait_until", return_value=True))
+        wait_mock = stack.enter_context(patch.object(self.task, "wait_until", side_effect=fake_wait_until))
         enabled_mock = stack.enter_context(patch.object(self.task, "is_feature_enabled", side_effect=enabled_side_effect))
         click_feature_mock = stack.enter_context(patch.object(self.task, "wait_click_feature"))
         stack.enter_context(patch.object(self.task, "wait_feature", return_value=Box(900, 200, 600, 400, confidence=1, name="rookie_arena_battle_modal")))
@@ -999,17 +1028,18 @@ class TestArkTaskRookieArena(_DebugOffTestCase):
         click_box_mock = stack.enter_context(patch.object(self.task, "click_box"))
         stack.enter_context(patch.object(self.task, "wait_battle_finish", return_value=(battle_result, settle)))
         stack.enter_context(patch.object(self.task, "assert_screen", return_value=True))
-        return stack, race_mock, enabled_mock, click_feature_mock, click_box_mock, toggle, settle
+        return stack, wait_mock, enabled_mock, click_feature_mock, click_box_mock, toggle, settle
 
     def test_flow_success_strategy_off(self):
         """策略关闭：固定挑战最下面对手；开关为灰白态先激活再进入战斗；胜利后第二轮免费次数用尽收尾。"""
         self.task.config["对手选择策略"] = False  # 固定选择最下面的对手。
         encounter = self._common_encounter()
-        stack, race_mock, enabled_mock, click_feature_mock, click_box_mock, toggle, settle = \
+        stack, wait_mock, enabled_mock, click_feature_mock, click_box_mock, toggle, settle = \
             self._flow_patches([encounter, encounter], [True, False, False], "success")
         with stack:
             self.task._do_rookie_arena_flow()
-        race_mock.assert_called_once()  # 赛跑确认进入新人竞技场界面（替代 transition）。
+        self.assertEqual(0, wait_mock.call_args_list[0].kwargs["settle_time"])  # 入口赛跑首帧短路。
+        self.assertEqual([1.5, 1.5], [c.kwargs["settle_time"] for c in wait_mock.call_args_list[1:]])  # 每轮免费挑战判断走动画容忍。
         clicked = [c.args[0] for c in click_feature_mock.call_args_list]
         self.assertEqual(["rookie_arena", "common_back", "common_back"], clicked)  # 入口→模板特征点击仅剩两次返回。
         self.assertEqual(["box_rookie_arena_o3_free_encounter", toggle, "box_rookie_arena_quick_battle", settle],
