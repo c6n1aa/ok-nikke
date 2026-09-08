@@ -72,7 +72,9 @@ class TestDailyTask(TaskTestCase):
             [call("mission", time_out=10, raise_if_not_found=True, after_sleep=1),
              call("mission_page_close", time_out=10, raise_if_not_found=True, after_sleep=1)],
             click_mock.call_args_list)  # 先点任务入口打开弹窗，收尾点击关闭按钮。
-        wait_mock.assert_called_once_with("mission_page", time_out=10, raise_if_not_found=True)  # 确认任务弹窗稳定打开。
+        wait_mock.assert_has_calls(
+            [call("mission_page", time_out=10, raise_if_not_found=True),
+             call("mission_page", time_out=10, raise_if_not_found=True)])  # 打开弹窗 + 关闭弹窗前各确认一次任务弹窗仍可见。
         self.assertEqual(1, enabled_mock.call_count)  # 领取按钮首次判定即灰白，直接结束领取。
         self.assertEqual(
             [call("box_mission_weekly_badge", template_path='assets/template/common/badge.png'),

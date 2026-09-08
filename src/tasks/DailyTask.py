@@ -70,6 +70,7 @@ class DailyTask(NikkeBaseTask):  # 定义清日常总编排的父任务类。
         self.wait_click_feature("mission", time_out=10, raise_if_not_found=True, after_sleep=1)  # 点击任务入口打开任务弹窗。
         self.wait_feature("mission_page", time_out=10, raise_if_not_found=True)  # 确认任务弹窗稳定打开（弹窗属临时弹层，不注册为界面）。
         self._claim_box_missions()  # 领取任务弹窗内全部可领奖励（当前 tab + 红点 tab）。
+        self.wait_feature("mission_page", time_out=10, raise_if_not_found=True)  # 确认遮罩已清、任务弹窗重新出现后再关闭。
         self.wait_click_feature("mission_page_close", time_out=10, raise_if_not_found=True, after_sleep=1)  # 关闭任务弹窗结束收尾。
 
     def _claim_box_missions(self):  # 任务弹窗领取编排：先领当前 tab，再按徽章红点逐个切 tab 领取。
@@ -77,7 +78,7 @@ class DailyTask(NikkeBaseTask):  # 定义清日常总编排的父任务类。
         self._claim_current_tab(claim_box)  # 打开弹窗默认停留的 tab 先领到变灰。
         visited = set()  # 已切换过的徽章区域名：红点未及时消失时防止反复切换，保证收尾必然终止。
         while self._switch_to_tab_with_red_dot(visited):  # 还有带红点的未访问 tab 就切换过去。
-            self.dismiss_all_popups(time_out=5)  # 清理领取后可能出现的奖励遮罩/弹窗，回到任务弹窗。
+            self.dismiss_all_popups(wait_for_popup=False, time_out=5)  # 切 tab 本身不弹遮罩，仅在必要时快速清理残留弹窗。
             self._claim_current_tab(claim_box)  # 领取刚切换到的 tab，领到变灰。
 
     def _claim_current_tab(self, claim_box):  # 领取当前 tab 全部可领奖励：领取按钮可用（彩色）就点，直到变灰。
@@ -85,7 +86,11 @@ class DailyTask(NikkeBaseTask):  # 定义清日常总编排的父任务类。
             if not self.is_feature_enabled(claim_box):  # 领取按钮灰白禁用 = 当前 tab 已无可领奖励。
                 return  # 本 tab 领取完成。
             self.click_box(claim_box, after_sleep=1)  # 点击领取按钮。
-            self.dismiss_all_popups(time_out=10)  # 清理领取后可能出现的奖励遮罩/弹窗，回到任务弹窗。
+            # 领取后可能弹奖励遮罩盖住任务弹窗（每日/每周的第二段 + 主线/成就的一段式）：有关就关、没关不白等，
+            # 以「任务弹窗重新出现」为准进入下一轮判定，避免读到遮罩帧误判。
+            if not self.dismiss_all_popups(clear_condition=lambda: self.find_one("mission_page") is not None, time_out=10):
+                self.log_warning("领取后任务弹窗未重新出现，停止本轮领取。")  # 遮罩关不掉或弹窗被卡住，交由上层收尾兜底。
+                return  # 停止本轮，避免在遮罩帧上空转 20 次。
         self.log_warning("任务领取点击达到上限，停止本轮领取。")  # 上限耗尽仍未收敛，记录异常。
 
     def _switch_to_tab_with_red_dot(self, visited):  # 在三个徽章区域找红点，命中则点击切换并确认副标题，返回是否发生了切换。
