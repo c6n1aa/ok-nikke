@@ -408,11 +408,14 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
         while True:  # 爬塔循环：每场战斗结束后按结算界面按钮决定继续挑战还是收尾。
             result, confirm_box = self.wait_battle_finish(time_out=240)  # 节流等待战斗结束，只检测不点击。
             if result == "success":  # 战斗胜利。
-                next_stage = self.find_one("battle_finish_next_stage")  # 识别结算界面的下一关按钮。
-                if next_stage is not None:  # 存在下一关按钮。
+                try:  # 区域特征可能尚未标注进 coco。
+                    next_stage = self.get_box_by_name("box_battle_finish_next_stage")  # 结算界面「下一关」按钮区域（纯坐标区域，无模板）。
+                except ValueError:  # 特征缺失按无下一关处理。
+                    next_stage = None  # 置空走收尾分支。
+                if next_stage is not None and self.is_feature_enabled(next_stage):  # 区域存在且为高亮彩色可用态；灰白禁用态说明已到顶层不可挑战。
                     self.click_box(next_stage, after_sleep=10)  # 点击继续挑战下一关并等待下一场战斗加载。
                     continue  # 重新进入等待战斗结束的循环。
-                self.click_box(confirm_box, after_sleep=10)  # 无下一关说明已到当前最高层，点击结算确认按钮返回塔关卡界面（wait_battle_finish 已等结算稳定后返回坐标）。
+                self.click_box(confirm_box, after_sleep=10)  # 下一关不可用说明已到当前最高层，点击结算确认按钮返回塔关卡界面（wait_battle_finish 已等结算稳定后返回坐标）。
                 break  # 结束爬塔循环。
             elif result == "failed":  # 战斗失败。
                 self.failed_towers.append(index)  # 记录本次失败的塔号，供结束时提醒用户。

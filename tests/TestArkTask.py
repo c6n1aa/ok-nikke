@@ -330,35 +330,53 @@ class TestArkTask(_DebugOffTestCase):
 
     def test_climb_battle_success_with_next_stage(self):
         esc_box = Box(1252, 1268, 55, 34, confidence=1, name="box_battle_finish_text")
-        next_box = Box(2300, 1343, 36, 26, confidence=1, name="battile_finish_next_stage")
+        next_box = Box(2300, 1343, 36, 26, confidence=1, name="box_battle_finish_next_stage")
         battle_btn = Box(10, 10, 5, 5, confidence=1, name="battle_btn")
         with patch.object(self.task, "click_box") as click_mock, \
                 patch.object(self.task, "wait_battle_finish",
                             side_effect=[("success", esc_box), ("success", esc_box)]), \
-                patch.object(self.task, "find_one", side_effect=[next_box, None]), \
+                patch.object(self.task, "get_box_by_name", return_value=next_box), \
+                patch.object(self.task, "is_feature_enabled", side_effect=[True, False]), \
                 patch.object(self.task, "wait_feature"), \
                 patch.object(self.task, "wait_click_feature"), \
                 patch.object(self.task, "dismiss_all_popups"):
             self.task._climb_battle(1, battle_btn)
         clicked = [c.args[0].name for c in click_mock.call_args_list]
-        self.assertEqual(["battle_btn", "battile_finish_next_stage", "box_battle_finish_text"], clicked)
+        self.assertEqual(["battle_btn", "box_battle_finish_next_stage", "box_battle_finish_text"], clicked)
         self.assertEqual([], self.task.failed_towers)
 
-    def test_climb_battle_success_click_esc_when_no_next_stage(self):
+    def test_climb_battle_success_click_esc_when_next_stage_disabled(self):
         esc_box = Box(1252, 1268, 55, 34, confidence=1, name="box_battle_finish_text")
+        next_box = Box(2300, 1343, 36, 26, confidence=1, name="box_battle_finish_next_stage")
         battle_btn = Box(10, 10, 5, 5, confidence=1, name="battle_btn")
         with patch.object(self.task, "click_box") as click_mock, \
                 patch.object(self.task, "wait_battle_finish",
                             return_value=("success", esc_box)), \
-                patch.object(self.task, "find_one", return_value=None), \
+                patch.object(self.task, "get_box_by_name", return_value=next_box), \
+                patch.object(self.task, "is_feature_enabled", return_value=False), \
                 patch.object(self.task, "wait_feature"), \
                 patch.object(self.task, "wait_click_feature") as back_mock, \
                 patch.object(self.task, "dismiss_all_popups"):
             self.task._climb_battle(1, battle_btn)
         clicked = [c.args[0].name for c in click_mock.call_args_list]
-        self.assertEqual(["battle_btn", "box_battle_finish_text"], clicked)
+        self.assertEqual(["battle_btn", "box_battle_finish_text"], clicked)  # 下一关灰白禁用视为已到最高层。
         back_mock.assert_called_once_with("common_back", raise_if_not_found=True,
                                           after_sleep=1)  # 返回后不再固定等待，由流程在下一塔前断言无限之塔界面。
+        self.assertEqual([], self.task.failed_towers)
+
+    def test_climb_battle_success_click_esc_when_next_stage_box_missing(self):
+        esc_box = Box(1252, 1268, 55, 34, confidence=1, name="box_battle_finish_text")
+        battle_btn = Box(10, 10, 5, 5, confidence=1, name="battle_btn")
+        with patch.object(self.task, "click_box") as click_mock, \
+                patch.object(self.task, "wait_battle_finish",
+                            return_value=("success", esc_box)), \
+                patch.object(self.task, "get_box_by_name", side_effect=ValueError("特征缺失")), \
+                patch.object(self.task, "wait_feature"), \
+                patch.object(self.task, "wait_click_feature"), \
+                patch.object(self.task, "dismiss_all_popups"):
+            self.task._climb_battle(1, battle_btn)
+        clicked = [c.args[0].name for c in click_mock.call_args_list]
+        self.assertEqual(["battle_btn", "box_battle_finish_text"], clicked)  # 区域特征缺失按无下一关处理。
         self.assertEqual([], self.task.failed_towers)
 
     def test_climb_battle_failure_records_tower(self):
@@ -367,7 +385,6 @@ class TestArkTask(_DebugOffTestCase):
         with patch.object(self.task, "click_box") as click_mock, \
                 patch.object(self.task, "wait_battle_finish",
                             return_value=("failed", back_box)), \
-                patch.object(self.task, "find_one", return_value=None), \
                 patch.object(self.task, "wait_feature"), \
                 patch.object(self.task, "wait_click_feature"), \
                 patch.object(self.task, "dismiss_all_popups"):
@@ -1039,7 +1056,7 @@ class TestArkTaskRookieArena(_DebugOffTestCase):
         with stack:
             self.task._do_rookie_arena_flow()
         self.assertEqual(0, wait_mock.call_args_list[0].kwargs["settle_time"])  # 入口赛跑首帧短路。
-        self.assertEqual([1.5, 1.5], [c.kwargs["settle_time"] for c in wait_mock.call_args_list[1:]])  # 每轮免费挑战判断走动画容忍。
+        self.assertEqual([1, 1], [c.kwargs["settle_time"] for c in wait_mock.call_args_list[1:]])  # 每轮免费挑战判断走动画容忍。
         clicked = [c.args[0] for c in click_feature_mock.call_args_list]
         self.assertEqual(["rookie_arena", "common_back", "common_back"], clicked)  # 入口→模板特征点击仅剩两次返回。
         self.assertEqual(["box_rookie_arena_o3_free_encounter", toggle, "box_rookie_arena_quick_battle", settle],
