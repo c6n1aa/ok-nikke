@@ -29,6 +29,13 @@ _ADVISE_MAX_SWITCH = 30
 _CONVERSATION_BLANK_X = 0.7
 _CONVERSATION_BLANK_Y = 0.85
 
+# 突发剧情剩余次数「0/5」用尽匹配模式：分子的 0 容忍 OCR 误识为 O/o。
+_BF_COUNT_ZERO_PATTERN = re.compile(r"[0Oo]\s*/\s*5")
+# 突发剧情任意「X/5」计数匹配模式：识别不到计数文本时打印原文便于定位。
+_BF_COUNT_PATTERN = re.compile(r"[0-9Oo]+\s*/\s*5")
+# 突发剧情列表展开的最大点击次数：点气泡后仍未高亮视为展开失败，抛异常由 try_step 恢复。
+_BF_LIST_OPEN_MAX_ATTEMPTS = 3
+
 # 咨询答案库路径（运行时以仓库根/程序目录为工作目录）。
 _ADVISE_DB_PATH = os.path.join("assets", "db", "advise.db")
 
@@ -41,9 +48,10 @@ def _normalize_query_name(name):  # OCR 角色名称转 SQL LIKE 模式：标点
     return re.sub(r"\W+", "%", (name or "").strip()).strip("%")  # 连续非文字字符折叠为单个通配符。
 
 
-class OutpostTask(NikkeBaseTask):  # 前哨基地任务：执行派遣公告栏与咨询子流程。
+class OutpostTask(NikkeBaseTask):  # 前哨基地任务：执行派遣公告栏、咨询与突发剧情子流程。
 
-    done_keys = {"bulletin_board": "day", "advise": "day"}  # 完成状态：派遣/咨询（日常刷新）。
+    done_keys = {"bulletin_board": "day", "advise": "day",  # 完成状态：派遣/咨询（日常刷新）。
+                 "brief_encounter": "week"}  # 突发剧情（每周刷新次数）。
 
     def is_completed(self):  # 覆盖父类：只统计用户开启的子流程，开启的均已完成才算完成。
         checks = []  # 收集各开启子流程的完成状态。
@@ -51,21 +59,25 @@ class OutpostTask(NikkeBaseTask):  # 前哨基地任务：执行派遣公告栏�
             checks.append(self.is_done("bulletin_board", "day"))  # 派遣日常完成状态。
         if self.config.get("咨询"):  # 开启咨询才纳入判断。
             checks.append(self.is_done("advise", "day"))  # 咨询日常完成状态。
+        if self.config.get("突发剧情"):  # 开启突发剧情才纳入判断。
+            checks.append(self.is_done("brief_encounter", "week"))  # 突发剧情周常完成状态。
         return bool(checks) and all(checks)  # 至少开启一个且开启的全部完成才算完成。
 
     def __init__(self, *args, **kwargs):  # 初始化任务元数据与配置。
         super().__init__(*args, **kwargs)  # 必须先调用父类初始化。
         self.name = "前哨基地"  # 任务显示名称。
-        self.description = "执行派遣/咨询任务"  # 任务说明。
+        self.description = "执行派遣/咨询/突发剧情任务"  # 任务说明。
         self.default_config.update({  # 子任务专属设置，独立持久化到 configs/。
             "派遣": True,  # 每日派遣与领取。
             "咨询": True,  # 执行每日咨询。
+            "突发剧情": True,  # 清理突发剧情。
             "只咨询星标": True,  # 只对星标的妮姬进行咨询。
             "补齐咨询日志": False,  # 角色好感度满时，仍对咨询日志图鉴未满的角色进行咨询。
         })
         self.config_description.update({  # 每个配置项的帮助文本。
             "派遣": "每日派遣与领取",
             "咨询": "执行每日咨询",
+            "突发剧情": "清理突发剧情",
             "只咨询星标": "只对星标的妮姬进行咨询",
             "补齐咨询日志": "角色好感度满时，仍对咨询日志图鉴未满的角色进行咨询",
         })
@@ -94,20 +106,26 @@ class OutpostTask(NikkeBaseTask):  # 前哨基地任务：执行派遣公告栏�
 
     # ---- run 入口 ----
 
-    def run(self):  # 任务执行入口：先就位大厅，依次执行派遣与咨询子流程。
+    def run(self):  # 任务执行入口：统一进入前哨基地，依次执行各子流程，最后统一返回大厅。
         self.log_info("前哨基地任务开始")  # 记录任务开始。
-        if not self.config.get("派遣") and not self.config.get("咨询"):  # 两个子流程均未开启。
-            self.log_info("派遣与咨询均未开启，跳过")  # 记录跳过原因。
+        if not self.config.get("派遣") and not self.config.get("咨询") \
+                and not self.config.get("突发剧情"):  # 子流程均未开启。
+            self.log_info("派遣/咨询/突发剧情均未开启，跳过")  # 记录跳过原因。
             return  # 结束任务，避免无谓拉起游戏窗口。
-        if self.is_done("bulletin_board", "day") and self.is_done("advise", "day"):  # 两个子流程均已完成。
-            self.log_info("今日派遣与咨询均已完成，跳过")  # 记录跳过原因。
+        if self.is_completed():  # 开启的子流程均已完成。
+            self.log_info("开启的子流程均已完成，跳过")  # 记录跳过原因。
             return  # 结束任务，避免无谓拉起游戏窗口。
-        if not self.ensure_screen("lobby", raise_on_fail=False):  # 就位游戏大厅（含冷启动引导与弹窗清理）。
-            self.log_error("未能进入游戏大厅，中止前哨基地任务")  # 记录失败原因。
+        if not self.try_step(self._nav_to_outpost, name="进入前哨基地", raise_on_fail=False):  # 统一入口：确认进入前哨基地界面，失败则中止整个任务。
+            self.log_error("未能进入前哨基地界面，中止前哨基地任务")  # 记录中止原因。
             return  # 结束任务。
         self._do_dispatch()  # 执行派遣子流程。
-        self._do_advise()  # 执行咨询子流程。
+        self._do_brief_encounter()  # 执行突发剧情子流程。
+        self._do_advise()  # 执行咨询子流程（放在最后）。
+        self._exit_to_lobby()  # 各子流程收尾均回到前哨基地界面，此处统一返回大厅收尾（基类幂等实现）。
         self.log_info("前哨基地任务完成")  # 记录任务完成。
+
+    def _nav_to_outpost(self):  # 导航到前哨基地界面（幂等入口闸门，供统一入口与各子流程开头复用）。
+        self.ensure_screen("outpost", click_feature="outpost", wait_confirm=10, after_sleep=1)  # 过场动画容忍、弹窗清理与恢复/冷启动分流均在 ensure_screen 内。
 
     # ---- 派遣子流程 ----
 
@@ -118,14 +136,14 @@ class OutpostTask(NikkeBaseTask):  # 前哨基地任务：执行派遣公告栏�
         if self.is_done("bulletin_board", "day"):  # 本周期内已完成则直接跳过。
             self.log_info("今日派遣已完成，跳过")  # 记录跳过原因。
             return  # 结束本子流程。
-        if not self.try_step(self._dispatch_flow, name="派遣", raise_on_fail=False):  # 以大厅为起点，失败恢复回大厅重试。
+        if not self.try_step(self._dispatch_flow, name="派遣", raise_on_fail=False):  # 以前哨基地为起点，失败恢复回大厅后重新进入。
             self.log_warning("派遣流程多次失败，跳过")  # 记录跳过原因。
             return  # 不标记完成，下次可重试。
         self.mark_done("bulletin_board", "day")  # 记录本周期已完成。
         self.log_info("派遣任务完成")  # 记录子流程完成。
 
-    def _dispatch_flow(self):  # 派遣整体流程：大厅→前哨基地→派遣公告栏→领取/全部派遣→关闭→回大厅。
-        self.transition("outpost", click_feature="outpost", wait_confirm=10, after_sleep=1)  # 到[前哨基地]：点入口并确认进入。
+    def _dispatch_flow(self):  # 派遣整体流程：确保在前哨基地→派遣公告栏→领取/全部派遣→关闭→回前哨基地。
+        self._nav_to_outpost()  # 确保处于前哨基地界面（正常已就位；失败恢复回大厅后由此重新进入）。
         self.wait_click_feature("bulletin_board", raise_if_not_found=True, after_sleep=1)  # 点派遣公告栏入口。
         title_box = self._box_or_fail("box_bulletin_board_title")  # 公告栏标题区域。
         self.wait_ocr(box=title_box, match=_DISPATCH_BOARD_TITLE_PATTERN, time_out=10,
@@ -141,7 +159,7 @@ class OutpostTask(NikkeBaseTask):  # 前哨基地任务：执行派遣公告栏�
                                     after_sleep=1)  # 点击派遣确认弹窗。
         self.wait_click_feature("bulletin_board_windows_close", raise_if_not_found=False,
                                 after_sleep=1)  # 关闭公告栏窗口（未领取/未派遣时窗口仍开着，统一关闭）。
-        self._exit_to_lobby()  # 返回大厅收尾。
+        self.assert_screen("outpost", time_out=10)  # 确认已回到前哨基地界面收尾。
 
     # ---- 咨询子流程 ----
 
@@ -152,14 +170,14 @@ class OutpostTask(NikkeBaseTask):  # 前哨基地任务：执行派遣公告栏�
         if self.is_done("advise", "day"):  # 本周期内已完成则直接跳过。
             self.log_info("今日咨询已完成，跳过")  # 记录跳过原因。
             return  # 结束本子流程。
-        if not self.try_step(self._advise_flow, name="咨询", raise_on_fail=False):  # 以大厅为起点，失败恢复回大厅重试。
+        if not self.try_step(self._advise_flow, name="咨询", raise_on_fail=False):  # 以前哨基地为起点，失败恢复回大厅后重新进入。
             self.log_warning("咨询流程多次失败，跳过")  # 记录跳过原因。
             return  # 不标记完成，下次可重试。
         self.mark_done("advise", "day")  # 记录本周期已完成。
         self.log_info("咨询任务完成")  # 记录子流程完成。
 
-    def _advise_flow(self):  # 咨询整体流程：大厅→前哨基地→指挥中心→咨询→逐角色咨询→回大厅。
-        self.transition("outpost", click_feature="outpost", wait_confirm=10, after_sleep=1)  # 到[前哨基地]：点入口并确认进入。
+    def _advise_flow(self):  # 咨询整体流程：确保在前哨基地→指挥中心→咨询→逐角色咨询→回前哨基地。
+        self._nav_to_outpost()  # 确保处于前哨基地界面（正常已就位；失败恢复回大厅后由此重新进入）。
         self.wait_click_feature("command_center", raise_if_not_found=True, after_sleep=1)  # 点指挥中心建筑，弹出入场确认。
         self.transition("command_center", click_feature="command_center_enter", wait_confirm=10,
                         after_sleep=1)  # 点入场并确认进入[指挥中心]界面。
@@ -168,7 +186,7 @@ class OutpostTask(NikkeBaseTask):  # 前哨基地任务：执行派遣公告栏�
         count_box = self._optional_box("box_advise_count_feature")  # 咨询次数区域（缺失视为无剩余次数）。
         if count_box is None or not self.is_feature_enabled(count_box):  # 次数区域灰白禁用 = 无剩余咨询次数。
             self.log_info("无剩余咨询次数，咨询流程结束")  # 记录结束原因。
-            self._exit_to_lobby()  # 返回大厅。
+            self._exit_advise_to_outpost()  # 返回前哨基地。
             return  # 由调用方标记完成。
         self.click_box(self._box_or_fail("box_advise_nikke"), after_sleep=1)  # 点第一个可咨询角色打开详情。
         switches = 0  # 切换角色计数，超限强行结束。
@@ -180,7 +198,7 @@ class OutpostTask(NikkeBaseTask):  # 前哨基地任务：执行派遣公告栏�
                 star_box = self._optional_box("box_advise_nikke_star")  # 星标区域（缺失视为未星标）。
                 if star_box is None or not self.is_feature_enabled(star_box):  # 当前角色未星标。
                     self.log_info("当前角色未星标，咨询流程结束")  # 记录结束原因。
-                    self._exit_to_lobby()  # 返回大厅。
+                    self._exit_advise_to_outpost()  # 返回前哨基地。
                     return  # 由调用方标记完成。
             skip = False  # 是否跳过当前角色直接切换下一个。
             if self.find_one("advise_bond_max") is not None:  # 好感度已满。
@@ -193,18 +211,26 @@ class OutpostTask(NikkeBaseTask):  # 前哨基地任务：执行派遣公告栏�
                 if advise_box is not None and self.is_feature_enabled(advise_box):  # 咨询按钮可用。
                     self._advise_once(name, advise_box)  # 执行一次咨询：确认弹窗→对话→答题→跳过→回详情。
                 if self._advise_count_zero():  # 咨询次数已用尽（0/10）。
-                    self._exit_to_lobby()  # 返回大厅。
+                    self._exit_advise_to_outpost()  # 返回前哨基地。
                     return  # 由调用方标记完成。
             switched = self._switch_advise_nikke(name)  # 点击下一个切换角色（以名称变更为准）。
             if not switched:  # 重试用尽仍无法切换。
                 self.log_warning("无法切换到下一个咨询角色，咨询流程结束")  # 记录结束原因。
-                self._exit_to_lobby()  # 返回大厅。
+                self._exit_advise_to_outpost()  # 返回前哨基地。
                 return  # 由调用方标记完成。
             switches += 1  # 切换计数加一。
             if switches > _ADVISE_MAX_SWITCH:  # 超过切换上限，强行结束防止异常界面无限循环。
                 self.log_warning(f"切换角色超过 {_ADVISE_MAX_SWITCH} 次，强行结束咨询流程")  # 记录强行结束。
-                self._exit_to_lobby()  # 返回大厅。
+                self._exit_advise_to_outpost()  # 返回前哨基地。
                 return  # 由调用方标记完成。
+
+    def _exit_advise_to_outpost(self):  # 退出咨询子流程回前哨基地：详情页（common_back 坐标偏移）→咨询列表→指挥中心→前哨基地。
+        if self.is_screen("advise_nikke"):  # 若仍停在咨询详情页：其 common_back 坐标与其他界面有偏移，需走带区域兜底的返回按钮查找。
+            back = self._find_back_button()  # 查找返回按钮（先精确匹配，未命中再左下角区域兜底，覆盖坐标偏移）。
+            if back is None:  # 未找到返回按钮。
+                raise WaitFailedException("咨询详情页未找到返回按钮")  # 抛异常由 try_step 捕获恢复。
+            self.click_box(back, after_sleep=1)  # 点击返回回到咨询列表页。
+        self._back_through_screens("command_center", "outpost")  # 咨询列表→指挥中心→前哨基地，逐级返回。
 
     def _read_advise_name(self):  # OCR 咨询详情页角色名称区域，返回文本（无识别结果返回空串）。
         box = self._box_or_fail("box_advise_nikke_name")  # 详情页名字条区域（区别于列表页点击槽 box_advise_nikke）。
@@ -317,6 +343,75 @@ class OutpostTask(NikkeBaseTask):  # 前哨基地任务：执行派遣公告栏�
                 if key in good_set:  # 该选项是正确答案。
                     return box  # 点击正确答案。
         return random.choice(list(candidates.values()))  # 查询无结果/均未命中：随机二选一。
+
+    # ---- 突发剧情子流程 ----
+
+    def _do_brief_encounter(self):  # 突发剧情子流程编排：开关/完成判断 + 恢复协议包裹。
+        if not self.config.get("突发剧情"):  # 用户未启用突发剧情子流程。
+            self.log_info("突发剧情未开启，跳过")  # 记录跳过原因。
+            return  # 结束本子流程。
+        if self.is_done("brief_encounter", "week"):  # 本周期内已完成则直接跳过。
+            self.log_info("本周突发剧情已完成，跳过")  # 记录跳过原因。
+            return  # 结束本子流程。
+        if not self.try_step(self._brief_encounter_flow, name="突发剧情",
+                             raise_on_fail=False):  # 以前哨基地为起点，失败恢复回大厅后重新进入。
+            self.log_warning("突发剧情流程多次失败，跳过")  # 记录跳过原因。
+            return  # 不标记完成，下次可重试。
+        self.mark_done("brief_encounter", "week")  # 记录本周期已完成。
+        self.log_info("突发剧情任务完成")  # 记录子流程完成。
+
+    def _brief_encounter_flow(self):  # 突发剧情整体流程：确保在前哨基地→展开列表→逐条清理到次数用尽。
+        self._nav_to_outpost()  # 确保处于前哨基地界面（正常已就位；失败恢复回大厅后由此重新进入）。
+        while True:  # 每轮先复核剩余次数/列表状态，再清理一条，直到 0/5 或无可触发条目。
+            if self._bf_count_zero():  # 0/5：本周已无可触发次数。
+                self.log_info("本周突发剧情次数已用尽，突发剧情流程结束")  # 记录结束原因。
+                return  # 由调用方标记完成。
+            self._ensure_bf_list_open()  # 展开突发剧情列表（未展开则点气泡）。
+            if not self._bf_card1_has_text():  # 列表区域无文字：无可触发的突发剧情。
+                self.log_info("无可触发的突发剧情，突发剧情流程结束")  # 记录结束原因。
+                return  # 由调用方标记完成。
+            self._clear_one_bf()  # 清理一条突发剧情后留在前哨基地，循环复核。
+
+    def _bf_count_zero(self):  # OCR 突发剧情剩余次数区域，0/5 视为本周已无可触发次数。
+        box = self._optional_box("box_outpost_bf_count")  # 次数区域（缺失视为未用尽，交由流程判定兜底）。
+        if box is None:  # 区域缺失。
+            return False  # 视为未用尽。
+        # 计数是细体小字，小图直读易丢字符，3 倍放大后 OCR（与咨询次数区域同一放大规格）。
+        texts = self.ocr(box=box, frame_processor=lambda image: cv2.resize(
+            image, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC))  # 区域内放大后 OCR 获取计数文本。
+        joined = " ".join((item.name or "") for item in texts)  # 拼接全部识别文本。
+        if not _BF_COUNT_PATTERN.search(joined):  # OCR 未识别到任何 X/5 计数（区域错位或未渲染）。
+            self.log_warning(f"突发剧情次数区域未识别到计数文本：raw='{joined}'")  # 打印原文以便定位。
+        return bool(_BF_COUNT_ZERO_PATTERN.search(joined))  # 命中 0/5 即已用尽。
+
+    def _ensure_bf_list_open(self):  # 确认突发剧情列表已展开：气泡灰色（未展开）则点击，展开后高亮为蓝。
+        box = self._box_or_fail("box_outpost_bf_list")  # 气泡入口区域（蓝/灰两态，色彩丰富度区分）。
+        for _ in range(_BF_LIST_OPEN_MAX_ATTEMPTS):  # 有限重试：点击后确认高亮态。
+            if self.is_feature_enabled(box):  # 蓝色高亮 = 列表已展开。
+                return  # 展开成功。
+            self.click_box(box, after_sleep=1)  # 灰色未展开：点气泡展开列表。
+        raise WaitFailedException("突发剧情列表未能展开")  # 抛异常由 try_step 捕获恢复。
+
+    def _bf_card1_has_text(self):  # OCR 第一行卡片区域是否含文字：无文字即无可触发的突发剧情。
+        box = self._box_or_fail("box_outpost_bf_card1")  # 第一行卡片区域。
+        return any((item.name or "").strip() for item in self.ocr(box=box))  # 任一文本框非空即有可触发条目。
+
+    def _clear_one_bf(self):  # 清理一条突发剧情：卡片→建筑弹窗→确认→对话跳过→领奖→关闭回前哨基地。
+        self.click_box(self._box_or_fail("box_outpost_bf_card1"), after_sleep=1)  # 点第一行卡片弹出去往建筑的窗口。
+        self._wait_bf_close_button()  # 等待建筑弹窗就位（关闭按钮按建筑分两种变体，识别其一即弹窗已就位）。
+        self.click_box(self._box_or_fail("box_outpost_bf_entry"), after_sleep=1)  # 点弹窗进入按钮。
+        self.wait_click_feature("outpost_bf_confirm", raise_if_not_found=True,
+                                after_sleep=1)  # 点击确认进入弹窗，进入剧情对话。
+        self.assert_screen("conversation", time_out=10)  # 等[谈话]界面。
+        self.wait_click_feature("conversation_skip", box=self._box_or_fail("box_conversation_icon"),
+                                raise_if_not_found=True, after_sleep=3)  # 在对话图标区识别并点击跳过，结束全部对话。
+        self.dismiss_all_popups(time_out=5)  # 清理剧情奖励弹窗。
+        self.click_box(self._wait_bf_close_button(), after_sleep=1)  # 点击建筑页关闭按钮，回前哨基地。
+
+    def _wait_bf_close_button(self):  # 等待建筑弹窗/页的关闭按钮（指挥中心与其他建筑两种变体），返回命中框。
+        return self.wait_until(  # 条件命中任一关闭按钮即返回其框。
+            lambda: self.find_one("command_center_close") or self.find_one("outpost_bf_building_close"),
+            time_out=10, raise_if_not_found=True)  # 超时抛 WaitFailedException，由 try_step 捕获恢复。
 
     # ---- 咨询数据库 ----
 
