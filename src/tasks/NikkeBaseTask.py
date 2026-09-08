@@ -379,6 +379,7 @@ class NikkeBaseTask(BaseTask):
         return False  # 返回失败，由调用方决定是否中止后续流程。
 
     _BATTLE_FINISH_ESC_PATTERN = re.compile(r"\bESC\b", re.IGNORECASE)  # 结算界面 ESC 确认文字（OCR 部分匹配，忽略大小写）。
+    _BATTLE_AUTO_BOXES = ("box_battle_auto_aim", "box_battle_auto_burst")  # 自动瞄准/自动爆裂按钮区域（coco 区域；彩色=已开启，灰白=已关闭）。
 
     def wait_battle_finish(self, time_out=240, check_interval=3, settle_time=2):
         """节流轮询等待自动战斗结束，返回 (结果, 确认按钮框)，不自动点击。
@@ -399,6 +400,12 @@ class NikkeBaseTask(BaseTask):
         可能有"下一关"等其它按钮），返回值带上了识别到的确认按钮框，调用方
         需要点击时可直接用它。
 
+        进入战斗界面时附带一次性开启自动瞄准/自动爆裂：轮询中一旦识别到
+        battle_pause（暂停按钮只在战斗界面出现）即认为已进入自动战斗界面，
+        调用 _enable_battle_auto_once 把两个灰白的自动按钮点成彩色，之后置位
+        标记不再重复触发（按钮是开关，重复点会关掉）。快速战斗等不进入战斗
+        界面的流程结算界面先被识别到而直接返回，不会触发该流程。
+
         Returns:
             ("success", text_box) 正常结束，text_box 为 box_battle_finish_text 区域框；
             ("failed", failed_back_box) 战斗失败，failed_back_box 为返回按钮框；
@@ -406,6 +413,7 @@ class NikkeBaseTask(BaseTask):
         """
         deadline = time.time() + time_out  # 记录整体超时时刻。
         polls = 0  # 轮询计数，用于 debug 日志观察节流间隔。
+        auto_checked = False  # 自动按钮只开启一次：放开会导致每轮轮询重复点击（按钮是开关，点第二次就关掉了）。
         while time.time() < deadline:  # 节流循环直到超时。
             self.sleep(check_interval)  # 轻量等待，不抓帧不匹配。
             self.next_frame()  # 刷新一帧，避免使用旧帧。
@@ -434,9 +442,63 @@ class NikkeBaseTask(BaseTask):
                 failed_back = self._stabilize_battle_finish_box(failed_back, failed=True, settle_time=settle_time)  # 同样等稳定后重新定位失败返回按钮。
                 self.log_info("检测到战斗失败结算界面。")  # 记录失败结束。
                 return "failed", failed_back  # 返回结果与返回按钮框，由调用方决定后续动作。
+            if not auto_checked and self._in_battle_page():  # 结算判定都未命中且识别到暂停按钮=确已进入自动战斗界面（快速战斗无战斗界面，不会走到这里）。
+                auto_checked = True  # 置位标记：整个等待流程内只开启一次。
+                self._enable_battle_auto_once()  # 开启自动瞄准/自动爆裂（内部吞异常，失败也不影响继续等待战斗结束）。
         self.save_failure_screenshot("wait_battle_finish")  # 超时保存现场截图便于排查。
         self.log_warning(f"等待战斗结束超时（{time_out}秒）。")  # 记录超时原因。
         return None, None  # 返回超时结果。
+
+    def _in_battle_page(self) -> bool:
+        """是否处于自动战斗界面：单帧匹配 battle_pause（战斗内暂停按钮）特征。
+
+        暂停按钮只出现在战斗界面，命中即认为已进入自动战斗界面；快速战斗等
+        不进入战斗界面的流程不会命中。匹配异常一律按未命中处理，不影响等待
+        战斗结束的主流程；用户主动停止（TaskDisabledException）必须传播。
+        """
+        try:  # 特征缺失/匹配异常都不应影响等待战斗结束。
+            return self.find_one("battle_pause") is not None  # 命中暂停按钮即视为在战斗界面。
+        except TaskDisabledException:  # 任务已被用户停止，必须让中断异常继续向上传播。
+            raise  # 重新抛出，交由执行器结束任务。
+        except Exception as e:  # 特征缺失等其它异常。
+            self.log_debug(f"battle_pause 匹配失败，按未进入战斗界面处理: {e}")  # 记录原因。
+            return False  # 返回未命中。
+
+    def _enable_battle_auto_once(self, max_attempts=3, after_sleep=1):
+        """进入自动战斗界面后一次性开启自动瞄准/自动爆裂：区域灰白（关闭）则点击，直到判定为已开启或试满次数。
+
+        逐个区域判态：is_feature_enabled 为 True（彩色高亮）即已开启；为 False
+        （灰白）则点击切换，刷新帧后复判，最多 max_attempts 次——点击后必须刷新
+        帧，因为 click 内部的 reset_scene 会把当前帧置空，无帧时 is_feature_enabled
+        会保守判为已开启而漏点。
+
+        全程吞掉异常只记日志：自动按钮开启失败不得影响后续等待战斗结束；
+        用户主动停止（TaskDisabledException）必须原样向上传播，否则无法中断任务。
+        """
+        for name in self._BATTLE_AUTO_BOXES:  # 逐个处理两个自动按钮区域。
+            try:  # coco 区域缺失等异常不应影响另一个区域与后续等待。
+                box = self.get_box_by_name(name)  # 按当前分辨率解析区域框。
+            except TaskDisabledException:  # 任务已被用户停止，必须让中断异常继续向上传播。
+                raise  # 重新抛出，交由执行器结束任务。
+            except Exception as e:  # 特征缺失等异常。
+                self.log_debug(f"{name} 区域不可用，跳过开启: {e}")  # 记录跳过原因。
+                continue  # 处理下一个区域。
+            if box is None:  # 区域无效。
+                continue  # 跳过该区域。
+            for attempt in range(max_attempts):  # 点击后复判，直到开启或试满次数。
+                try:  # 点击/取帧异常不应中断等待战斗结束。
+                    if self.frame is None:  # 当前帧被清空（上一次点击的 reset_scene）。
+                        self.next_frame()  # 先取帧，避免无帧时判态失真。
+                    if self.is_feature_enabled(box):  # 彩色高亮=已开启。
+                        break  # 该区域已开启，处理下一个。
+                    self.log_info(f"点击开启 {name}（第 {attempt + 1} 次）。")  # 记录点击动作。
+                    self.click_box(box, after_sleep=after_sleep)  # 点击切换为开启态并等待界面响应。
+                    self.next_frame()  # 刷新一帧，复判时读的是点击后的画面。
+                except TaskDisabledException:  # 任务已被用户停止，必须让中断异常继续向上传播。
+                    raise  # 重新抛出，交由执行器结束任务。
+                except Exception as e:  # 点击/取帧失败等异常。
+                    self.log_warning(f"开启 {name} 失败，跳过: {e}")  # 记录失败原因。
+                    break  # 放弃该区域，处理下一个。
 
     def _battle_finish_text_box(self):
         """获取 box_battle_finish_text 结算文字区域框（coco 坐标区域，按当前分辨率缩放）。
