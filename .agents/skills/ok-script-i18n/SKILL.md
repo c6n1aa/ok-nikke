@@ -56,6 +56,7 @@ The scanner is a helper, not a substitute for reading the task. It finds common 
 - Keep config keys stable when they are persisted in JSON. Translate the catalog entry for display, not the Python key, unless the project already stores localized keys.
 - For Chinese locales, distinguish Simplified (`zh_CN`) and Traditional (`zh_TW`) when both catalogs exist.
 - For option lists, translate each option string that appears in the UI.
+- Never invent literal translations for in-game proper nouns (character names, factions, items, stages, skills, modes, in-game UI terms, etc.). Search the web for the official name used in the target language — the localized game client, the official site, or an official/community wiki — and use that. If no authoritative translation can be found, keep the original term instead of guessing.
 
 ## Integration With Task Work
 
