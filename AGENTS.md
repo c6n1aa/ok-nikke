@@ -1,6 +1,6 @@
 # AGENTS.md
 
-ok-nikke 是基于 PyPI `ok-script`（2.x）构建的《NIKKE》Windows 客户端 GUI 自动化应用。技术栈：PySide6 + qfluentwidgets（GUI）、OpenCV 模板匹配 + onnxocr（识别）。仓库：<https://github.com/c6n1aa/ok-nikke> 。本文只写给 coding agent 的规则与命令，背景细节看代码或 `docs/`。
+ok-nikke 是基于 PyPI `ok-script`（2.x）构建的《胜利女神：NIKKE》Windows 客户端 GUI 自动化应用。技术栈：PySide6 + qfluentwidgets（GUI）、OpenCV 模板匹配 + onnxocr（识别）。仓库：<https://github.com/c6n1aa/ok-nikke> 。本文只写给 coding agent 的规则与命令，背景细节看代码或 `docs/`。
 
 ## 红线
 
@@ -46,12 +46,12 @@ ok-nikke 是基于 PyPI `ok-script`（2.x）构建的《NIKKE》Windows 客户�
 
 - 任务 UI 字符串直接写简体中文，不做 i18n（框架 `og.app.tr()` 查不到原样返回）。
 - 非必要不手写 `self.sleep`：等待优先挂在框架 API 的 `after_sleep`/`time_out` 参数上，写在产生界面变化的那个调用的挂点处。
-- 技能（`.agents/skills/`）：任务类 `ok-script-tasks`；`run()` 逻辑 `ok-script-codegen`；翻译 `ok-script-i18n`；跑 Python `use-local-venv`。查 ok-script 框架 API：venv `ok` 包源码、`docs/api_doc/README.md`、`.agents/skills/ok-script-tasks/references/`。
+- 技能（`.agents/skills/`）：任务类 `ok-script-tasks`；`run()` 逻辑 `ok-script-codegen`；翻译 `ok-script-i18n`；跑 Python `use-local-venv`。
 - 提交信息用 Conventional Commits：`<type>[optional scope]: <description>`。
 
 ## 测试策略
 
-- 测试放 `tests/` 下，命名 `TestXxxTask.py` 对应 `src/tasks/XxxTask.py`；继承 `ok.test.TaskTestCase`，设 `task_class`（参考 `docs/after_quick_start/README.md` §3）。现成范例见 `tests/TestShopTask.py`/`tests/TestArkTask.py`（覆盖成功/跳过/失败/已完成跳过分支）。
+- 测试放 `tests/` 下，命名 `TestXxxTask.py` 对应 `src/tasks/XxxTask.py`；继承 `ok.test.TaskTestCase`，设 `task_class`，用 `self.set_image()` 固定输入帧。现成范例见 `tests/TestShopTask.py`/`tests/TestArkTask.py`（覆盖成功/跳过/失败/已完成跳过分支）。
 - mock 保证被测循环可终止：`while True` 流程（如爬塔）用 `side_effect` 有限序列，别 `return_value` 死循环。
 - 被测流程内 `sleep` 一律 patch；引用（方法名、config 键名）以源码为准。
 - 小范围机械改动（改参数名/方法名，不动功能或业务逻辑）不必跑测试；其余按影响面只跑相关单个测试文件。**全量必须逐文件独立进程**（CI/`run_tests.ps1` 方式），连跑多文件会因 ok 单例无法重建产生假错误。

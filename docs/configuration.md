@@ -1,55 +1,56 @@
-# 应用与运行目标配置
+# 应用配置
 
-## 应用设置
+应用配置集中在 `src/config.py`，在 `ok.OK(config)` 之前生效。
 
-在 `src/config.py` 中至少检查：
+## 应用信息
 
-- `gui_title`：应用窗口名称，当前为 `ok-nikke`。
-- `gui_icon`：GUI 图标路径。
-- `supported_resolution`：支持的画面比例和最低分辨率。
-- `links`：项目主页、反馈渠道和社区链接。
-- `onetime_tasks`、`trigger_tasks`：任务注册列表。
+| 键 | 说明 |
+| --- | --- |
+| `gui_title` | 窗口标题，当前为 `ok-nikke` |
+| `gui_icon` | 窗口图标路径，替换 `icons/icon.png`（及 `icons/icon.ico`）时保持文件名可免改配置 |
+| `gui` | `type` 固定 `'qt'`（本项目不使用 Web UI）+ `window_size` 窗口/最小尺寸 |
+| `supported_resolution` | 支持的比例（16:9）、最低分辨率（1600×900）与非 16:9 时的 `resize_to` 目标 |
+| `links` | 「关于」页展示的项目主页、分享文案与反馈链接 |
+| `version` | 由打包工作流自动改写，源码中保持 `"dev"` |
+| `screenshots_folder` | 截图输出目录，每次启动清空 |
 
 ## 运行目标
 
-本项目的运行目标是 Windows 原生游戏（《NIKKE：胜利女神》Windows 客户端）。`windows`、`adb`、`browser` 必须至少配置一种。
+本项目**只启用 Windows 原生目标**（《NIKKE》Windows 客户端）。`adb`（模拟器/Android）与 `browser` 目标在 `src/config.py` 中以注释形式保留，未启用：启用浏览器目标需要额外安装 `playwright`，且依赖要重新从 `pyproject.toml` 锁定。
 
-### Windows 原生游戏
+`windows` 部分：
 
-配置 `windows` 中的：
+| 键 | 当前值 | 说明 |
+| --- | --- | --- |
+| `exe` | `['nikke.exe']` | 游戏进程名，启动器据此拉起或匹配窗口 |
+| `interaction` | `['Pynput', 'PyDirect']` | 输入方式及优先级 |
+| `capture_method` | `['WGC', 'BitBlt_RenderFull', 'BitBlt']` | 截图方式及优先级，WGC 优先以支持后台运行 |
+| `require_bg` | `True` | 要求后台截图能力 |
+| `check_hdr` / `force_no_hdr` | `False` | AutoHDR 时是否提示/禁止运行 |
+| `start_timeout` | `120` | 启动器等待游戏就绪的超时 |
 
-- `exe`：游戏进程文件名列表。
-- `hwnd_class`：可选的窗口类名，用于提高窗口匹配准确度。
-- `interaction`：允许使用的输入方式及优先级。
-- `capture_method`：允许使用的截图方式及优先级。
-- HDR 和后台截图相关选项。
+## 识别相关
 
-### Android 模拟器或设备
+- `ocr`：使用 `onnxocr`，开启 `use_openvino`。
+- `template_matching`：指定 `coco_feature_json`（`assets/coco_annotations.json`）与默认阈值/偏移。素材约定见[界面识别与失败恢复](screen-and-recovery.md)。
 
-本项目暂未启用 Android 目标。如需支持，在 `adb.packages` 中填写游戏包名。MuMu 模拟器可使用原生截图和输入；其他模拟器或设备通常通过 ADB 工作。
+## 任务与界面
 
-### 浏览器游戏
+- `onetime_tasks`：用户点击执行的一次性任务清单，与 `src/tasks/` 中的任务类一一对应。
+- `trigger_tasks`：后台周期任务，当前为空。
+- `custom_tabs`：自定义 Tab，当前注册 `src/ui/DailyTab.py` 的 `DailyTab`。
+- `custom_tasks`：关闭状态，正式版不显示「脚本」「模板」Tab。
 
-本项目暂未启用浏览器目标。如需支持，取消 `browser` 示例配置的注释，并设置：
+新增或修改任务后在此注册，详见[任务开发](tasks.md)。
 
-```python
-'browser': {
-    'url': 'https://example.com/game',
-    'nick': 'Browser',
-    'resolution': (1280, 720),
-},
-```
+## 框架补丁
 
-浏览器目标还需要 `playwright`。将它加入 `requirements.in` 和锁定后的 `requirements.txt`，确保本地环境和 GitHub 打包环境都会安装该依赖。
+`src/config.py` 顶部调用 `src/patches.apply_all()`，在 `ok.OK(config)` 构造前统一应用对 ok-script 的猴子补丁（启动器、运行时、任务列表等）。
 
-## 替换图标
+- 扩展或修正框架行为一律写入 `src/patches/`，并在 `apply_all()` 中注册；各补丁职责见 `src/patches/README.md`。
+- 不要在任务或其他模块中直接 monkey-patch `ok.*`。
 
-用自己的资源替换 `icons/icon.png` 和 `icons/icon.ico`。保持文件名不变可以避免额外配置；如需改名，同步修改 `src/config.py` 和 `pyappify.yml` 中的路径。
+## 依赖与更新源
 
-## 更新仓库
-
-修改 `pyappify.yml` 中应用名称、profile 名称和 `git_url`：
-
-- 正式发布建议使用独立的轻量更新仓库。
-- 前期测试直接使用源码仓库 `https://github.com/c6n1aa/ok-nikke.git`。
-- 使用独立更新仓库时，同步修改 `.github/workflows/build.yml` 中的同步目标和 Secrets。
+- 依赖源是 `pyproject.toml`：`pip-compile pyproject.toml -o requirements.txt`，生成后删除 `pyside6`/`pyside6-addons` 条目（只装 `pyside6-essentials`）。
+- 更新仓库地址在 `pyappify.yml` 的 `git_url`；便携包附带的 `pyappify-cn.yml` / `pyappify-global.yml` 供用户选择更新源。详见[打包与发布](release.md)。

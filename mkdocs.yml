@@ -14,11 +14,6 @@ theme:
 
 plugins:
   - search
-exclude_docs: |
-  framework-upgrade-plan.md
-  framework-upgrade-impact-and-risks.md
-  after_quick_start/
-  api_doc/
 
 markdown_extensions:
   - admonition
