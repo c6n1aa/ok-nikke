@@ -98,7 +98,7 @@ class TestExtrasTask(_DebugOffTestCase):
         self.assertTrue(opened)
         dot_mock.assert_called_once_with("box_pass_badge", template_path=self.task._RED_DOT_TEMPLATE,
                                           use_color_fallback=False)
-        click_mock.assert_called_once_with("box_pass_badge", after_sleep=1)
+        click_mock.assert_called_once_with("box_pass_area", after_sleep=1)
         wait_mock.assert_called_once_with("pass_page", box=_fake_box("box_pass_page", 200, 300, 50, 60),
                                           use_gray_scale=True, time_out=5, raise_if_not_found=True)
 
@@ -126,7 +126,7 @@ class TestExtrasTask(_DebugOffTestCase):
         self.assertTrue(opened)
         self.assertEqual(2 * self.task._PASS_FLICK_STEPS, move_mock.call_count)  # 前两页各翻页 20 步加速插值，第三页命中。
         self.assertEqual(3, dot_mock.call_count)  # 每次翻页后重新检测红点。
-        click_mock.assert_called_once_with("box_pass_badge", after_sleep=1)
+        click_mock.assert_called_once_with("box_pass_area", after_sleep=1)
 
     def test_open_pass_modal_multi_caps_at_limit(self):
         with patch.object(self.task, "find_one", return_value=_fake_box("pass_selector")), \

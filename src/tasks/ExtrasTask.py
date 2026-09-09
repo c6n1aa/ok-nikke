@@ -53,7 +53,7 @@ class ExtrasTask(NikkeBaseTask):  # 其他杂项任务：收取 PASS（活动/�
         if red_dot is None:  # 无可领取奖励（单个 PASS 无红点，或多个 PASS 翻到上限仍无红点）。
             self.log_warning("PASS 无可领取奖励，跳过。")  # 记录跳过原因。
             return False  # 不打开模态窗，由 run 收尾标记完成。
-        self.click_box("box_pass_badge", after_sleep=1)  # 点击徽章打开 PASS 模态框。
+        self.click_box("box_pass_area", after_sleep=1)  # 点击 PASS 徽章区域打开模态框（box_pass_badge 仅用于查找红点）。
         self.wait_feature("pass_page", box=self.get_box_by_name("box_pass_page"), use_gray_scale=True,
                           time_out=5, raise_if_not_found=True)  # 在 box_pass_page 区域灰度匹配 pass_page 确认模态框打开。
         return True  # 已打开 PASS 模态框。
