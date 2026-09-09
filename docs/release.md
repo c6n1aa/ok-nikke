@@ -1,8 +1,10 @@
 # 打包与发布
 
+面向开发者。普通用户从 [GitHub Releases](https://github.com/c6n1aa/ok-nikke/releases) 下载便携包即可，见[快速开始](getting-started.md)。
+
 ## 发布相关文件
 
-- `.github/workflows/build.yml`：监听 `v*` tag，运行测试、用 pyappify-action 只编译启动器 exe（`build_exe_only`），再执行 `ok-nikke.exe -c setup -p Release` 生成 `data/`（内嵌 Python + venv + 按 tag 克隆的代码），压缩成便携 zip 并创建 GitHub Release。不使用 NSIS 安装器。
+- `.github/workflows/build.yml`：监听 `v*` tag，运行测试（逐文件独立进程）、把 ok-script 内联进源码包（`inline_ok_requirements`，从 requirements 删除以加速应用内更新），再用 pyappify-action 只编译启动器 exe（`build_exe_only`），执行 `ok-nikke.exe -c setup -p Release` 生成 `data/`（内嵌 Python + venv + 按 tag 克隆的代码），压缩成便携 zip 并创建 GitHub Release。不使用 NSIS 安装器。
 - `pyappify.yml`：定义应用名称、入口、图标、Python 版本和更新仓库。单一 `Release` profile；profile 名与 workflow 中 `setup` 步骤的 `-p` 参数保持一致。
 - `pyappify-cn.yml` / `pyappify-global.yml`：随便携包一起放到包根目录的更新源配置。当前两者 `git_url` 都指向 GitHub（国内镜像未建），用户首次运行前把其一重命名为 `pyappify.yml` 即可选择更新源。
 - `deploy.txt`：定义同步到独立更新仓库的文件（当前使用源码仓库更新，未启用）。
@@ -17,30 +19,27 @@
 
 应用内更新由启动器通过 git tag 完成（fetch `git_url` → checkout → 依赖变化时重跑 pip），与发布产物形态无关；`git_url` 由仓库中的 `pyappify.yml` 驱动，修改后随下一版生效，无需重编启动器。
 
-## 修改构建工作流
+## 调整构建配置
 
-首次发布前，根据自己的项目修改 `.github/workflows/build.yml`：
+如需调整发布配置，修改 `.github/workflows/build.yml`：
 
-- 更新 Git 用户信息。
-- 更新源码库和更新库地址。
-- 更新便携包名称和 Release 下载链接。
-- 工作流已声明 `permissions: contents: write`，无需额外配置 Secrets。
+- Git 用户信息、源码库与更新库地址。
+- 便携包名称与 Release 下载链接。
 
-本项目未集成 Mirror酱、CNB 或网盘渠道，如需接入请参考本文相应小节。
+工作流已声明 `permissions: contents: write`，无需额外配置 Secrets。
 
-## 推送版本 tag
+本项目未集成 Mirror酱、CNB 或网盘渠道，如需接入请参考 ok-script 框架文档相应小节。
 
-提交并推送初始化结果，再创建符合 `v*` 规则的 tag：
+## 发布新版本
+
+推荐使用仓库内置的 `deploy` 技能（`.agents/skills/deploy/`）：自动提交、创建下一个注释 tag 并推送。也可手动创建：
 
 ```bash
-git add .
-git commit -m "Initialize project"
-git push origin HEAD
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.x.0
+git push origin v0.x.0
 ```
 
-GitHub Actions 会运行测试、打包便携 zip，并创建对应的 GitHub Release。发布前再次搜索 `.github/workflows`，确认没有遗留的模板仓库地址、项目名或未配置的 Secrets。
+`v*` tag 推送后，GitHub Actions 会运行测试、打包便携 zip 并创建 GitHub Release；tag 名含 `-`（如 `v0.2.0-beta.1`）会被标记为 prerelease。
 
 ## 复用启动器加速构建
 

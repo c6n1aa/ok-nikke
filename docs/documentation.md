@@ -30,8 +30,6 @@ python -m mkdocs build --strict
 3. 推送到 `master` 或 `main`，或手动运行 `Docs` workflow。
 4. 在 workflow 的 deployment URL 或仓库 Pages 设置中打开网站。
 
-从模板创建新项目后，更新 `mkdocs.yml` 中的 `site_name`、`site_description`、`repo_name`、`repo_url` 和 `edit_uri`。
-
 ## 文档结构
 
 ```text
@@ -39,7 +37,6 @@ mkdocs.yml                  MkDocs 配置和导航
 requirements-docs.txt      文档构建依赖
 docs/                       中文文档
 docs/en/                    英文文档
-docs/images/                两种语言共用的图片
 .github/workflows/docs.yml  GitHub Pages 构建与部署
 site/                       生成的静态 HTML（已忽略）
 ```

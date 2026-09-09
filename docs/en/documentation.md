@@ -30,8 +30,6 @@ The repository includes `.github/workflows/docs.yml`:
 3. Push to `master` or `main`, or run the `Docs` workflow manually.
 4. Open the deployment URL from the workflow or Pages settings.
 
-After creating a project from this template, update `site_name`, `site_description`, `repo_name`, `repo_url`, and `edit_uri` in `mkdocs.yml`.
-
 ## Layout
 
 ```text
@@ -39,7 +37,6 @@ mkdocs.yml                  MkDocs configuration and navigation
 requirements-docs.txt      Documentation build dependencies
 docs/                       Chinese documentation
 docs/en/                    English documentation
-docs/images/                Shared images
 .github/workflows/docs.yml  GitHub Pages build and deployment
 site/                       Generated static HTML (ignored)
 ```

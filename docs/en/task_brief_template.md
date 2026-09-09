@@ -7,16 +7,16 @@ Generate this task following the ok-script-tasks / ok-script-codegen skills and 
 
 - **Class/file**: `src/tasks/<TaskName>.py` (PascalCase)
 - **Description** (Chinese, shown in GUI): one sentence describing what the task does
-- **done_keys**: none, or `{"key": "day|week|month"}` (pure orchestrator tasks omit this)
-- **Configs**: one per line: `key / default / type(bool|drop_down|line_edit...) / Chinese help text`; write "none" if empty
+- **done_keys**: none, or `{"key": "day|week|month"}` (pure orchestrator/debug tasks omit this)
+- **Configs**: one per line: `key / default / type(bool|drop_down|line_edit...) / Chinese help text`; write "none" if empty; indented lines are child configs
 - **Trigger**: onetime or trigger (for trigger, state the trigger_interval)
 
 ## Screens & Features
 
-(One per line; reference screens as `[screen_name]` in the flow. Only list what this task uses.)
+(Screens go into `SCREENS` in `src/screens.py` first; only task-private screens use `register_screen`. One per line; reference screens as `[screen_name]` in the flow.)
 
-- `<screen_name>(<Chinese name>)` = detection: coco feature names / box_ region OCR "keyword" combos
-- Special small templates: `assets/template/xxx.png` (must be matched via find_scaled_template at runtime)
+- `<screen_name>(<Chinese name>)` = detection: `features` (coco features, all must match) / `keywords` (OCR keywords, any match, with `ocr_box` to bound the region)
+- Special small templates: `assets/template/xxx.png` (matched via `find_scaled_template` at runtime)
 
 ## Flow
 
@@ -28,17 +28,27 @@ implements them per the right-hand column:
 
 | Shorthand | Standard implementation |
 |---|---|
-| `click <feature>` | `wait_click_feature("<feature>")`; feature must be a coco-annotated name or a small template declared in "Screens & Features" |
-| `common_back` | coco generic back-button feature; clicking it goes one level back |
-| `wait [screen]` | `wait_screen("<screen_name>")`; screen must be defined in "Screens & Features" |
+| `go to [screen]: click <entry>` | `transition("<screen>", click_feature="<entry>")`; click entry → confirm target screen (unified navigation edge) |
+| `gate [screen]` | `ensure_screen("<screen>")`; idempotent siting at sub-flow start (incl. cold start / recovery routing) |
+| `click <feature>` | `wait_click_feature("<feature>")`; single click that is not a navigation edge |
+| `back` / `go back one level` | `common_back`, the coco generic back-button feature; clicking it goes one level back |
+| `wait [screen]` | `wait_screen("<screen_name>")`; the screen must be defined under "Screens & Features" |
 | `OCR <region> contains/lacks "<keyword>"` | keyword detection via OCR bounded by that region (`ocr_box`) |
 | `battle wait` | base helper `wait_battle_finish(...)`; detect-only, follow-up actions written in the tree |
-| `mark_done("<key>")` | base-class completion marking; key must appear in done_keys under "Basic Info" |
+| `mark_done("<key>")` | base-class completion marking; the key must appear in done_keys under "Basic Info" |
 | `<region> y+0.1 click` | click with a relative y offset on top of that box |
+| `check <region> enabled` | `is_feature_enabled("<box>")`, whether the UI element is enabled (highlighted in color) |
+| `dismiss popups` | `dismiss_all_popups(...)`; clear notice/overlay popups (`wait_for_popup=False` when none expected) |
+| `box [region]` | `get_box_by_name("box_xxx")`; a `box_`-prefixed pure coordinate region (already scaled by resolution) |
+| `wait until <condition> holds/gone` | `wait_until(lambda: <condition>, time_out=…)`; button enabled/disabled state flip |
+| `red dot [region]` | `find_red_dot("box_xxx")`; badge-region red-dot detection for claimable content |
+| `gray-find <feature> in [region]` | `find_one("<feature>", box=<region>, use_gray_scale=True)`; grayscale matching inside a panel |
 
-Rules: only use tokens defined in this glossary or AGENTS.md; self-invented fragment names
-(e.g. "battle segment") must be defined once in "Shared fragments" or inline in this section.
-If unsure how to abbreviate a step, write it out in plain language — do not invent new symbols.
+Rules: only use tokens defined in this glossary or AGENTS.md; each lobby-starting, self-contained
+sub-flow entry method is wrapped with `try_step` **once** in code (internal steps are not wrapped
+individually). Self-invented fragment names (e.g. "battle segment") must be defined once under
+"Shared fragments" or inline in this section. If unsure how to abbreviate a step, write it out in
+plain language — do not invent new symbols.
 
 **Single-flow task**: write one tree (skeleton below).
 **Multi-sub-flow task**: the main flow only lists the dispatch order; each sub-flow gets its own
@@ -66,7 +76,7 @@ Incremental writing works well: write sub-flow 1 first, generate & verify, then 
 Or single flow:
 
 ```
-1. Lobby → click <entry feature> → [ScreenA]
+1. Lobby → go to [ScreenA]: click <entry feature>
 2. Loop <feature or region list>:
    - <condition>? no → next iteration
    - yes → click… → wait [ScreenB] → click…
@@ -89,5 +99,5 @@ Or single flow:
 
 ## Output
 
-src/tasks/<TaskName>.py + register in src/config.py + tests/Test<TaskName>.py
+src/tasks/<TaskName>.py + register in src/config.py (onetime_tasks or trigger_tasks) + tests/Test<TaskName>.py
 (covering main branches: success/skip/failure/already-done skip), run tests and report results.

@@ -1,5 +1,5 @@
 site_name: ok-nikke
-site_description: NIKKE Windows 原生游戏自动化应用，基于 ok-script。
+site_description: 《胜利女神：NIKKE》Windows 原生游戏自动化应用，基于 ok-script。
 repo_name: c6n1aa/ok-nikke
 repo_url: https://github.com/c6n1aa/ok-nikke
 edit_uri: edit/master/docs/
@@ -34,19 +34,25 @@ validation:
 nav:
   - 中文:
       - 首页: index.md
-      - 快速开始: getting-started.md
-      - 应用配置: configuration.md
-      - 任务开发: tasks.md
-      - 任务简报模板: task_brief_template.md
-      - 界面识别与失败恢复: screen-and-recovery.md
-      - 打包与发布: release.md
-      - 文档网站: documentation.md
+      - 使用指南:
+          - 快速开始: getting-started.md
+      - 开发指南:
+          - 开发环境: development.md
+          - 应用配置: configuration.md
+          - 任务开发: tasks.md
+          - 任务简报模板: task_brief_template.md
+          - 界面识别与失败恢复: screen-and-recovery.md
+          - 打包与发布: release.md
+          - 文档网站: documentation.md
   - English:
       - Home: en/index.md
-      - Quick Start: en/getting-started.md
-      - App Configuration: en/configuration.md
-      - Task Development: en/tasks.md
-      - Task Brief Template: en/task_brief_template.md
-      - Screen Recognition & Failure Recovery: en/screen-and-recovery.md
-      - Packaging and Release: en/release.md
-      - Documentation Site: en/documentation.md
+      - User Guide:
+          - Quick Start: en/getting-started.md
+      - Developer Guide:
+          - Development Setup: en/development.md
+          - App Configuration: en/configuration.md
+          - Task Development: en/tasks.md
+          - Task Brief Template: en/task_brief_template.md
+          - Screen Recognition & Failure Recovery: en/screen-and-recovery.md
+          - Packaging and Release: en/release.md
+          - Documentation Site: en/documentation.md

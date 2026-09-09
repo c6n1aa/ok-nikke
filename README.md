@@ -12,11 +12,15 @@
   </p>
 
   <p><i>通过 Windows 接口模拟用户进行操作，无内存读取、无文件修改</i></p>
+
+  <p>专注日常自动化，解放老登双手</p>
 </div>
 
 ### [English](README_en.md) | 中文说明
 
 ---
+
+**应用开发基于最新游戏进度的早期游戏账号，部分功能可能适配不完整**
 
 ## ⚠️ 免责声明
 
@@ -26,15 +30,25 @@
 
 **使用本软件即表示您已阅读、理解并同意以上声明，并自愿承担一切潜在风险。**
 
-## ✨ 主要功能
+## 🚀 快速开始
 
-- **前台运行**：PC 客户端仅支持前台运行（Pynput / PyDirect 输入），需保持游戏窗口在前台可见。
-- **图像识别**：OpenCV 模板匹配（COCO 标注管理素材）结合 onnxocr（PaddleOCR v5 + OpenVINO）识别文字与按钮。
-- **分辨率自适应**：流畅支持 16:9 分辨率（最低 1600×900），素材按当前分辨率自动缩放匹配。
-- **自动完成状态**：内置每日/每周完成状态管理，避免重复执行。
-- **失败自动恢复**：识别失败或流程卡住时自动返回大厅重试，无需人工干预。
+1. 从 [GitHub Releases](https://github.com/c6n1aa/ok-nikke/releases) 下载最新 `ok-nikke-win32-portable.zip`，解压到任意目录。
+2. 按网络环境将便携包根目录的 `pyappify-cn.yml` 或 `pyappify-global.yml` 重命名为 `pyappify.yml`（与 `ok-nikke.exe` 同目录），作为更新源配置。
+3. 以管理员身份运行 `ok-nikke.exe`。
 
-已实现的任务：
+注意事项：
+
+- **必须以管理员身份启动**：如果游戏以管理员权限运行，自动化程序也需要同等权限，否则截图或输入可能失效。
+- 游戏分辨率需为 16:9 且不低于 1600×900。
+- 更多运行与常见问题细节见文档[快速开始](docs/getting-started.md)。
+
+## 📝 TODO
+
+- [ ] 活动剧情/活动区域
+- [ ] 超频模拟室
+- [ ] i18n
+
+## ✨ 功能一览
 
 | 任务 | 说明 |
 | --- | --- |
@@ -48,50 +62,48 @@
 | 方舟 | 企业塔 / 模拟室 / 拦截战 / 竞技场 |
 | Raid | 限时挑战（协同作战 / 个人突袭） |
 
-## 🚀 快速开始
 
-从源码运行，需 Python 3.12（其他版本未测试）：
+## 🔧 疑难解答
 
-```powershell
-py -3.12 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install --no-deps -r requirements.txt --upgrade
+如果遇到问题，请在提问前按以下步骤逐一排查：
 
-# Debug 模式（含开发工具）
-python main_debug.py
-
-# 发布模式
-python main.py
-```
-
-如果目标游戏以管理员权限运行，自动化程序也需要以管理员身份启动，否则截图或输入可能无法生效。详细的运行目标配置与打包流程见[快速开始](docs/getting-started.md)。
-
-## 📥 下载渠道
-
-- **[GitHub Releases](https://github.com/c6n1aa/ok-nikke/releases)**：官方发布页，每个 tag 提供一个 `ok-nikke-win32-portable.zip` 便携包，解压到任意目录后运行其中的 `ok-nikke.exe`（需管理员权限）。
-
-## 📖 文档
-
-完整文档整理为 MkDocs 网站，可通过 `python -m mkdocs serve` 本地预览：
-
-- [文档首页](docs/index.md)
-- [快速开始](docs/getting-started.md)
-- [应用与运行目标配置](docs/configuration.md)
-- [任务开发](docs/tasks.md)
-- [界面识别与失败恢复](docs/screen-and-recovery.md)
-- [打包与发布](docs/release.md)
-- [English documentation](docs/en/index.md)
+1. **安装路径**：请确保软件安装在纯英文路径下，避免包含中文字符的文件夹。
+2. **杀毒软件**：将软件的安装目录添加到您的杀毒软件（包括 Windows Defender）的信任区或白名单中，以防文件被误删或拦截。
+3. **显示设置**：
+   - 关闭 Windows 自动 HDR。
+   - 画质设置：推荐越高越好。
+4. **游戏语言**：优先使用简体中文。
+5. **软件版本**：检查并确保您使用的是最新版本。
+6. **寻求帮助**：如果以上步骤都无法解决您的问题，请通过ISSUE或社区渠道提交详细的错误报告。
 
 ## 💻 开发者专区
 
-运行测试（需先完成环境安装）：
+从源码运行，仅支持 Python 3.12（其他版本未测试）：
 
 ```powershell
-python -m unittest tests.TestMain
+git clone https://github.com/c6n1aa/ok-nikke.git
+cd ok-nikke
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --no-deps -r requirements.txt --upgrade
+
+# Debug 模式（含截图/标注等开发工具）
+.\.venv\Scripts\python.exe main_debug.py
+
+# 发布模式
+.\.venv\Scripts\python.exe main.py
+```
+
+> 必须用 `--no-deps`：依赖已在 `requirements.txt` 中锁定（含全部传递依赖），让 pip 解析依赖会装到 `pyside6` 元包与 addons 模块。
+
+运行测试：
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest tests.TestMain
 # 全量：逐文件独立进程运行
 .\run_tests.ps1
 ```
+
+更多开发文档：[开发环境](docs/development.md) · [应用配置](docs/configuration.md) · [任务开发](docs/tasks.md) · [界面识别与失败恢复](docs/screen-and-recovery.md) · [打包与发布](docs/release.md)
 
 本项目基于 [ok-script](https://ok-script.com) 框架开发，简单易维护。欢迎使用 [ok-script](https://ok-script.com) 开发您自己的自动化项目。
 

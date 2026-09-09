@@ -1,41 +1,26 @@
 # Quick Start
 
-## 1. Get the Source
+For end users: download the portable package, run it, and troubleshoot. To work on the project, see [Development setup](development.md).
 
-The project repository is at [github.com/c6n1aa/ok-nikke](https://github.com/c6n1aa/ok-nikke):
+## Download and Run
 
-```bash
-git clone https://github.com/c6n1aa/ok-nikke.git
-cd ok-nikke
-```
+1. Download the latest `ok-nikke-win32-portable.zip` from [GitHub Releases](https://github.com/c6n1aa/ok-nikke/releases) and extract it anywhere.
+2. Rename `pyappify-cn.yml` (China) or `pyappify-global.yml` (global) in the package root to `pyappify.yml` (next to `ok-nikke.exe`) according to your network, to be used as the update source config.
+3. Run `ok-nikke.exe` as administrator.
 
-## 2. Install Python 3.12
+## Requirements
 
-Install [Python 3.12.10](https://www.python.org/downloads/release/python-31210/), then run:
+- **Administrator privileges are required**: if the game runs as administrator, the automation app needs the same privilege level, otherwise capture or input may not work.
+- The game must run at a 16:9 resolution of at least 1600×900.
+- Keep the game window in the foreground: input is simulated via Windows interfaces (Pynput / PyDirect), background clicking is not supported; screenshots prefer WGC.
+- Task switches and settings are all selected in the main window; the app tracks daily/weekly completion and skips already finished tasks.
 
-```powershell
-py -3.12 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install --no-deps -r requirements.txt --upgrade
-```
+## In-App Updates
 
-Administrator privileges are normally unnecessary. If the target game runs as administrator, launch the automation app at the same privilege level or capture and input may not work.
+The launcher checks and applies updates by git tag automatically; no manual re-download is needed. The update source is decided by `pyappify.yml` in the package root.
 
-## 3. Initialize the App
+## Common Issues
 
-1. Set the application identity, runtime targets, icons, and update repository in [App configuration](configuration.md).
-2. Create and register the first task with [Task development](tasks.md).
-3. Start Debug mode:
-
-```powershell
-python main_debug.py
-```
-
-4. Run tests:
-
-```powershell
-python -m unittest tests.TestMain
-```
-
-5. After validation, configure the workflows and push a tag using [Packaging and release](release.md).
+- **Black screenshots or no recognition**: make sure the app and the game run at the same privilege level (both non-admin or both admin), and turn off HDR or allow the AutoHDR prompt.
+- **Resolution mismatch**: make sure the game window is 16:9 and at least 1600×900.
+- **App won't start after an update**: delete the `configs/` folder and restart (this resets task settings); if it still fails, re-download the portable package from Releases.

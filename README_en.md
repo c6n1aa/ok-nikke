@@ -6,17 +6,21 @@
   </h1>
 
   <p>
-    一个基于图像识别的《胜利女神: NIKKE》自动化程序，PC 客户端仅支持前台运行，基于 <a href="https://ok-script.com">ok-script</a> 开发。
+    一个基于图像识别的《胜利女神：NIKKE》自动化程序，PC 客户端仅支持前台运行，基于 <a href="https://ok-script.com">ok-script</a> 开发。
     <br />
     An image-recognition-based automation tool for Goddess of Victory: NIKKE; the PC client only supports foreground running, developed with <a href="https://ok-script.com">ok-script</a>.
   </p>
 
   <p><i>Simulates user input via Windows interfaces; no memory reads, no file modification</i></p>
+
+  <p>Focuses on daily automation, freeing your hands</p>
 </div>
 
 ### English | [中文说明](README.md)
 
 ---
+
+**Development is based on an early-game account at the latest game progress; some features may not be fully adapted.**
 
 ## ⚠️ Disclaimer
 
@@ -26,15 +30,25 @@ This software is open-source and free, provided for personal learning and commun
 
 **By using this software, you acknowledge that you have read, understood, and agreed to the above, and voluntarily assume all potential risks.**
 
+## 🚀 Quick Start
+
+1. Download the latest `ok-nikke-win32-portable.zip` from [GitHub Releases](https://github.com/c6n1aa/ok-nikke/releases) and extract it anywhere.
+2. Rename `pyappify-cn.yml` or `pyappify-global.yml` in the package root to `pyappify.yml` (next to `ok-nikke.exe`) according to your network, to be used as the update source config.
+3. Run `ok-nikke.exe` as administrator.
+
+Notes:
+
+- **Administrator privileges are required**: if the game runs as administrator, the automation app needs the same privilege level, otherwise capture or input may not work.
+- The game must run at a 16:9 resolution of at least 1600×900.
+- See the documentation [Quick start](docs/en/getting-started.md) for more usage details and common issues.
+
+## 📝 TODO
+
+- [ ] Event story / event area
+- [ ] Overclocked simulation room
+- [ ] i18n
+
 ## ✨ Features
-
-- **Foreground running**: The PC client only supports foreground running (Pynput / PyDirect input); keep the game window in the foreground and visible.
-- **Image recognition**: OpenCV template matching (COCO-managed assets) combined with onnxocr (PaddleOCR v5 + OpenVINO) to read text and locate buttons.
-- **Resolution adaptive**: Smooth support for 16:9 resolutions (minimum 1600×900); assets are scaled to the current resolution automatically.
-- **Completion state**: Built-in daily/weekly completion tracking to avoid repeating finished tasks.
-- **Failure recovery**: Automatically returns to the lobby and retries when recognition fails or the flow stalls.
-
-Implemented tasks:
 
 | Task | Description |
 | --- | --- |
@@ -48,50 +62,47 @@ Implemented tasks:
 | Ark | Manufacturer towers / simulation room / interception / arena |
 | Raid | Limited-time challenges (co-op / solo raid) |
 
-## 🚀 Quick Start
+## 🔧 Troubleshooting
+
+If you run into problems, check the following steps one by one before asking:
+
+1. **Install path**: make sure the app is installed under a path with English characters only; avoid folders containing Chinese characters.
+2. **Antivirus**: add the app's install folder to your antivirus (including Windows Defender) trust list or whitelist, to prevent files from being mistakenly deleted or blocked.
+3. **Display settings**:
+   - Turn off Windows Auto HDR.
+   - Graphics quality: the higher the better.
+4. **Game language**: Simplified Chinese is preferred.
+5. **App version**: make sure you are using the latest version.
+6. **Ask for help**: if none of the above solves your problem, submit a detailed bug report via a GitHub ISSUE or community channels.
+
+## 💻 Developers
 
 Run from source; requires Python 3.12 (other versions untested):
 
 ```powershell
+git clone https://github.com/c6n1aa/ok-nikke.git
+cd ok-nikke
 py -3.12 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install --no-deps -r requirements.txt --upgrade
+.\.venv\Scripts\python.exe -m pip install --no-deps -r requirements.txt --upgrade
 
-# Debug mode (with dev tools)
-python main_debug.py
+# Debug mode (with screenshot/annotation dev tools)
+.\.venv\Scripts\python.exe main_debug.py
 
 # Release mode
-python main.py
+.\.venv\Scripts\python.exe main.py
 ```
 
-If the target game runs as administrator, the automation program must also run with administrator privileges, otherwise capture or input may not take effect. See [Quick start](docs/en/getting-started.md) for runtime-target configuration and packaging.
+> `--no-deps` is required: dependencies are locked in `requirements.txt` (including all transitive ones); letting pip resolve them installs the `pyside6` meta-package and addons modules.
 
-## 📥 Downloads
-
-- **[GitHub Releases](https://github.com/c6n1aa/ok-nikke/releases)**: Official release page. Each tag provides an `ok-nikke-win32-portable.zip`; extract anywhere and run the included `ok-nikke.exe` (administrator privileges required).
-
-## 📖 Documentation
-
-The complete documentation is organized as an MkDocs site; preview it locally with `python -m mkdocs serve`:
-
-- [Home](docs/en/index.md)
-- [Quick start](docs/en/getting-started.md)
-- [App and runtime target configuration](docs/en/configuration.md)
-- [Task development](docs/en/tasks.md)
-- [Screen recognition & failure recovery](docs/en/screen-and-recovery.md)
-- [Packaging and release](docs/en/release.md)
-- [中文文档](docs/index.md)
-
-## 💻 Developers
-
-Run tests (after completing the environment setup):
+Run tests:
 
 ```powershell
-python -m unittest tests.TestMain
+.\.venv\Scripts\python.exe -m unittest tests.TestMain
 # Full suite: run each test file in its own process
 .\run_tests.ps1
 ```
+
+More developer docs: [Development setup](docs/en/development.md) · [App configuration](docs/en/configuration.md) · [Task development](docs/en/tasks.md) · [Screen recognition & failure recovery](docs/en/screen-and-recovery.md) · [Packaging and release](docs/en/release.md)
 
 This project is built on the [ok-script](https://ok-script.com) framework. Feel free to use [ok-script](https://ok-script.com) to build your own automation projects.
 

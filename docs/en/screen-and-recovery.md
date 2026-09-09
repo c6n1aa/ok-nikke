@@ -2,7 +2,7 @@
 
 This page is the shared constraint for task development: `NikkeBaseTask` (`src/tasks/NikkeBaseTask.py`) provides a three-layer skeleton — "screen recognition + guarded navigation + failure recovery" — built entirely on existing ok-script APIs. Agents must follow the "Constraints" section when building new tasks.
 
-- Detection data is centralized in `src/screens.py` (single source of truth); detection/navigation/recovery mechanics live in `NikkeBaseTask`.
+- Detection data is centralized in `src/screens.py` (single source of truth); detection/navigation/recovery mechanics live in `NikkeBaseTask` (implementation split by responsibility into mixins under `src/tasks/base/`; the base class only composes them).
 - The frame-level detection cache is fully transparent: results are bit-identical to uncached detection; callers of the APIs below never need to think about it.
 
 ## Screen Recognition

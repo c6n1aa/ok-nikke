@@ -1,6 +1,6 @@
 # 应用配置
 
-应用配置集中在 `src/config.py`，在 `ok.OK(config)` 之前生效。
+面向开发者。应用配置集中在 `src/config.py`，在 `ok.OK(config)` 之前生效。普通用户的任务开关与配置项都在应用主界面选择，无需修改代码。
 
 ## 应用信息
 
@@ -16,7 +16,7 @@
 
 ## 运行目标
 
-本项目**只启用 Windows 原生目标**（《NIKKE》Windows 客户端）。`adb`（模拟器/Android）与 `browser` 目标在 `src/config.py` 中以注释形式保留，未启用：启用浏览器目标需要额外安装 `playwright`，且依赖要重新从 `pyproject.toml` 锁定。
+本项目**只启用 Windows 原生目标**（《胜利女神：NIKKE》Windows 客户端）。`adb`（模拟器/Android）与 `browser` 目标在 `src/config.py` 中以注释形式保留，未启用：启用浏览器目标需要额外安装 `playwright`，且依赖要重新从 `pyproject.toml` 锁定。
 
 `windows` 部分：
 

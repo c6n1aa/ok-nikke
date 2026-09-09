@@ -1,10 +1,13 @@
 # Packaging and Release
 
+For developers. End users just download the portable package from [GitHub Releases](https://github.com/c6n1aa/ok-nikke/releases); see [Quick start](getting-started.md).
+
 ## Release Files
 
-- `.github/workflows/build.yml`: watches `v*` tags, runs tests, uses pyappify-action to compile only the launcher exe (`build_exe_only`), then runs `ok-nikke.exe -c setup -p Release` to generate the `data/` folder (embedded Python + venv + code cloned at the tag), zips everything into a portable package and creates a GitHub Release. No NSIS installer.
-- `pyappify.yml`: defines the app name, entry point, icon, Python version, and update repository. A single `Release` profile; no China/Global split. Keep the profile name in sync with the `-p` argument in the workflow.
-- `deploy.txt`: lists files copied to a dedicated update repository (not used yet; the source repository is the update source).
+- `.github/workflows/build.yml`: watches `v*` tags, runs tests (one file per process), inlines ok-script into the source bundle (`inline_ok_requirements`, removed from requirements to speed up in-app updates), then uses pyappify-action to compile only the launcher exe (`build_exe_only`), runs `ok-nikke.exe -c setup -p Release` to generate the `data/` folder (embedded Python + venv + code cloned at the tag), zips everything into a portable package and creates a GitHub Release. No NSIS installer.
+- `pyappify.yml`: defines the app name, entry point, icon, Python version, and update repository. A single `Release` profile; keep the profile name in sync with the `-p` argument of the `setup` step in the workflow.
+- `pyappify-cn.yml` / `pyappify-global.yml`: update source configs shipped in the package root. Both currently point to GitHub (no China mirror yet); users rename one to `pyappify.yml` before the first run.
+- `deploy.txt`: lists files synced to a dedicated update repository (unused; the source repository is the update source).
 
 ## Release Artifact
 
@@ -12,33 +15,31 @@ Each tag publishes exactly one file:
 
 - `ok-nikke-win32-portable.zip`: full portable package (launcher exe + `data/` with all dependencies). Extract anywhere and run `ok-nikke.exe` (administrator rights required).
 
+The package root also ships `pyappify-cn.yml` and `pyappify-global.yml`. Before the first run, rename one of them to `pyappify.yml` (next to `ok-nikke.exe`) according to your network; the launcher reads it as the update source config. Both currently point to GitHub; once a China mirror repository exists, `pyappify-cn.yml` will switch to the mirror address.
+
 In-app updates are handled by the launcher via git tags (fetch `git_url` -> checkout -> re-run pip when requirements change) and do not depend on the release artifact format. `git_url` is driven by the `pyappify.yml` tracked in the repository; changing it takes effect with the next release without rebuilding the launcher.
 
 ## Adapt the Build Workflow
 
-Before the first release, update `.github/workflows/build.yml`:
+To adjust release settings, edit `.github/workflows/build.yml`:
 
-- Replace the Git identity.
-- Replace source and update repository URLs.
-- Replace the portable package name and Release download links.
+- Git identity, source and update repository URLs.
+- Portable package name and Release download links.
 
 The workflow already declares `permissions: contents: write`; no extra secrets are required.
 
-This project does not integrate MirrorChyan, CNB, or file-hosting channels. Refer to the sections of the framework docs if you want to add them.
+This project does not integrate MirrorChyan, CNB, or file-hosting channels; refer to the framework docs if you want to add them.
 
-## Push a Version Tag
+## Publish a New Version
 
-Commit and push the initialized project, then create a tag matching `v*`:
+Prefer the built-in `deploy` skill (`.agents/skills/deploy/`): it commits, creates the next annotated tag, and pushes automatically. You can also do it manually:
 
 ```bash
-git add .
-git commit -m "Initialize project"
-git push origin HEAD
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.x.0
+git push origin v0.x.0
 ```
 
-GitHub Actions runs the tests, packages the portable zip, and creates a matching GitHub Release. Search `.github/workflows` once more for stale template repositories, names, or missing secrets before release.
+After a `v*` tag is pushed, GitHub Actions runs the tests, packages the portable zip, and creates the GitHub Release. Tag names containing `-` (e.g. `v0.2.0-beta.1`) are marked as prerelease.
 
 ## Reusing the Launcher to Speed Up Builds
 
