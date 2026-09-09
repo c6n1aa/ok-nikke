@@ -126,6 +126,12 @@ msgstr "子字符串值"
 msgid "Available Drop Down Value 1"
 msgstr "可用下拉框值 1"
 
+msgid "True"
+msgstr "bool值 True"
+
+msgid "False"
+msgstr "bool值 False"
+
 msgid "触发器会不断调用run方法"
 msgstr "触发器会不断调用run方法"
 

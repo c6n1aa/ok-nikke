@@ -126,6 +126,12 @@ msgstr "Sub String Value"
 msgid "Available Drop Down Value 1"
 msgstr "Available Drop Down Value 1"
 
+msgid "True"
+msgstr "True"
+
+msgid "False"
+msgstr "False"
+
 msgid "触发器会不断调用run方法"
 msgstr "The trigger repeatedly calls the run method"
 
