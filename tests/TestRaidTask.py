@@ -293,6 +293,7 @@ class TestDailyTaskRaidIntegration(_DebugOffTestCase):
         daily.config["商店"] = False
         daily.config["付费商店"] = False
         daily.config["招募"] = False  # 与 DailyTask.default_config 的键名一致，隔离新子流程。
+        daily.config["其他杂项"] = False  # 与 DailyTask.default_config 的键名一致，隔离新子流程。
         daily.config["方舟"] = True
         daily.config["Raid"] = True  # 与 DailyTask.default_config 的键名一致，验证讨伐开关真正生效。
         raid_ran = []
