@@ -23,7 +23,7 @@ class TestScreenRecovery(TaskTestCase):
         self.task.register_screen("lobby", features=["ark"])
 
     def test_global_screens_registry_matches_migrated_specs(self):
-        # 集中式注册表收录全部 24 个界面：9 个迁移自任务 __init__、3 个竞技场界面、商店与方舟排名子页面、
+        # 集中式注册表收录全部 25 个界面：9 个迁移自任务 __init__、3 个竞技场界面、商店/招募/方舟排名子页面、
         # 4 个拦截战界面、5 个前哨基地界面，外加冷启动正向锚点 login_page。
         # 顺序即 SCREENS 注册顺序（login_page 紧随 lobby）。
         expected = {
@@ -34,6 +34,7 @@ class TestScreenRecovery(TaskTestCase):
             "simulation_room": {"any_features": ["simulation_mark", "simulation_overclock_update"]},
             "shop": {"keywords": ["百货商店"], "ocr_box": "box_sub_pages_title"},
             "cash_shop": {"keywords": ["付费商店"], "ocr_box": "box_sub_pages_title"},
+            "recruit_page": {"keywords": ["招募队员"], "ocr_box": "box_sub_pages_title"},
             "coop_page": {"features": ["coop_page"]},
             "coop_nikke_select_page": {"features": ["coop_nikke_select_page"]},
             "solo_raid_page": {"features": ["solo_raid_page"]},

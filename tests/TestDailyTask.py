@@ -19,7 +19,7 @@ def _isolate_task_config(task, name):
     task.config['_execution_states'] = {}  # 清空执行状态，避免读到真实环境遗留记录。
 
 
-_SUB_FLOW_KEYS = ("收获", "歼灭", "前哨基地", "商店", "付费商店", "方舟", "Raid")  # 日常编排的全部子流程开关。
+_SUB_FLOW_KEYS = ("收获", "歼灭", "前哨基地", "商店", "付费商店", "招募", "方舟", "Raid")  # 日常编排的全部子流程开关。
 
 
 class TestDailyTask(TaskTestCase):
@@ -44,7 +44,7 @@ class TestDailyTask(TaskTestCase):
                 patch.object(self.task, "_daily_end_flow", side_effect=lambda: calls.append("end_flow")) as end_mock:
             self.task.run()  # 执行日常编排。
         end_mock.assert_called_once()  # 收尾流程执行且仅执行一次。
-        self.assertEqual(8, len(calls))  # 7 个子流程 + 1 次收尾。
+        self.assertEqual(9, len(calls))  # 8 个子流程 + 1 次收尾。
         self.assertEqual("end_flow", calls[-1])  # 收尾流程在全部子流程之后执行。
 
     def test_run_executes_end_flow_when_all_subtasks_disabled(self):
