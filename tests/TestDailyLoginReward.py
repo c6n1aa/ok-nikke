@@ -63,10 +63,12 @@ class TestDailyLoginRewardPopup(TaskTestCase):
             info['expanded'] = box  # 记录被判色的框（应已是外扩后的）。
             return enabled
 
-        with patch.object(self.task, 'ocr', side_effect=fake_ocr), \
+        with patch.object(self.task, 'find_one', return_value=None), \
+                patch.object(self.task, 'ocr', side_effect=fake_ocr), \
                 patch.object(self.task, 'find_scaled_template', side_effect=fake_find), \
                 patch.object(self.task, 'is_feature_enabled', side_effect=fake_enabled), \
                 patch.object(self.task, 'click_box', side_effect=lambda box, **_k: clicked.append(box)), \
+                patch.object(self.task, 'close_overlay'), \
                 patch.object(self.task, 'sleep'):  # 屏蔽 after_sleep 等待。
             result = self.task._close_daily_login_popup()
         return result, clicked, info
@@ -106,6 +108,40 @@ class TestDailyLoginRewardPopup(TaskTestCase):
         result, clicked, _ = self._run_close(claim_text=text, close=None, enabled=False)
         self.assertFalse(result)  # 无可关动作。
         self.assertEqual([], clicked)  # 不产生点击。
+
+    def test_skip_claim_when_mission_page_present(self):
+        """任务弹窗在前时，底部「全部领取」是任务页按钮，不当作登录奖励弹窗误点。"""
+        text = self._box(name='全部领取')  # 模拟任务页的「全部领取」文字框（OCR 命中也不应点）。
+        clicked = []  # 收集被点击的框。
+        mission = self._box(name='mission_page')  # 模拟任务弹窗标题特征命中。
+        with patch.object(self.task, 'find_one', return_value=mission), \
+                patch.object(self.task, 'ocr', return_value=[text]), \
+                patch.object(self.task, 'click_box', side_effect=lambda box, **_k: clicked.append(box)), \
+                patch.object(self.task, 'sleep'):
+            result = self.task._close_daily_login_popup()
+        self.assertFalse(result)  # 判定为任务页而非登录奖励弹窗。
+        self.assertEqual([], clicked)  # 不产生任何点击。
+
+    def test_claim_all_dismisses_reward_mask(self):
+        """点击「全部领取」后立即清理弹出的奖励遮罩。"""
+        text = self._box(name='全部领取')  # 模拟 OCR 命中的「全部领取」文字框。
+        clicked = []  # 收集被点击的框。
+        with patch.object(self.task, 'find_one', return_value=None), \
+                patch.object(self.task, '_find_daily_login_claim_all', return_value=text), \
+                patch.object(self.task, 'is_feature_enabled', return_value=True), \
+                patch.object(self.task, 'click_box', side_effect=lambda box, **_k: clicked.append(box)), \
+                patch.object(self.task, 'close_overlay') as overlay_mock, \
+                patch.object(self.task, 'sleep'):
+            result = self.task._close_daily_login_popup()
+        self.assertTrue(result)  # 返回已处理。
+        self.assertEqual([text], clicked)  # 只点击一次领取按钮。
+        overlay_mock.assert_called_once()  # 领取后清理一次奖励遮罩。
+        kwargs = overlay_mock.call_args.kwargs  # 读取关键字参数。
+        self.assertFalse(kwargs["require_click"])  # 遮罩未出现时不应报错。
+        self.assertEqual(5, kwargs["time_out"])  # 给遮罩出现留出等待窗口。
+        patterns = kwargs["keywords"]  # 遮罩关键词。
+        self.assertTrue(any(p.search("点击领取奖励") for p in patterns))  # 覆盖领奖遮罩。
+        self.assertTrue(any(p.search("点击任意处") for p in patterns))  # 覆盖任意处遮罩。
 
     def test_ocr_region_covers_claim_text(self):
         """OCR 区域必须覆盖「全部领取」文字在 2560x1440 基准下的实测范围。"""
@@ -184,9 +220,11 @@ class TestDailyLoginRewardPopup(TaskTestCase):
         with patch.object(self.task, '_close_rupee_flash_sale_popup', return_value=False), \
                 patch.object(self.task, '_close_notice_popup', return_value=False), \
                 patch.object(self.task, 'ocr', side_effect=[[], [text]]), \
+                patch.object(self.task, 'find_one', return_value=None), \
                 patch.object(self.task, 'find_scaled_template', return_value=None), \
                 patch.object(self.task, 'is_feature_enabled', return_value=True), \
                 patch.object(self.task, 'click_box', side_effect=lambda box, **_k: clicked.append(box)), \
+                patch.object(self.task, 'close_overlay'), \
                 patch.object(self.task, 'sleep'):
             self.assertTrue(self.task._try_close_one_popup())  # 面板被处理。
         self.assertEqual([text], clicked)  # 点击的是领取按钮。

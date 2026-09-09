@@ -21,7 +21,7 @@ ok-nikke 是基于 PyPI `ok-script`（2.x）构建的《胜利女神：NIKKE》W
 
 ## 架构概览
 
-- `src/tasks/`：全部任务类所在，`NikkeBaseTask.py` 是基类（集成界面识别/导航/恢复、完成状态、模板缩放、弹窗清理、战斗等待等通用方法，用法见「关键机制」）；新增任务模板见同目录 `MyOneTimeTask`（一次性）/`MyTriggerTask`（后台触发）。任务清单注册在 `src/config.py` 的 `onetime_tasks`（`trigger_tasks` 当前为空）。
+- `src/tasks/`：全部任务类所在，`NikkeBaseTask.py` 是基类（集成界面识别/导航/恢复、完成状态、模板缩放、弹窗清理、战斗等待等通用方法，用法见「关键机制」）；基类的实现按职责拆在 `src/tasks/base/` 下的 mixin 里，`NikkeBaseTask` 只做组合，新增/修改基类能力一律改对应 mixin，不要动 `NikkeBaseTask.py`。新增任务模板见同目录 `MyOneTimeTask`（一次性）/`MyTriggerTask`（后台触发）。任务清单注册在 `src/config.py` 的 `onetime_tasks`（`trigger_tasks` 当前为空）。
 - `src/patches/`：ok-script 猴子补丁唯一入口（`basic_options`/`start_controller`/`runtime`/`tasks_tab`），各补丁职责见 `src/patches/README.md`。
 - `src/screens.py`：界面识别单一数据源（`SCREENS` 注册表 + `INTERRUPTS` 中断哨兵）。
 - `src/ui/`：自定义 tab（当前仅 `DailyTab`，经 `src/config.py` 的 `custom_tabs` 注册）。

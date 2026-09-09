@@ -5,6 +5,7 @@ from ok.feature.Box import Box
 from ok.test.TaskTestCase import TaskTestCase
 
 from src.config import config
+import src.tasks.base._battle as battle_module
 import src.tasks.NikkeBaseTask as nbt
 from src.tasks.HarvestTask import HarvestTask
 
@@ -100,7 +101,7 @@ class TestBattleWait(TaskTestCase):
         def fake_next_frame():
             self.task._screen_cache.clear()  # 模拟帧推进：与基类覆写的失效语义一致。
             return None
-        with patch.object(nbt, "INTERRUPTS", {"screens": [], "features": ["disconnect_mark"]}), \
+        with patch.object(battle_module, "INTERRUPTS", {"screens": [], "features": ["disconnect_mark"]}), \
                 patch.object(self.task, "sleep"), \
                 patch.object(self.task, "next_frame", side_effect=fake_next_frame), \
                 patch.object(self.task, "get_box_by_name", side_effect=ValueError), \
