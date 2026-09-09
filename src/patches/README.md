@@ -25,6 +25,10 @@
 
 禁用 OpenVINO 遥测；在 `HwndWindow.visible_monitors` 上注册焦点守卫：一次性任务运行期间游戏窗口失焦即暂停执行器（弹托盘通知），切回前台自动恢复（先经 `reset_scene` 丢弃暂停前的旧帧）。后台 `TriggerTask` 不受影响；不会主动抢占前台。包装 `TaskExecutor.destroy`：进程退出前 join 后台 `DefaultOCRInit` 线程（懒初始化 OCR、导入 openvino），否则初始化未完成时解释器终结会因 import 锁死锁导致进程永不退出（典型触发：跑得快的测试文件）。
 
+### start_tab.py
+
+包装 `ok.ui.qt.start.StartTab.StartTab.__init__`：正式版（非 `config['debug']` 启动）在构建完成后把末尾的「调试悬浮窗」卡片（标记框/悬浮窗日志两个开关）从布局移除并销毁；debug 模式（`main_debug.py`）下保留。
+
 ### tasks_tab.py
 
 把日常任务卡片置顶到任务 tab 顶部，其下插入 `HorizontalSeparator` 分割线（`ExpandCardLayout` 增加了 `insertWidget(index, widget)` 辅助方法用于放置分割线）；`TaskCard` 把日常卡片展开区过滤到只剩一行标准 `button` 配置行（`DailyTask.DAILY_SETTINGS_BUTTON_KEY`，回调 `DailyTask.open_daily_settings` 切换到日常设置 tab），并给 `done_keys` 非空的任务卡片注入「重置完成状态」按钮。
