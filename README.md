@@ -32,9 +32,8 @@
 
 ## 🚀 快速开始
 
-1. 从 [GitHub Releases](https://github.com/c6n1aa/ok-nikke/releases) 下载最新 `ok-nikke-win32-portable.zip`，解压到任意目录。
-2. 按网络环境将便携包根目录的 `pyappify-cn.yml` 或 `pyappify-global.yml` 重命名为 `pyappify.yml`（与 `ok-nikke.exe` 同目录），作为更新源配置。
-3. 以管理员身份运行 `ok-nikke.exe`。
+1. 从 [GitHub Releases](https://github.com/c6n1aa/ok-nikke/releases) 下载最新便携包并解压到任意目录：海外网络用 `ok-nikke-win32-portable.zip`，国内网络用 `ok-nikke-win32-portable-cn.zip`。
+2. 以管理员身份运行 `ok-nikke.exe`。
 
 注意事项：
 

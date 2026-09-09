@@ -16,6 +16,10 @@ jobs:
 
     env:
       PYTHONIOENCODING: 'UTF-8'
+      # 复用指定 Release 中的 ok-nikke-win32.zip 启动器, 跳过约 12 分钟的 Tauri 编译;
+      # 取值形如 https://api.github.com/repos/c6n1aa/ok-nikke/releases/tags/v0.1.1
+      # 仅当 icons/ 与 pyappify.yml 自该版本起都未变化时可用(两者均内嵌在 exe 中), 平时留空
+      USE_RELEASE: ''
 
     strategy:
       matrix:
@@ -65,7 +69,6 @@ jobs:
         run: |
           # 把 deploy.txt 里列出的文件 + 同名 tag 推送到国内镜像仓库, 供 CN 用户应用内更新
           $tag = "${{ github.ref_name }}"
-          $cnbUrl = "https://cnb.cool/c6n1aa/ok-nikke"
           $mirrorUrl = "https://cnb:$env:CNB_DEPLOY_TOKEN@cnb.cool/c6n1aa/ok-nikke"
           $work = Join-Path $env:RUNNER_TEMP "cnb-mirror"
           Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue
@@ -77,7 +80,8 @@ jobs:
             git checkout --orphan main
           }
 
-          # 按 deploy.txt 清单把文件从源码工作树拷进镜像(此时已内联 ok/pyappify)
+          # 按 deploy.txt 清单把文件从源码工作树拷进镜像(此时已内联 ok/pyappify);
+          # pyappify.yml 原样同步: 其 Release-CN profile 的 git_url 已指向 CNB, CN 用户当前 profile 为 Release-CN 时会走 CNB
           $srcRoot = $env:GITHUB_WORKSPACE
           Get-Content (Join-Path $srcRoot "deploy.txt") |
             Where-Object { $_.Trim() -and -not $_.Trim().StartsWith('#') } |
@@ -88,11 +92,6 @@ jobs:
                 Copy-Item $src $work -Recurse -Force
               }
             }
-
-          # CNB 镜像的 pyappify.yml 必须指向 CNB 自己, 否则 CN 用户装完会跳回 github
-          $yml = Get-Content (Join-Path $srcRoot "pyappify.yml") -Raw
-          $yml = $yml -replace 'git_url:\s*"[^"]*"', ('git_url: "' + $cnbUrl + '"')
-          Set-Content -Path (Join-Path $work "pyappify.yml") -Value $yml -NoNewline
 
           # 清掉内联包里的缓存目录
           Get-ChildItem $work -Recurse -Directory -Filter "__pycache__" -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
@@ -110,35 +109,87 @@ jobs:
 
       - name: Build launcher with PyAppify Action
         id: build-app
+        if: ${{ env.USE_RELEASE == '' }}
         uses: ok-oldking/pyappify-action@master #只编译启动器exe, 不再走NSIS安装器
         with:
           build_exe_only: true
 
-      - name: Package portable zip
+      - name: Reuse launcher from previous release
+        id: reuse-app
+        if: ${{ env.USE_RELEASE != '' }}
         shell: pwsh
         run: |
-          # 运行启动器 setup 命令, 在 exe 同目录生成 data(内嵌Python/venv/按tag克隆的代码); -p 需与 pyappify.yml 的 profile 名一致
-          $appDir = Join-Path "pyappify_dist" "ok-nikke"
-          New-Item -ItemType Directory -Path $appDir -Force | Out-Null
-          $exe = Join-Path $appDir "ok-nikke.exe"
-          Copy-Item "${{ steps.build-app.outputs.exe-path }}" $exe
-          # launcher 是 windows_subsystem="windows" 的 GUI 程序, `&` 不会等待也拿不到退出码;
-          # 必须用 Start-Process -Wait -PassThru 阻塞到 setup 完成并读取 ExitCode
-          $setupOut = Join-Path "pyappify_dist" "setup.stdout.log"
-          $setupErr = Join-Path "pyappify_dist" "setup.stderr.log"
-          $setup = Start-Process -FilePath $exe -ArgumentList "-c","setup","-p","Release" -Wait -PassThru -RedirectStandardOutput $setupOut -RedirectStandardError $setupErr
-          Get-Content $setupOut -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_ }
-          Get-Content $setupErr -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_ }
-          if ($setup.ExitCode -ne 0) { throw "pyappify setup failed with exit code $($setup.ExitCode)" }
-          if (-not (Test-Path (Join-Path $appDir "data"))) { throw "pyappify setup did not generate the data folder" }
-          # 放更新源配置文件到包根目录, 供用户首次运行前按环境重命名为 pyappify.yml 选择更新源
-          Copy-Item "pyappify-cn.yml" (Join-Path $appDir "pyappify-cn.yml")
-          Copy-Item "pyappify-global.yml" (Join-Path $appDir "pyappify-global.yml")
-          # 清掉打包过程中产生的缓存/日志, 不进便携包
-          Remove-Item (Join-Path $appDir "cache") -Recurse -Force -ErrorAction SilentlyContinue
-          Remove-Item (Join-Path $appDir "logs") -Recurse -Force -ErrorAction SilentlyContinue
-          Remove-Item (Join-Path $appDir "EBWebView") -Recurse -Force -ErrorAction SilentlyContinue
-          Compress-Archive -Path $appDir -DestinationPath "pyappify_dist\ok-nikke-win32-portable.zip" -Force
+          # pyappify-action 的 use_release 与 build_exe_only 互斥且会连带打 NSIS 安装器,
+          # 这里做等效事: 从指定 Release 下载 ok-nikke-win32.zip, 取出 exe 直接使用
+          $url = "${{ env.USE_RELEASE }}"
+          $release = Invoke-RestMethod -Uri $url -Headers @{ "User-Agent" = "ok-nikke-build" }
+          $asset = $release.assets | Where-Object { $_.name -eq "ok-nikke-win32.zip" } | Select-Object -First 1
+          if (-not $asset) { throw "未在 $url 找到 ok-nikke-win32.zip 资产(该版本发布时工作流尚不上传启动器 zip)" }
+          $zip = Join-Path $env:RUNNER_TEMP "ok-nikke-win32.zip"
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zip
+          $extract = Join-Path $env:RUNNER_TEMP "ok-nikke-launcher"
+          Expand-Archive $zip $extract -Force
+          $exe = Join-Path $extract "ok-nikke" "ok-nikke.exe"
+          if (-not (Test-Path $exe)) { throw "启动器 zip 中未找到 ok-nikke/ok-nikke.exe" }
+          echo "exe-path=$exe" >> $env:GITHUB_OUTPUT
+
+      - name: Package portable zips
+        shell: pwsh
+        run: |
+          # 运行启动器 setup 命令, 在 exe 同目录生成 data(内嵌Python/venv/按 profile 的 git_url 克隆的代码);
+          # -p 的 profile 名与 pyappify.yml 里的 profiles 对应(Release=GitHub, Release-CN=CNB)
+          # build-app / reuse-app 两个分支必有其一, 被跳过步骤的 output 为空字符串
+          $exeSrc = "${{ steps.build-app.outputs.exe-path }}${{ steps.reuse-app.outputs.exe-path }}"
+          if (-not (Test-Path $exeSrc)) { throw "launcher exe not found: '$exeSrc'" }
+          $dist = "pyappify_dist"
+          # 顺便产出 ok-nikke-win32.zip 启动器包(顶层目录 ok-nikke/, 与 pyappify 基础包格式一致),
+          # 随 Release 发布, 供后续版本通过 USE_RELEASE 复用以跳过 Tauri 编译
+          $stage = Join-Path $dist "launcher-stage"
+          New-Item -ItemType Directory -Path (Join-Path $stage "ok-nikke") -Force | Out-Null
+          Copy-Item $exeSrc (Join-Path $stage "ok-nikke" "ok-nikke.exe")
+          Compress-Archive -Path (Join-Path $stage "ok-nikke") -DestinationPath (Join-Path $dist "ok-nikke-win32.zip") -Force
+          Remove-Item $stage -Recurse -Force
+          $tag = "${{ github.ref_name }}"
+          $githubUrl = "https://github.com/c6n1aa/ok-nikke.git"
+          $cnbUrl = "https://cnb.cool/c6n1aa/ok-nikke"
+
+          function Invoke-PortableSetup($appDir, $profile, $gitUrl) {
+            New-Item -ItemType Directory -Path $appDir -Force | Out-Null
+            $exe = Join-Path $appDir "ok-nikke.exe"
+            Copy-Item $exeSrc $exe
+            # launcher 是 windows_subsystem="windows" 的 GUI 程序, `&` 不会等待也拿不到退出码;
+            # 必须用 Start-Process -Wait -PassThru 阻塞到 setup 完成并读取 ExitCode
+            $leaf = Split-Path $appDir -Leaf
+            $setupOut = Join-Path $dist "setup-$leaf.stdout.log"
+            $setupErr = Join-Path $dist "setup-$leaf.stderr.log"
+            $setup = Start-Process -FilePath $exe -ArgumentList "-c","setup","-p",$profile -Wait -PassThru -RedirectStandardOutput $setupOut -RedirectStandardError $setupErr
+            Get-Content $setupOut -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_ }
+            Get-Content $setupErr -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_ }
+            if ($setup.ExitCode -ne 0) { throw "pyappify setup failed with exit code $($setup.ExitCode)" }
+            if (-not (Test-Path (Join-Path $appDir "data"))) { throw "pyappify setup did not generate the data folder" }
+            # setup 不会把 git 元数据(.git)留进 repo/, 便携包因此不被识别为已安装;
+            # 这里重新克隆对应源仓库并 checkout 当前 tag, 让包自带可更新的 git 仓库
+            $repoDir = Join-Path $appDir "data/apps/ok-nikke/repo"
+            Remove-Item $repoDir -Recurse -Force -ErrorAction SilentlyContinue
+            git clone "$gitUrl" $repoDir
+            if ($LASTEXITCODE -ne 0) { throw "git clone failed for $gitUrl" }
+            git -C "$repoDir" checkout -q "$tag"
+            if ($LASTEXITCODE -ne 0) { throw "git checkout failed for tag $tag" }
+            # 清掉打包过程中产生的缓存/日志, 不进便携包
+            Remove-Item (Join-Path $appDir "cache") -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item (Join-Path $appDir "logs") -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item (Join-Path $appDir "EBWebView") -Recurse -Force -ErrorAction SilentlyContinue
+          }
+
+          # Global 便携包: Release profile → GitHub
+          $globalDir = Join-Path $dist "ok-nikke"
+          Invoke-PortableSetup $globalDir "Release" $githubUrl
+          Compress-Archive -Path $globalDir -DestinationPath "$dist\ok-nikke-win32-portable.zip" -Force
+
+          # CN 便携包: Release-CN profile → CNB 镜像
+          $cnDir = Join-Path $dist "ok-nikke-cn"
+          Invoke-PortableSetup $cnDir "Release-CN" $cnbUrl
+          Compress-Archive -Path $cnDir -DestinationPath "$dist\ok-nikke-win32-portable-cn.zip" -Force
 
       - name: Release
         uses: softprops/action-gh-release@v2
@@ -150,7 +201,11 @@ jobs:
             ###  更新日志
               请查看提交记录。
             ### 下载说明
-              * [ok-nikke-win32-portable.zip](https://github.com/c6n1aa/ok-nikke/releases/download/${{ github.ref_name }}/ok-nikke-win32-portable.zip) 完整便携包: 解压到任意目录, 运行其中的 ok-nikke.exe (需管理员权限), 应用内可自动更新。
-              * Full portable package: extract anywhere, run ok-nikke.exe as administrator. In-app auto-update supported.
+              * [ok-nikke-win32-portable.zip](https://github.com/c6n1aa/ok-nikke/releases/download/${{ github.ref_name }}/ok-nikke-win32-portable.zip) 全球版完整便携包: 从 GitHub 更新, 解压到任意目录运行 ok-nikke.exe (需管理员权限)。
+              * [ok-nikke-win32-portable-cn.zip](https://github.com/c6n1aa/ok-nikke/releases/download/${{ github.ref_name }}/ok-nikke-win32-portable-cn.zip) 国内版完整便携包: 从 CNB 镜像更新, 解压到任意目录运行 ok-nikke.exe (需管理员权限)。
+              * ok-nikke-win32.zip 仅含启动器, 供 CI 复用加速构建, 普通用户无需下载。
               * 无需下载 Source code, 仅供存档用。
-          files: pyappify_dist/ok-nikke-win32-portable.zip
+          files: |
+            pyappify_dist/ok-nikke-win32-portable.zip
+            pyappify_dist/ok-nikke-win32-portable-cn.zip
+            pyappify_dist/ok-nikke-win32.zip

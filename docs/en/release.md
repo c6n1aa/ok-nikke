@@ -5,17 +5,18 @@ For developers. End users just download the portable package from [GitHub Releas
 ## Release Files
 
 - `.github/workflows/build.yml`: watches `v*` tags, runs tests (one file per process), inlines ok-script into the source bundle (`inline_ok_requirements`, removed from requirements to speed up in-app updates), then uses pyappify-action to compile only the launcher exe (`build_exe_only`), runs `ok-nikke.exe -c setup -p Release` to generate the `data/` folder (embedded Python + venv + code cloned at the tag), zips everything into a portable package and creates a GitHub Release. No NSIS installer.
-- `pyappify.yml`: defines the app name, entry point, icon, Python version, and update repository. A single `Release` profile; keep the profile name in sync with the `-p` argument of the `setup` step in the workflow.
-- `pyappify-cn.yml` / `pyappify-global.yml`: update source configs shipped in the package root. Both currently point to GitHub (no China mirror yet); users rename one to `pyappify.yml` before the first run.
-- `deploy.txt`: lists files synced to a dedicated update repository (unused; the source repository is the update source).
+- `pyappify.yml`: defines the app name, entry point, icon, Python version, and update repository. Two profiles: `Release` (GitHub) and `Release-CN` (CNB mirror, inheriting all other fields); the profile names correspond to the `-p` arguments of the `setup` step in the workflow.
+- `deploy.txt`: lists files synced to the CNB mirror repository (`src`, `ok`, `main.py`, `assets`, `pyappify.yml`, etc.).
 
 ## Release Artifact
 
-Each tag publishes exactly one file:
+Each tag publishes the following files:
 
-- `ok-nikke-win32-portable.zip`: full portable package (launcher exe + `data/` with all dependencies). Extract anywhere and run `ok-nikke.exe` (administrator rights required).
+- `ok-nikke-win32-portable.zip`: global portable package (launcher exe + `data/` with all dependencies), updating from GitHub. Extract anywhere and run `ok-nikke.exe` (administrator rights required).
+- `ok-nikke-win32-portable-cn.zip`: China portable package, updating from the CNB mirror (`https://cnb.cool/c6n1aa/ok-nikke`). Extract anywhere and run `ok-nikke.exe` (administrator rights required).
+- `ok-nikke-win32.zip`: launcher exe only, for CI reuse to speed up later builds (see "Reusing the Launcher to Speed Up Builds" below); end users do not need it.
 
-The package root also ships `pyappify-cn.yml` and `pyappify-global.yml`. Before the first run, rename one of them to `pyappify.yml` (next to `ok-nikke.exe`) according to your network; the launcher reads it as the update source config. Both currently point to GitHub; once a China mirror repository exists, `pyappify-cn.yml` will switch to the mirror address.
+The two packages share the same exe; they differ only in the profile used at `setup` time (global uses `Release`, CN uses `Release-CN`), so each package bakes a different update source (its active profile) into `data/`.
 
 In-app updates are handled by the launcher via git tags (fetch `git_url` -> checkout -> re-run pip when requirements change) and do not depend on the release artifact format. `git_url` is driven by the `pyappify.yml` tracked in the repository; changing it takes effect with the next release without rebuilding the launcher.
 
@@ -43,14 +44,9 @@ After a `v*` tag is pushed, GitHub Actions runs the tests, packages the portable
 
 ## Reusing the Launcher to Speed Up Builds
 
-The launcher exe only needs recompiling when the icon or pyappify configuration changes. For routine releases you can add the `use_release` input to the `Build launcher with PyAppify Action` step to reuse the launcher from a previous release and shorten build times:
+Compiling the launcher exe (Tauri) takes about 70% of the build time (~12 minutes). Both the icons (`icons/`) and `pyappify.yml` are embedded in the exe, so as long as neither has changed since a published release, later releases can reuse that release's launcher:
 
-```yaml
-- name: Build launcher with PyAppify Action
-  id: build-app
-  uses: ok-oldking/pyappify-action@master
-  with:
-    use_release: https://api.github.com/repos/c6n1aa/ok-nikke/releases/tags/v0.1.0
-```
+1. Every release ships an `ok-nikke-win32.zip` launcher-only asset (top-level folder `ok-nikke/ok-nikke.exe`, same layout as pyappify's base zip).
+2. Set the `USE_RELEASE` env var in `.github/workflows/build.yml` to a release API URL (e.g. `https://api.github.com/repos/c6n1aa/ok-nikke/releases/tags/v0.1.1`); the build then skips compilation and downloads the exe from that release. Leave it empty for routine builds.
 
-Note that `use_release` downloads the `ok-nikke-win32.zip` launcher-only asset from the referenced release, while this project's releases only ship the portable zip. To use this acceleration, the workflow must additionally publish that launcher-only zip, or the exe must be fetched from another location.
+The pyappify-action's own `use_release` input is mutually exclusive with `build_exe_only` and would additionally bundle NSIS installers, so this workflow does not use it; the `Reuse launcher from previous release` step implements the equivalent instead. Any release that changes the icons or `pyappify.yml` must leave `USE_RELEASE` empty and compile from scratch, otherwise the packages would ship a stale launcher with the old configuration.

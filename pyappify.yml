@@ -12,3 +12,5 @@ profiles:
     pip_args: "--no-deps"
     use_pythonw: true
     show_add_defender: true
+  - name: "Release-CN"
+    git_url: "https://cnb.cool/c6n1aa/ok-nikke"

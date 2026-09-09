@@ -4,9 +4,8 @@ For end users: download the portable package, run it, and troubleshoot. To work 
 
 ## Download and Run
 
-1. Download the latest `ok-nikke-win32-portable.zip` from [GitHub Releases](https://github.com/c6n1aa/ok-nikke/releases) and extract it anywhere.
-2. Rename `pyappify-cn.yml` (China) or `pyappify-global.yml` (global) in the package root to `pyappify.yml` (next to `ok-nikke.exe`) according to your network, to be used as the update source config.
-3. Run `ok-nikke.exe` as administrator.
+1. Download the latest portable package from [GitHub Releases](https://github.com/c6n1aa/ok-nikke/releases) and extract it anywhere: use `ok-nikke-win32-portable.zip` outside China, or `ok-nikke-win32-portable-cn.zip` inside China.
+2. Run `ok-nikke.exe` as administrator.
 
 ## Requirements
 

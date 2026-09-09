@@ -53,4 +53,4 @@ Register new or modified tasks here; see [Task development](tasks.md).
 ## Dependencies and Update Source
 
 - The dependency source is `pyproject.toml`: `pip-compile pyproject.toml -o requirements.txt`, then delete the generated `pyside6`/`pyside6-addons` entries (only `pyside6-essentials` is installed).
-- The update repository URL is `git_url` in `pyappify.yml`; the portable package ships `pyappify-cn.yml` / `pyappify-global.yml` for users to pick an update source. See [Packaging and release](release.md).
+- The update repository URL is `git_url` in `pyappify.yml`; the release ships two portable packages (global = GitHub, China = CNB mirror), each with its update source baked into its own `data/`. See [Packaging and release](release.md).

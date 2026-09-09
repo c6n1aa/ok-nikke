@@ -53,4 +53,4 @@
 ## 依赖与更新源
 
 - 依赖源是 `pyproject.toml`：`pip-compile pyproject.toml -o requirements.txt`，生成后删除 `pyside6`/`pyside6-addons` 条目（只装 `pyside6-essentials`）。
-- 更新仓库地址在 `pyappify.yml` 的 `git_url`；便携包附带的 `pyappify-cn.yml` / `pyappify-global.yml` 供用户选择更新源。详见[打包与发布](release.md)。
+- 更新仓库地址在 `pyappify.yml` 的 `git_url`；便携包分全球版（GitHub）与国内版（CNB 镜像）两个，更新源在打包时固化进各自 `data/`。详见[打包与发布](release.md)。
