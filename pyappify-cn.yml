@@ -5,8 +5,7 @@ icon: "icons/icon.png"
 profiles:
   # profile 名改动时需同步 .github/workflows/build.yml 中 setup 步骤的 -p 参数
   - name: "Release"
-    # TODO(国内镜像): 镜像仓库建好后，把下面 git_url 改成镜像地址即可（镜像仓库内也要放一份指向镜像自身的 pyappify.yml）
-    git_url: "https://github.com/c6n1aa/ok-nikke.git"
+    git_url: "https://cnb.cool/c6n1aa/ok-nikke"
     admin: true
     main_script: "main.py"
     requires_python: "3.12"

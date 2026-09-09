@@ -57,6 +57,57 @@ jobs:
               if ($LASTEXITCODE -ne 0) { throw "Tests failed in $($_.FullName)" }
           }
 
+      - name: Sync to CNB mirror
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          CNB_DEPLOY_TOKEN: ${{ secrets.CNB_DEPLOY_TOKEN }}
+        run: |
+          # 把 deploy.txt 里列出的文件 + 同名 tag 推送到国内镜像仓库, 供 CN 用户应用内更新
+          $tag = "${{ github.ref_name }}"
+          $cnbUrl = "https://cnb.cool/c6n1aa/ok-nikke"
+          $mirrorUrl = "https://cnb:$env:CNB_DEPLOY_TOKEN@cnb.cool/c6n1aa/ok-nikke"
+          $work = Join-Path $env:RUNNER_TEMP "cnb-mirror"
+          Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue
+          git clone "$mirrorUrl" $work
+          Set-Location $work
+
+          # 空仓库兜底: 无 HEAD 时先建 main 分支
+          if (-not (git rev-parse --verify HEAD 2>$null)) {
+            git checkout --orphan main
+          }
+
+          # 按 deploy.txt 清单把文件从源码工作树拷进镜像(此时已内联 ok/pyappify)
+          $srcRoot = $env:GITHUB_WORKSPACE
+          Get-Content (Join-Path $srcRoot "deploy.txt") |
+            Where-Object { $_.Trim() -and -not $_.Trim().StartsWith('#') } |
+            ForEach-Object {
+              $entry = $_.Trim().Trim('/')
+              $src = Join-Path $srcRoot $entry
+              if (Test-Path $src) {
+                Copy-Item $src $work -Recurse -Force
+              }
+            }
+
+          # CNB 镜像的 pyappify.yml 必须指向 CNB 自己, 否则 CN 用户装完会跳回 github
+          $yml = Get-Content (Join-Path $srcRoot "pyappify.yml") -Raw
+          $yml = $yml -replace 'git_url:\s*"[^"]*"', ('git_url: "' + $cnbUrl + '"')
+          Set-Content -Path (Join-Path $work "pyappify.yml") -Value $yml -NoNewline
+
+          # 清掉内联包里的缓存目录
+          Get-ChildItem $work -Recurse -Directory -Filter "__pycache__" -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+
+          git add -A
+          git diff --cached --quiet
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "No changes to sync to CNB mirror."
+          } else {
+            git commit -m "release $tag"
+          }
+          git tag -f "$tag"
+          git push origin HEAD
+          git push origin "$tag" -f
+
       - name: Build launcher with PyAppify Action
         id: build-app
         uses: ok-oldking/pyappify-action@master #只编译启动器exe, 不再走NSIS安装器
