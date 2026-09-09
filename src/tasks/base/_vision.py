@@ -38,7 +38,7 @@ class VisionMixin:
         return self.find_one(feature_name, template=template, **kwargs)
 
     def find_red_dot(self, box, template_path=None, threshold=0.6, min_blob_area=8,
-                     ref_width=2560, ref_height=1440) -> Box | None:
+                     ref_width=2560, ref_height=1440, use_color_fallback=True) -> Box | None:
         """在指定 box 区域内检测通知红点：模板匹配为主（返回精确位置），颜色检测兜底半透明/样式变体红点。
 
         红点检测必须限定在 box 区域内，不支持全图扫描（全图颜色检测误检率极高）。
@@ -48,12 +48,16 @@ class VisionMixin:
             box: 搜索区域。coco box 特征名（如 'box_mission_daily_badge'，自动按当前
                 分辨率缩放）或 Box 对象（可用 self.box_of_screen 生成相对坐标区域）。
             template_path: 红点模板路径（如 'assets/template/common/badge.png'）。传入时先做
-                模板匹配，命中返回精确位置；未命中或未传时用颜色检测兜底。
+                模板匹配，命中返回精确位置；未命中或未传时按 use_color_fallback 决定是否
+                用颜色检测兜底。
             threshold: 模板匹配阈值。默认 0.6，低于框架默认 0.8——半透明红点分数
                 偏低（实测 0.70-0.73），必须显式传阈值，不能回落默认 0.8。
             min_blob_area: 颜色检测判定红点存在的最小红色连通域面积（默认 8，
                 原分辨率红点约 70-95、720p 约 12-20，8 可跨分辨率通用）。
             ref_width/ref_height: 模板裁剪时的源截图分辨率，默认 2560x1440。
+            use_color_fallback: 是否启用颜色检测兜底（默认 True 保持原行为）。False 时
+                仅做模板匹配，未传模板或模板未命中直接返回 None，适合红点样式固定、
+                颜色检测易误检（区域含红色 UI 元素）的场景。
 
         Returns:
             命中返回红点位置 Box（模板命中为精确模板框，颜色兜底为最大红色连通域
@@ -70,6 +74,8 @@ class VisionMixin:
             )
             if found is not None:  # 模板命中。
                 return found  # 返回模板的精确位置。
+        if not use_color_fallback:  # 未开启颜色兜底：仅模板匹配，到此即视为未命中。
+            return None
         frame = self.frame  # 取当前帧用于颜色检测兜底。
         if frame is None:  # 无帧可做颜色检测。
             return None  # 返回未命中。

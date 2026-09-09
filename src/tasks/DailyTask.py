@@ -11,6 +11,7 @@ from src.tasks.CashShopTask import CashShopTask  # 导入付费商店子任务�
 from src.tasks.RecruitTask import RecruitTask  # 导入招募子任务（友情点/折扣普通招募）。
 from src.tasks.ArkTask import ArkTask  # 导入方舟子任务（企业塔/模拟室/拦截战/竞技场）。
 from src.tasks.RaidTask import RaidTask  # 导入讨伐子任务（协同作战/个人突袭）。
+from src.tasks.ExtrasTask import ExtrasTask  # 导入其他杂项子任务（PASS奖励收取）。
 
 
 class DailyTask(NikkeBaseTask):  # 定义清日常总编排的父任务类。
@@ -38,6 +39,7 @@ class DailyTask(NikkeBaseTask):  # 定义清日常总编排的父任务类。
             "前哨基地": True,  # 前哨基地子流程的开关。
             "方舟": True,  # 方舟子流程的开关。
             "Raid": True,  # Raid子流程的开关。
+            "其他杂项": True,  # 其他杂项子流程的开关。
         })
         self.config_description.update({  # 每个配置项的帮助文本。
             "收获": "是否执行收获（友情点、邮箱）。",
@@ -48,6 +50,7 @@ class DailyTask(NikkeBaseTask):  # 定义清日常总编排的父任务类。
             "前哨基地": "是否执行前哨基地（派遣/咨询）。",
             "方舟": "是否执行方舟（企业塔/模拟室/拦截战/竞技场）。",
             "Raid": "是否执行限时挑战活动（协同作战/个人突袭）。",
+            "其他杂项": "是否执行其他杂项（PASS奖励收取）。",
         })
         self.config_type.update({  # 任务列表的日常卡片展开后只显示这一个按钮行。
             self.DAILY_SETTINGS_BUTTON_KEY: {
@@ -132,6 +135,8 @@ class DailyTask(NikkeBaseTask):  # 定义清日常总编排的父任务类。
             self.run_task_by_class(ArkTask)  # 运行方舟子任务，子任务读取自己的配置。
         if self.config.get("Raid"):  # 只有开关开启时才执行讨伐。
             self.run_task_by_class(RaidTask)  # 运行讨伐子任务，子任务读取自己的配置。
+        if self.config.get("其他杂项"):  # 只有开关开启时才执行其他杂项。
+            self.run_task_by_class(ExtrasTask)  # 运行其他杂项子任务（PASS奖励收取），子任务读取自己的配置。
         # 后续新增子流程时，在此追加相同的开关判断和 run_task_by_class 调用即可。
         if self.config.get("方舟"):  # 只有开启方舟子流程才需要检查失败塔提醒。
             ark = self.get_task_by_class(ArkTask)  # 获取方舟子任务实例。

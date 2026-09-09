@@ -17,6 +17,7 @@ from src.tasks.CashShopTask import CashShopTask
 from src.tasks.RecruitTask import RecruitTask
 from src.tasks.ArkTask import ArkTask
 from src.tasks.RaidTask import RaidTask
+from src.tasks.ExtrasTask import ExtrasTask
 
 
 class SubTaskCard(ConfigContentMixin, ExpandSettingCard):
@@ -120,6 +121,7 @@ class DailyTab(CustomTab):
         (OutpostTask, "前哨基地"),
         (ArkTask, "方舟"),
         (RaidTask, "Raid"),
+        (ExtrasTask, "其他杂项"),
     ]
 
     def __init__(self):
