@@ -137,7 +137,7 @@ class TestDailyLoginRewardPopup(TaskTestCase):
         self.assertEqual([text], clicked)  # 只点击一次领取按钮。
         overlay_mock.assert_called_once()  # 领取后清理一次奖励遮罩。
         kwargs = overlay_mock.call_args.kwargs  # 读取关键字参数。
-        self.assertFalse(kwargs["require_click"])  # 遮罩未出现时不应报错。
+        self.assertNotIn("require_click", kwargs)  # 有意不传：遮罩并非必现（可能无奖励动画），超时异常由 dismiss_all_popups 统一兜底。
         self.assertEqual(5, kwargs["time_out"])  # 给遮罩出现留出等待窗口。
         patterns = kwargs["keywords"]  # 遮罩关键词。
         self.assertTrue(any(p.search("点击领取奖励") for p in patterns))  # 覆盖领奖遮罩。

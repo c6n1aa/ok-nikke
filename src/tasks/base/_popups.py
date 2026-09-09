@@ -138,8 +138,7 @@ class PopupsMixin:
             # 领取后弹出奖励遮罩（盖住面板）：等待并关闭，避免遮罩残留或下一轮误点面板的关闭按钮。
             self.close_overlay(
                 keywords=(self._MASK_CLAIM_PATTERN, self._MASK_ANYWHERE_PATTERN, self._CLICK_TO_PROCEED_PATTERN),
-                time_out=5,
-                require_click=False,  # 遮罩并非必现（可能无奖励动画），超时未出现不报错。
+                time_out=5  # 遮罩并非必现（可能无奖励动画），超时未出现不报错。
             )
             return True  # 返回已处理。
         close = self._find_daily_login_close()  # 无可领（按钮灰白/缺失）时直接关闭弹窗。
