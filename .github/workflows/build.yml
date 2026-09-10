@@ -41,7 +41,10 @@ jobs:
         env:
           # 真实 OCR 在部分 runner 的 CPU 上会执行到非法指令（0xC000001D）直接把测试进程带走：
           # 置 1 后漏网的真实 OCR 调用会变成可定位的异常。真实 OCR 回归见 dev_tools/check_real_ocr.py
-          OK_NIKKE_NO_REAL_OCR: '1'
+          #
+          # 实验（v0.1.3-beta.x）：依赖整体对齐 ok-script-app（ok-script 2.0.0b7 + openvino 2026.3.1
+          # + onnxocr 0.0.22）后临时放开真实 OCR，跑若干轮看是否还 SIGILL；验证完改回 '1'。
+          OK_NIKKE_NO_REAL_OCR: '0'
         run: |
           Get-ChildItem -Path ".\tests\*.py" | ForEach-Object {
               Write-Host "Running tests in $($_.FullName)"

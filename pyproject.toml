@@ -6,15 +6,13 @@ requires-python = ">=3.12,<3.13"
 dependencies = []
 
 [project.optional-dependencies]
+# 依赖版本对齐 ok-script-app 模板（框架 2.0.0b7 这条线）：onnxocr / OpenCC / PySide6 / pynput
+# 等全部由 ok-script 的 extras 带出，不在这里重复声明（重复声明会覆盖框架的 pin，例如
+# 框架 pin 了 OpenCC==1.2.0，我们之前解放成 1.4.1）。唯一有意保留的偏差是排除 pywin32 312。
 qt = [
-    "ok-script[adb,default,ocr,qt]==2.0.2",
-    "OpenCC",
-    "onnxocr-ppocrv5",
+    "ok-script[adb,default,ocr,qt]==2.0.0b7",
     "openvino",
     "opencv-python",
-    "pynput",
-    "pyside6-essentials",
-    "pyside6-fluent-widgets",
     "pywin32>=306,!=312",
 ]
 docs = [
