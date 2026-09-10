@@ -30,12 +30,10 @@ class TestUpdateConfigIO(unittest.TestCase):
     def test_save_load_roundtrip(self):
         with tempfile.TemporaryDirectory() as folder:
             config = dict(update_config.DEFAULT_UPDATE_CONFIG)
-            config.update({'channel': 'custom', 'custom_git_url': ' https://example.com/a.git ',
-                           'pip_index': 'https://mirror/simple'})
+            config.update({'channel': 'cnb', 'pip_index': ' https://mirror/simple '})
             self.assertTrue(update_config.save(config, folder))
             loaded = update_config.load(folder)
-        self.assertEqual(loaded['channel'], 'custom')
-        self.assertEqual(loaded['custom_git_url'], 'https://example.com/a.git')
+        self.assertEqual(loaded['channel'], 'cnb')
         self.assertEqual(loaded['pip_index'], 'https://mirror/simple')
 
     def test_invalid_channel_is_normalized(self):
@@ -46,6 +44,18 @@ class TestUpdateConfigIO(unittest.TestCase):
                 json.dump({'channel': 'not-a-channel'}, f)
             self.assertEqual(update_config.load(folder)['channel'], 'auto')
             self.assertTrue(update_config.save({'channel': 'bogus'}, folder))
+            self.assertEqual(update_config.load(folder)['channel'], 'auto')
+
+    def test_custom_channel_is_gone_and_falls_back_to_auto(self):
+        """「自定义 URL」已从「关于」页移除：下拉不再提供，历史配置里的 custom 归一化为 auto。"""
+        self.assertNotIn('custom', update_config.CHANNEL_VALUES)
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, update_config.UPDATE_CONFIG_REL)
+            os.makedirs(os.path.dirname(path))
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump({'channel': 'custom', 'custom_git_url': 'https://example.com/a.git'}, f)
+            self.assertEqual(update_config.load(folder)['channel'], 'auto')
+            self.assertTrue(update_config.save({'channel': 'custom'}, folder))
             self.assertEqual(update_config.load(folder)['channel'], 'auto')
 
     def test_broken_json_falls_back(self):

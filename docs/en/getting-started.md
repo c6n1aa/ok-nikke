@@ -17,7 +17,7 @@ For end users: download the portable package, run it, and troubleshoot. To work 
 
 ## In-App Updates
 
-Under "About → App update" you can check for updates, switch the update source (Auto / GitHub / CNB mirror / custom URL) and upgrade or downgrade among the five most recent stable versions:
+Under "About → App update" you can check for updates, switch the update source (Auto / GitHub / CNB mirror) and upgrade or downgrade among the five most recent stable versions:
 
 - The factory default is "Auto": Chinese systems use the CNB mirror, other systems use GitHub.
 - "Check for updates" only offers stable releases: prereleases (alpha/beta) never raise the badge - download them manually from the Release page.

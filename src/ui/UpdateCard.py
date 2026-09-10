@@ -17,8 +17,7 @@ from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtCore import QUrl
 from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
-from qfluentwidgets import BodyLabel, ComboBox, FluentIcon, LineEdit, MessageBox, PrimaryPushButton, \
-    PushButton
+from qfluentwidgets import BodyLabel, ComboBox, FluentIcon, MessageBox, PrimaryPushButton, PushButton
 
 from ok.core.events import communicate
 from ok.ui.qt.common.design_system import DesignToken, control_width
@@ -59,13 +58,6 @@ class NikkeUpdateCard(QWidget):
         self.channel_combo.setCurrentIndex(update_config.CHANNEL_VALUES.index(self.config['channel']))
         self.channel_combo.currentIndexChanged.connect(self._channel_changed)
 
-        self.custom_url_edit = LineEdit(self)
-        self.custom_url_edit.setPlaceholderText('https://github.com/<owner>/<repo>.git')
-        self.custom_url_edit.setText(self.config.get('custom_git_url') or '')
-        self.custom_url_edit.setMinimumWidth(control_width(220))
-        self.custom_url_edit.editingFinished.connect(self._custom_url_changed)
-        self._sync_custom_url_visibility()
-
         self.version_combo = ComboBox(self)
         self.version_combo.setFixedWidth(control_width())
         self.version_combo.currentIndexChanged.connect(self._selection_changed)
@@ -98,7 +90,6 @@ class NikkeUpdateCard(QWidget):
         source_row.setSpacing(DesignToken.ROW_SPACING)
         source_row.addWidget(BodyLabel('更新源', self))
         source_row.addWidget(self.channel_combo)
-        source_row.addWidget(self.custom_url_edit)
         source_row.addStretch(1)
 
         version_row = QHBoxLayout()
@@ -235,22 +226,14 @@ class NikkeUpdateCard(QWidget):
         if index < 0 or index >= len(update_config.CHANNEL_OPTIONS):
             return
         self.config['channel'] = update_config.CHANNEL_OPTIONS[index][0]
-        self._sync_custom_url_visibility()
         self._save_config(f'更新源已切换为「{update_config.channel_label(self.config["channel"])}」，'
                           f'请重新检查更新')
-
-    def _custom_url_changed(self):
-        self.config['custom_git_url'] = self.custom_url_edit.text().strip()
-        self._save_config('自定义更新源已保存，请重新检查更新')
 
     def _save_config(self, status: str):
         if update_config.save(self.config):
             self._set_status(status)
         else:
             self._set_status('更新源配置写入失败（configs/update.json）')
-
-    def _sync_custom_url_visibility(self):
-        self.custom_url_edit.setVisible(self.config.get('channel') == 'custom')
 
     def _open_download_url(self):
         if self.download_url:
@@ -263,7 +246,6 @@ class NikkeUpdateCard(QWidget):
         self._busy = busy
         self.check_button.setEnabled(not busy)
         self.channel_combo.setEnabled(not busy)
-        self.custom_url_edit.setEnabled(not busy)
         self.version_combo.setEnabled(not busy)
         if busy:
             self.update_button.setEnabled(False)

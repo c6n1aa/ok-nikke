@@ -45,12 +45,12 @@ DEFAULT_UPDATE_CONFIG = {
 if _update is not None:
     DEFAULT_UPDATE_CONFIG = dict(_update.DEFAULT_UPDATE_CONFIG)
 
-# 更新源下拉项：(channel 值, 显示名)
+# 更新源下拉项：(channel 值, 显示名)；不再提供「自定义 URL」，
+# 历史配置里残留的 custom 会在 load() 里归一化为 auto（update.py 自身仍保留 custom 能力，供手改配置使用）
 CHANNEL_OPTIONS = (
     ('auto', '自动（按系统语言）'),
     ('github', 'GitHub'),
     ('cnb', 'CNB 镜像'),
-    ('custom', '自定义 URL'),
 )
 CHANNEL_VALUES = tuple(value for value, _ in CHANNEL_OPTIONS)
 

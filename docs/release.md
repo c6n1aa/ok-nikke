@@ -15,7 +15,7 @@ ok-nikke/
 ├── git/                    # MinGit（cmd/git.exe），供应用内更新 fetch/checkout
 ├── src/ assets/ icons/ i18n/ main.py main_debug.py update.py
 ├── version.txt             # 版本号（build 写、update.py 维护；不入 git）
-└── configs/update.json     # 更新源（channel: auto|github|cnb|custom）
+└── configs/update.json     # 更新源（channel: auto|github|cnb）
 ```
 
 - 依赖来源是 `requirements.txt`（**保留 `ok-script`/`pyappify`**，方案 C 不再内联框架源码）。

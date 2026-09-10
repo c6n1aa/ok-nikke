@@ -15,7 +15,7 @@ ok-nikke/
 ├── git/                    # MinGit (cmd/git.exe) used by in-app updates for fetch/checkout
 ├── src/ assets/ icons/ i18n/ main.py main_debug.py update.py
 ├── version.txt             # version number (written by the build, maintained by update.py; never committed)
-└── configs/update.json     # update source (channel: auto|github|cnb|custom)
+└── configs/update.json     # update source (channel: auto|github|cnb)
 ```
 
 - Dependencies come from `requirements.txt`, which **keeps `ok-script`/`pyappify`** (option C: the framework is no longer inlined into the source tree).
