@@ -46,7 +46,11 @@ jobs:
           Get-ChildItem -Path ".\tests\*.py" | ForEach-Object {
               Write-Host "Running tests in $($_.FullName)"
               python -m unittest $_.FullName
-              if ($LASTEXITCODE -ne 0) { throw "Tests failed in $($_.FullName)" }
+              if ($LASTEXITCODE -ne 0) {
+                  # 退出码 1 = 用例/断言失败（日志必有 traceback）；负数或 0xC0000005 之类
+                  # = 解释器被原生崩溃带走（日志无 traceback）——带上退出码才区分得开
+                  throw "Tests failed in $($_.FullName) (exit $LASTEXITCODE)"
+              }
           }
 
       - name: Download standalone Python -> python/
