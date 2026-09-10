@@ -26,7 +26,7 @@ ok-nikke 是基于 PyPI `ok-script`（2.x）构建的《胜利女神：NIKKE》W
 - `src/screens.py`：界面识别单一数据源（`SCREENS` 注册表 + `INTERRUPTS` 中断哨兵）。
 - `src/ui/`：自定义 tab（当前仅 `DailyTab`，经 `src/config.py` 的 `custom_tabs` 注册）与「关于」页更新卡片 `UpdateCard.py`（配合 `src/update_config.py`，由 `src/patches/about_update.py` 替换框架卡片）。
 - 资产：`assets/coco_annotations.json`（COCO 标注）+ `assets/images/`（图集）+ `assets/template/`（手动裁剪小图）+ `assets/db/advise.db`（咨询答案库，由 `nikke-advise-data` 仓库构建后复制导入；本仓库不存源数据与构建脚本）。
-- `i18n/<locale>/LC_MESSAGES/`：gettext 词条，`ok.po` 翻应用 UI、`ocr.po` 翻游戏画面文字；基准语种简体中文，支持 `zh_CN`/`zh_TW`/`en_US`/`ja_JP`（与 `src/patches/language.py` 的 `supported_locales()` 一致）。改 `.po` 后必须用 `scripts/compile_i18n.py` 编译 `.mo`。
+- `i18n/<locale>/LC_MESSAGES/`：gettext 词条，`ok.po` 翻应用 UI、`ocr.po` 翻游戏画面文字；基准语种简体中文，支持 `zh_CN`/`zh_TW`/`en_US`/`ja_JP`（与 `src/patches/language.py` 的 `supported_locales()` 一致）。改 `.po` 后必须编译 `.mo`（`ok-script-i18n` 技能的 `compile` 子命令，见「环境与命令」）。
 - 运行时产物（`configs/`/`logs/`/`screenshots/` 等）与框架本体（`ok/` 等）不入仓，以 `.gitignore` 为准；开发时使用或生产的一次性脚本/中间产物/调试文件放 `dev_tools/`（已 gitignore），XAL 标注导入在 `scripts/import_xal.py`。
 - CI：`.github/workflows/build.yml`（`v*` tag → 逐文件测试 + 单包便携 zip + Release，流程细节见 `docs/release.md`）、`docs.yml`（部署 mkdocs）。
 
@@ -40,7 +40,7 @@ ok-nikke 是基于 PyPI `ok-script`（2.x）构建的《胜利女神：NIKKE》W
 | 装依赖 | `.\.venv\Scripts\python.exe -m pip install --no-deps -r requirements.txt --upgrade` |
 | 跑测试 | `.\.venv\Scripts\python.exe -m unittest tests.TestMain`（全量 `run_tests.ps1`） |
 | 编入口 exe | `.\.venv\Scripts\python.exe launcher\build.py` |
-| 编译词条 | `.\.venv\Scripts\python.exe scripts\compile_i18n.py` |
+| 编译词条 | `.\.venv\Scripts\python.exe .agents\skills\ok-script-i18n\scripts\task_i18n_helper.py compile` |
 | 发布 | `deploy` 技能（`.agents/skills/deploy/scripts/next_tag.py`） |
 
 - 装依赖必须 `--no-deps`（只装 `pyside6-essentials`，不要 `pyside6` 元包）；依赖源是 `pyproject.toml`，`pip-compile` 后删掉生成的 `pyside6`/`pyside6-addons` 条目。
