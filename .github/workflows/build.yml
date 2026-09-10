@@ -4,14 +4,6 @@ on:
   push:
     tags:
       - 'v*'
-  # 手动跑测试（用于真实 OCR 验证）：Actions → Build → Run workflow，勾选 real_ocr。
-  # 手动运行时不带 tag，Release / CNB 同步等步骤会自动跳过。
-  workflow_dispatch:
-    inputs:
-      real_ocr:
-        description: '真实 OCR 验证（会被 runner CPU 抽签影响，仅手动使用）'
-        type: boolean
-        default: false
 
 permissions:
   contents: write
@@ -46,15 +38,6 @@ jobs:
         run: pip install --no-deps -r requirements.txt
 
       - name: Run tests
-        env:
-          # 默认不跑真实 OCR：部分 runner 的 CPU 会让 onnxocr/OpenVINO 执行到非法指令
-          # （0xC000001D）把测试进程整个带走（日志里没有 traceback）。NO_REAL_OCR=1 时，
-          # 漏网的真实 OCR 调用会变成可定位的异常（见 src/patches/runtime.py）。
-          # 需要跑真实 OCR 用例（TestMain 的两条）时，二选一，都不需要改这个文件：
-          #   1) Actions → Build → Run workflow 勾选 real_ocr；
-          #   2) 设置仓库变量 OK_NIKKE_REAL_OCR=1（Settings → Secrets and variables → Variables）。
-          OK_NIKKE_NO_REAL_OCR: ${{ (github.event.inputs.real_ocr == 'true' || vars.OK_NIKKE_REAL_OCR == '1') && '0' || '1' }}
-          OK_NIKKE_REAL_OCR: ${{ (github.event.inputs.real_ocr == 'true' || vars.OK_NIKKE_REAL_OCR == '1') && '1' || '' }}
         run: |
           Get-ChildItem -Path ".\tests\*.py" | ForEach-Object {
               Write-Host "Running tests in $($_.FullName)"

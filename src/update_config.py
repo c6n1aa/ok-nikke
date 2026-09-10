@@ -57,6 +57,8 @@ CHANNEL_VALUES = tuple(value for value, _ in CHANNEL_OPTIONS)
 LIST_TAGS_TIMEOUT = 120
 UPDATE_LAUNCH_TIMEOUT = 30
 MAX_TAGS = 30
+# 「关于」卡片版本下拉最多列几个正式版（tag 多了下拉会过长）
+MAX_VERSION_OPTIONS = 5
 
 
 def package_root() -> str:
@@ -169,6 +171,21 @@ def is_prerelease(tag: str) -> bool:
 def stable_tags(tags) -> list:
     """只保留正式版 tag（保持传入顺序）。"""
     return [str(tag) for tag in (tags or []) if not is_prerelease(str(tag))]
+
+
+def selectable_versions(tags, current_version: str, limit: int = MAX_VERSION_OPTIONS) -> list:
+    """版本下拉的候选：只取正式版、去掉当前版本、最多 limit 个（保持传入的新→旧顺序）。
+
+    排除当前版本后为空（远端只有当前版本这一个正式 tag）时保留它自己，
+    让下拉显示「当前版本」而不是空列表。
+    """
+    if limit <= 0:
+        return []
+    stable = stable_tags(tags)
+    if not stable:
+        return []
+    others = [tag for tag in stable if tag != str(current_version or '')]
+    return (others or list(stable))[:limit]
 
 
 def newest_stable_update(tags, current_version: str):

@@ -181,8 +181,8 @@ class NikkeUpdateCard(QWidget):
             return
         # 只把正式版纳入可更新列表：预发布（v0.2.0-beta.1）不亮徽标、不进版本下拉，
         # 需要试的用户到 Release 页手动下载；这样「发布语义」与「更新语义」才对得上。
-        stable = update_config.stable_tags(tags)
-        self.tags = [tag for tag in stable if tag != self.current_version] or list(stable)
+        # 下拉只列最近 MAX_VERSION_OPTIONS 个正式版（去掉当前版本），避免 tag 多了过长。
+        self.tags = update_config.selectable_versions(tags, self.current_version)
         self.version_combo.blockSignals(True)
         self.version_combo.clear()
         self.version_combo.addItems(self.tags)

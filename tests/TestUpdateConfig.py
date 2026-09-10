@@ -138,6 +138,34 @@ class TestPrereleasePolicy(unittest.TestCase):
         self.assertIsNone(update_config.newest_prerelease_update(['v0.2.0', 'v0.1.0'], 'v0.1.0'))
 
 
+class TestVersionOptions(unittest.TestCase):
+    """版本下拉候选：只列正式版、去掉当前版本、最多 MAX_VERSION_OPTIONS 个。"""
+
+    def test_caps_to_recent_stable_versions(self):
+        tags = [f'v0.1.{n}' for n in range(20, 0, -1)]  # v0.1.20 … v0.1.1（新→旧）
+        options = update_config.selectable_versions(tags, 'v0.1.1')
+        self.assertEqual(options, ['v0.1.20', 'v0.1.19', 'v0.1.18', 'v0.1.17', 'v0.1.16'])
+        self.assertEqual(len(options), update_config.MAX_VERSION_OPTIONS)
+
+    def test_excludes_current_version_before_capping(self):
+        tags = ['v0.2.3', 'v0.2.2', 'v0.2.1', 'v0.2.0', 'v0.1.9', 'v0.1.8', 'v0.1.7']
+        self.assertEqual(update_config.selectable_versions(tags, 'v0.2.1'),
+                         ['v0.2.3', 'v0.2.2', 'v0.2.0', 'v0.1.9', 'v0.1.8'])
+
+    def test_prerelease_never_listed(self):
+        tags = ['v0.2.0-beta.1', 'v0.1.9', 'v0.1.8-alpha']
+        self.assertEqual(update_config.selectable_versions(tags, 'v0.1.0'), ['v0.1.9'])
+
+    def test_keeps_current_when_it_is_the_only_stable(self):
+        # 只有当前版本这一个正式 tag 时不能清空下拉，否则用户看不到任何版本
+        self.assertEqual(update_config.selectable_versions(['v0.1.0'], 'v0.1.0'), ['v0.1.0'])
+
+    def test_empty_inputs(self):
+        self.assertEqual(update_config.selectable_versions([], 'v0.1.0'), [])
+        self.assertEqual(update_config.selectable_versions(None, 'v0.1.0'), [])
+        self.assertEqual(update_config.selectable_versions(['v0.2.0'], 'v0.1.0', limit=0), [])
+
+
 class TestUpdateFailureRecord(unittest.TestCase):
     """上次更新失败的记录（update.py 落盘 → 「关于」页回显）。"""
 

@@ -1,5 +1,4 @@
 # Test case
-import os
 import unittest
 
 from PySide6.QtGui import QFontMetrics
@@ -15,11 +14,6 @@ from ok.ui.qt.tasks.ModifyListItem import ModifyListItem
 from qfluentwidgets import PushButton
 
 from src.tasks.MyOneTimeTask import MyOneTimeTask
-
-# 真实 OCR 依赖机器 CPU：部分 CI runner 上 onnxocr/OpenVINO 会执行到非法指令（0xC000001D）
-# 把整个测试进程带走（日志里没有 traceback、没有断言失败）。因此默认跳过，发布前手动跑
-# dev_tools/check_real_ocr.py（它会置 OK_NIKKE_REAL_OCR=1）。
-REAL_OCR_ENABLED = os.environ.get('OK_NIKKE_REAL_OCR') == '1'
 
 
 class TestMyOneTimeTask(TaskTestCase):
@@ -222,14 +216,12 @@ class TestMyOneTimeTask(TaskTestCase):
             self.task.info_get("Multi Selection Config"),
         )
 
-    @unittest.skipUnless(REAL_OCR_ENABLED, '真实 OCR 默认跳过（见 dev_tools/check_real_ocr.py）')
     def test_ocr1(self):
         # Create a BattleReport object
         self.set_image('tests/images/main.png')
         text = self.task.find_some_text_on_bottom_right()
         self.assertEqual(text[0].name, '方舟')
 
-    @unittest.skipUnless(REAL_OCR_ENABLED, '真实 OCR 默认跳过（见 dev_tools/check_real_ocr.py）')
     def test_ocr2(self):
         # Create a BattleReport object
         self.set_image('tests/images/main.png')
