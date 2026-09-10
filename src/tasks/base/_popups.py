@@ -18,19 +18,48 @@ class PopupsMixin:
         os.path.join('assets', 'template', 'common', 'notice_bell2.png'),  # 公告弹窗铃铛模板，来自 2560x1440 截图。
     )
     _COMMON_CLOSE_TEMPLATE = os.path.join('assets', 'template', 'common', 'common_close.png')  # 通用关闭按钮模板，来自 2560x1440 截图。
-    # 登录奖励（DAILY LOGIN）弹窗判据：七天制小型登录奖励每期面板皮肤不同，判据一律取
-    # 不受皮肤影响的部分——「全部领取」认文字（OCR），关闭按钮认 X 图形（模板只留图形本身）。
+    # 模态弹窗关闭的通用约定：面板皮肤逐期变化，关闭按钮外观/位置随之漂移，模板识别需逐期追加维护；
+    # 面板外区域恒被模态遮罩覆盖，点空白等价于点遮罩关闭、对皮肤免疫，统一走 close_popup_by_blank。
+    _MODAL_BLANK_CLOSE_X = 0.78  # 点击空白关闭的相对坐标 x：面板右侧空白区（登录奖励/PASS 面板实测右界 <0.65，避开展示元素与右侧图标列）。
+    _MODAL_BLANK_CLOSE_Y = 0.50  # 相对坐标 y：面板纵向中部，避开展示元素。
+    _MODAL_BLANK_CLOSE_ATTEMPTS = 2  # 未确认关闭时的补点次数（领奖遮罩可能吞掉首次点击）。
+    # 登录奖励（DAILY LOGIN）弹窗：面板皮肤每期不同，存在判据只取不随皮肤变的「全部领取」文字（OCR）。
     _DAILY_LOGIN_CLAIM_ALL_TEXT = re.compile("全部领取")  # 「全部领取」按钮文字，OCR 部分匹配（兼容拆框/噪声）。
     _DAILY_LOGIN_CLAIM_PAD = (0.2, 0.36)  # 文字框外扩比例（宽, 高）：OCR 只框到白字，外扩取到按钮底色才能判断可领与否；用比例而非固定像素，保证各分辨率下都不超出按钮本体。
-    _DAILY_LOGIN_CLOSE_TEMPLATES = (  # 面板右上角关闭 X 模板列表；出现新皮肤样式时追加即可，依次尝试任一命中。
-        os.path.join('assets', 'template', 'daily_login', 'daily_login_close.png'),  # 来自 2560x1440 截图。
-    )
 
     # 遮罩提示文字 OCR 关键词：框架对字符串是全等匹配，OCR 常把提示拆成多个文本框
     # （如实测「点击进行下一步」被拆成「点击进行下一」+「步」），一律用正则走部分匹配。
     _MASK_CLAIM_PATTERN = re.compile("点击领取奖励")  # 领奖遮罩提示。
     _MASK_ANYWHERE_PATTERN = re.compile("点击任意处")  # 点击任意处关闭遮罩提示。
     _CLICK_TO_PROCEED_PATTERN = re.compile("点击进行")  # 「点击进行下一步」好感度提升等遮罩提示。
+
+    def close_popup_by_blank(self, verify, x=None, y=None, attempts=None, time_out=3, raise_on_fail=False):
+        """点击面板外空白关闭模态弹窗，按 verify 判据确认关闭，未关闭则补点。
+
+        模态弹窗（登录奖励、PASS 等）的面板皮肤逐期变化，关闭按钮的外观/位置随之漂移，
+        用模板识别需逐期追加维护；面板外区域恒被模态遮罩覆盖，点击空白等价于点遮罩关闭，
+        对皮肤免疫、零维护。verify 为「弹窗已关闭」的判据（界面特征消失、判据文字消失等），
+        既确认点击生效，也驱动补点（首次点击可能被领奖遮罩吞掉）。
+
+        Args:
+            verify: 无参可调用，返回 True 表示弹窗已关闭（判据已消失）。
+            x/y: 点击的相对坐标，缺省用 _MODAL_BLANK_CLOSE_X/_Y。
+            attempts: 最大点击次数（含首次），缺省用 _MODAL_BLANK_CLOSE_ATTEMPTS。
+            time_out: 每次点击后等待 verify 成立的最长秒数。
+            raise_on_fail: True 时最终仍未确认关闭抛 WaitFailedException；False 返回 False。
+        Returns:
+            True 已确认关闭；False 点击耗尽仍未确认关闭。
+        """
+        x = self._MODAL_BLANK_CLOSE_X if x is None else x  # 缺省点击坐标 x。
+        y = self._MODAL_BLANK_CLOSE_Y if y is None else y  # 缺省点击坐标 y。
+        attempts = self._MODAL_BLANK_CLOSE_ATTEMPTS if attempts is None else attempts  # 缺省补点次数。
+        for _ in range(attempts):  # 逐次点击并验证。
+            self.click_relative(x, y, after_sleep=1)  # 点击面板外空白遮罩区。
+            if self.wait_until(verify, time_out=time_out, raise_if_not_found=False):  # 弹窗关闭判据成立 = 关闭完成。
+                return True  # 返回关闭成功。
+        if raise_on_fail:  # 调用方要求关闭失败必须抛错。
+            raise WaitFailedException("点击空白未能关闭模态弹窗")  # 抛异常交由 try_step 恢复。
+        return False  # 返回关闭失败。
 
     def _close_notice_popup(self):
         """在屏幕中上部依次尝试多个公告铃铛模板，命中后向右延伸查找通用关闭按钮并点击，返回是否成功点击。"""
@@ -103,36 +132,26 @@ class PopupsMixin:
                    text_box.width + pad_w * 2, text_box.height + pad_h * 2,  # 尺寸两端各加一份。
                    name="daily_login_claim_button")  # 命名便于日志/调试识别。
 
-    def _find_daily_login_close(self):
-        """在屏幕右上区域依次尝试各期关闭按钮模板，返回第一个命中的框或 None。
-
-        七天制登录奖励每期面板皮肤不同，关闭 X 的背景纹理/描边随之变化，故模板只保留
-        X 图形本身（不含周边背景）以应对该变化；出现新样式时把裁剪好的小图路径追加到
-        _DAILY_LOGIN_CLOSE_TEMPLATES 即可，无需改动本方法。
-        """
-        for template_path in self._DAILY_LOGIN_CLOSE_TEMPLATES:  # 依次尝试每个关闭按钮模板。
-            found = self.find_scaled_template(  # 关闭 X 恒在面板右上角约 x 0.62、y 0.095。
-                "daily_login_close", template_path,
-                box=self.box_of_screen(0.5, 0.03, 0.8, 0.2),
-            )
-            if found is not None:  # 当前模板命中。
-                return found  # 停止尝试后续模板。
-        return None  # 所有模板均未命中，当前帧无该弹窗（或遇到未收录的新皮肤）。
-
     def _close_daily_login_popup(self):
-        """处理登录奖励（DAILY LOGIN）弹窗：有可领奖励先点「全部领取」，无可领则点右上角关闭按钮。
+        """处理登录奖励（DAILY LOGIN）弹窗：有可领奖励先点「全部领取」，无可领则点击面板外空白关闭。
 
         「全部领取」一次性领取多档登录奖励，点击后会弹出奖励遮罩盖住面板；本方法在
         点击领取后立即等待并关闭该遮罩，再交由 dismiss_all_popups 的下一轮判定按钮
-        是否变灰、进而关闭面板。遮罩的关闭提示与其它领奖遮罩共用（点击领取奖励/
+        是否变灰、进而点击空白关闭面板。遮罩的关闭提示与其它领奖遮罩共用（点击领取奖励/
         点击任意处/点击进行下一步），故复用 close_overlay 统一清理。
+
+        弹窗存在判据只有「全部领取」文字：面板皮肤每期不同，文字是唯一跨皮肤不变的元素，
+        模板类判据（如关闭 X）会随皮肤失效；文字未命中即视为无面板（文字被奖励遮罩盖住的
+        情况由 _try_close_one_popup 的遮罩分支先处理）。
         """
         # 任务弹窗（mission）底部也有「全部领取」按钮，文字与登录奖励弹窗相同、且都在屏幕下半区，
         # 单看 OCR 无法区分：用任务弹窗标题特征消歧，任务弹窗在前时这里是任务页按钮，不是登录奖励弹窗，跳过以免误点。
         if self.find_one("mission_page") is not None:  # 命中任务弹窗标题 = 当前在任务页而非登录奖励弹窗。
             return False  # 跳过，避免误点任务页的「全部领取」。
         claim = self._find_daily_login_claim_all()  # 查找「全部领取」文字。
-        if claim is not None and self.is_feature_enabled(self._daily_login_button_box(claim)):  # 底色彩色 = 仍有可领奖励。
+        if claim is None:  # 无文字 = 当前帧无登录奖励弹窗。
+            return False  # 返回未处理。
+        if self.is_feature_enabled(self._daily_login_button_box(claim)):  # 底色彩色 = 仍有可领奖励。
             self.click_box(claim, after_sleep=1)  # 点击领取。
             self.log_info("已点击登录奖励全部领取。")  # 记录动作。
             # 领取后弹出奖励遮罩（盖住面板）：等待并关闭，避免遮罩残留或下一轮误点面板的关闭按钮。
@@ -141,12 +160,11 @@ class PopupsMixin:
                 time_out=5  # 遮罩并非必现（可能无奖励动画），超时未出现不报错。
             )
             return True  # 返回已处理。
-        close = self._find_daily_login_close()  # 无可领（按钮灰白/缺失）时直接关闭弹窗。
-        if close is not None:  # 关闭按钮存在。
-            self.click_box(close, after_sleep=1)  # 点击关闭按钮关闭整个弹窗。
-            self.log_info("已关闭登录奖励弹窗。")  # 记录动作。
-            return True  # 返回已处理。
-        return False  # 当前帧无登录奖励弹窗。
+        if not self.close_popup_by_blank(lambda: self._find_daily_login_claim_all() is None):  # 无可领（按钮灰白）：点空白关闭，按「全部领取」文字消失确认关闭。
+            self.log_warning("点击空白未能关闭登录奖励弹窗。")  # 记录失败（面板可能已自行关闭或点击被吞）。
+            return False  # 返回未处理。
+        self.log_info("已关闭登录奖励弹窗。")  # 记录动作。
+        return True  # 返回已处理。
 
     def close_overlay(self, keywords=None, time_out=5, after_sleep=1, max_clicks=3,
                       require_click=True):

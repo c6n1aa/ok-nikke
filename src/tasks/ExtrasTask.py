@@ -7,7 +7,6 @@ class ExtrasTask(NikkeBaseTask):  # 其他杂项任务：收取 PASS（活动/�
 
     _RED_DOT_TEMPLATE = 'assets/template/common/badge.png'  # 通知红点模板：与任务弹窗共用，模板匹配优先命中角标红点。
     _PASS_ENTRY_FEATURES = ("pass_switch", "pass_selector")  # 大厅 PASS 入口的两种形态：任一存在即代表多个 PASS 可切换。
-    _PASS_CLOSE_FEATURES = ("pass_close1", "pass_close2")  # PASS 模态窗两种尺寸的关闭 X 按钮，依次尝试任一命中。
     _PASS_SWIPE_LIMIT = 8  # 多个 PASS 翻页查找红点的总次数上限，超过也标记完成。
     _PASS_FLICK_STEPS = 20  # 加速度翻页的插值步数（每步停顿 10ms，总拖拽约 0.2 秒）。
     _PASS_FLICK_STEP_SLEEP = 0.01  # 每步插值停顿秒数。
@@ -88,13 +87,10 @@ class ExtrasTask(NikkeBaseTask):  # 其他杂项任务：收取 PASS（活动/�
             self.dismiss_all_popups(time_out=5)  # 处理领取后弹出的奖励遮罩层（默认等待遮罩出现）。
         self._close_pass_modal()  # 收尾关闭 PASS 模态窗（已领取或无可领均关闭，回到大厅）。
 
-    def _close_pass_modal(self):  # 关闭 PASS 模态窗：先清理可能遮挡关闭按钮的领奖遮罩，再按两种尺寸的关闭 X 依次尝试。
+    def _close_pass_modal(self):  # 关闭 PASS 模态窗：清理领奖遮罩后点击面板外空白关闭（关闭 X 外观/位置随面板样式漂移，模板识别不稳定）。
         self.dismiss_all_popups(wait_for_popup=False, time_out=5)  # 快速清理领奖遮罩等弹窗，无弹窗不白等。
-        for close in self._PASS_CLOSE_FEATURES:  # 依次尝试两种尺寸的关闭按钮。
-            found = self.find_one(close, use_gray_scale=True)  # 灰度匹配关闭 X，减少背景对纯色 X 图形的干扰。
-            if found is not None:  # 当前关闭按钮命中。
-                self.click_box(found, after_sleep=1)  # 点击关闭按钮。
-                self.log_info("已关闭PASS模态窗。")  # 记录关闭动作。
-                return True  # 关闭成功。
-        self.log_warning("未找到PASS关闭按钮，跳过关闭。")  # 两种关闭按钮均未命中（模态窗可能已自行关闭）。
-        return False  # 关闭失败。
+        if not self.close_popup_by_blank(lambda: self.find_one("pass_page", use_gray_scale=True) is None):  # 点空白关闭，按模态窗特征消失确认（遮罩吞点击时自动补点）。
+            self.log_warning("点击空白未能关闭PASS模态窗，跳过关闭。")  # 记录失败（模态窗可能已自行关闭或点击被吞）。
+            return False  # 关闭失败。
+        self.log_info("已关闭PASS模态窗。")  # 记录关闭动作。
+        return True  # 关闭成功。

@@ -201,25 +201,23 @@ class TestExtrasTask(_DebugOffTestCase):
             self.task._claim_pass_modal()
         close_mock.assert_called_once()
 
-    def test_close_pass_modal_tries_close2_when_close1_missing(self):
-        close2 = _fake_box("pass_close2", 500, 100, 30, 30)
+    def test_close_pass_modal_clicks_blank_and_verifies(self):
         with patch.object(self.task, "dismiss_all_popups") as dismiss_mock, \
-                patch.object(self.task, "find_one",
-                             side_effect=[None, close2]) as find_mock, \
-                patch.object(self.task, "click_box") as click_mock:
+                patch.object(self.task, "close_popup_by_blank", return_value=True) as blank_mock:
             closed = self.task._close_pass_modal()
-        self.assertTrue(closed)
-        self.assertEqual(["pass_close1", "pass_close2"], [c.args[0] for c in find_mock.call_args_list])
-        self.assertTrue(all(c.kwargs["use_gray_scale"] for c in find_mock.call_args_list))  # 灰度匹配减少背景干扰。
+        self.assertTrue(closed)  # 确认关闭。
         dismiss_mock.assert_called_once_with(wait_for_popup=False, time_out=5)
-        click_mock.assert_called_once_with(close2, after_sleep=1)
+        blank_mock.assert_called_once()  # 走基类通用「点空白 + 验证」。
+        verify = blank_mock.call_args.args[0]  # 关闭判据。
+        with patch.object(self.task, "find_one", return_value=None) as find_mock:
+            self.assertTrue(verify())  # 模态窗特征消失 = 已关闭。
+        find_mock.assert_called_once_with("pass_page", use_gray_scale=True)
 
-    def test_close_pass_modal_no_button_skips(self):
+    def test_close_pass_modal_returns_false_when_modal_stays(self):
         with patch.object(self.task, "dismiss_all_popups"), \
-                patch.object(self.task, "find_one", return_value=None), \
-                patch.object(self.task, "click_box", side_effect=AssertionError("未命中关闭按钮不应点击")):
+                patch.object(self.task, "close_popup_by_blank", return_value=False):
             closed = self.task._close_pass_modal()
-        self.assertFalse(closed)
+        self.assertFalse(closed)  # 点空白后模态窗仍在：返回关闭失败。
 
 
 if __name__ == '__main__':
