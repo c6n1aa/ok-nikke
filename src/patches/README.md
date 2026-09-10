@@ -32,3 +32,12 @@
 ### tasks_tab.py
 
 把日常任务卡片置顶到任务 tab 顶部，其下插入 `HorizontalSeparator` 分割线（`ExpandCardLayout` 增加了 `insertWidget(index, widget)` 辅助方法用于放置分割线）；`TaskCard` 把日常卡片展开区过滤到只剩一行标准 `button` 配置行（`DailyTask.DAILY_SETTINGS_BUTTON_KEY`，回调 `DailyTask.open_daily_settings` 切换到日常设置 tab），并给 `done_keys` 非空的任务卡片注入「重置完成状态」按钮。
+
+### language.py
+
+处理设置页「语言」下拉与语言解析，两处配合：
+
+1. 包装 `SettingTab.__init__`，构造完成后从下拉里删除西语（`Español`）/韩语（`한국인`）两项。框架的 `texts` 与 `Language` 枚举按位置 zip，不能直接改 `texts`（会串位），只能构造后按 `itemData` 删除并同步 `optionToText`。
+2. 包装 `ok.ui.qt.util.app.init_app_config`，在加载 Qt/Fluent 翻译前把 `cfg.language` **临时**替换为「实际生效语言」并在 `finally` 还原：显式选中被隐藏语言、或 `AUTO` 匹配不到保留语言时统一兜底英语（框架层无对应 `.qm` 与项目层无 gettext 词条都会退化为半翻译）。直接给 `ConfigItem.value` 赋值不落盘、不触发「重启生效」提示。
+
+原因：项目只提供 `zh_CN`/`en_US` 两套 gettext 词条，任务字符串本身是简体中文；选西/韩会得到「框架外壳西/韩语 + 项目内容中文」的割裂界面，而语言默认值 `AUTO` 跟随系统、系统为西/韩时不选也会命中。
