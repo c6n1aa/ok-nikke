@@ -25,47 +25,47 @@ class TestMyOneTimeTask(TaskTestCase):
         defaults = self.task.default_config
         config_type = self.task.config_type
 
-        self.assertIsInstance(defaults["Boolean Config"], bool)
-        self.assertIsInstance(defaults["Integer Config"], int)
-        self.assertIsInstance(defaults["Float Config"], float)
-        self.assertIsInstance(defaults["String Config"], str)
-        self.assertIsInstance(defaults["Folder Selector Config"], str)
-        self.assertIsInstance(defaults["File Selector Config"], str)
-        self.assertIsInstance(defaults["List Config"], list)
-        self.assertIsInstance(defaults["Drop Down Options Config"], list)
-        self.assertEqual("String Value", defaults["String Config"])
-        self.assertEqual(["List Value 1", "List Value 2"], defaults["List Config"])
-        self.assertEqual("drop_down", config_type["Drop Down Config"]["type"])
-        self.assertEqual("text_edit", config_type["Text Edit Config"]["type"])
-        self.assertEqual("file_selector", config_type["Folder Selector Config"]["type"])
-        self.assertEqual("folder", config_type["Folder Selector Config"]["selector_type"])
-        self.assertEqual("Select Demo Folder", config_type["Folder Selector Config"]["dialog_title"])
-        self.assertEqual("file_selector", config_type["File Selector Config"]["type"])
-        self.assertEqual("file", config_type["File Selector Config"]["selector_type"])
-        self.assertEqual("Select Demo File", config_type["File Selector Config"]["dialog_title"])
-        self.assertEqual("Python Files (*.py);;All Files (*)", config_type["File Selector Config"]["filter"])
-        self.assertEqual("drop_down", config_type["Drop Down Options Config"]["type"])
+        self.assertIsInstance(defaults["布尔配置"], bool)
+        self.assertIsInstance(defaults["整数配置"], int)
+        self.assertIsInstance(defaults["浮点数配置"], float)
+        self.assertIsInstance(defaults["字符串配置"], str)
+        self.assertIsInstance(defaults["文件夹选择配置"], str)
+        self.assertIsInstance(defaults["文件选择配置"], str)
+        self.assertIsInstance(defaults["列表配置"], list)
+        self.assertIsInstance(defaults["下拉框选项配置"], list)
+        self.assertEqual("字符串值", defaults["字符串配置"])
+        self.assertEqual(["列表值 1", "列表值 2"], defaults["列表配置"])
+        self.assertEqual("drop_down", config_type["下拉框配置"]["type"])
+        self.assertEqual("text_edit", config_type["多行文本配置"]["type"])
+        self.assertEqual("file_selector", config_type["文件夹选择配置"]["type"])
+        self.assertEqual("folder", config_type["文件夹选择配置"]["selector_type"])
+        self.assertEqual("选择演示文件夹", config_type["文件夹选择配置"]["dialog_title"])
+        self.assertEqual("file_selector", config_type["文件选择配置"]["type"])
+        self.assertEqual("file", config_type["文件选择配置"]["selector_type"])
+        self.assertEqual("选择演示文件", config_type["文件选择配置"]["dialog_title"])
+        self.assertEqual("Python 文件 (*.py);;所有文件 (*)", config_type["文件选择配置"]["filter"])
+        self.assertEqual("drop_down", config_type["下拉框选项配置"]["type"])
         self.assertEqual(
             [
-                "Available Drop Down Value 1",
-                "Available Drop Down Value 2",
-                "Available Drop Down Value 3",
+                "可用下拉框值 1",
+                "可用下拉框值 2",
+                "可用下拉框值 3",
             ],
-            config_type["Drop Down Options Config"]["options_available"],
+            config_type["下拉框选项配置"]["options_available"],
         )
-        self.assertEqual("multi_selection", config_type["Multi Selection Config"]["type"])
-        self.assertEqual("button", config_type["Button Config"]["type"])
-        self.assertEqual("button", config_type["Button Options Config"]["type"])
+        self.assertEqual("multi_selection", config_type["多选配置"]["type"])
+        self.assertEqual("button", config_type["按钮配置"]["type"])
+        self.assertEqual("button", config_type["按钮选项配置"]["type"])
         self.assertEqual(
-            ["Show Config Values", "Show Notification"],
-            [button["text"] for button in config_type["Button Options Config"]["buttons"]],
+            ["显示配置值", "显示通知"],
+            [button["text"] for button in config_type["按钮选项配置"]["buttons"]],
         )
         self.assertEqual(
             {
-                "Drop Down Value 1": ["Sub Boolean Config"],
-                "Drop Down Value 2": ["Sub String Config", "Sub Float Config"],
+                "下拉框值 1": ["子布尔配置"],
+                "下拉框值 2": ["子字符串配置", "子浮点数配置"],
             },
-            config_type["Drop Down Config"]["sub_configs"],
+            config_type["下拉框配置"]["sub_configs"],
         )
 
     def test_folder_selector_config_uses_folder_selector_widget(self):
@@ -73,37 +73,37 @@ class TestMyOneTimeTask(TaskTestCase):
             self.task.config_type,
             self.task.config_description,
             self.task.config,
-            "Folder Selector Config",
-            self.task.config.get("Folder Selector Config"),
+            "文件夹选择配置",
+            self.task.config.get("文件夹选择配置"),
             self.task,
         )
         self.assertIsInstance(widget, LabelAndFileSelector)
         self.assertEqual("folder", widget.selector_type)
         self.assertFalse(hasattr(widget, "line_edit"))
-        self.assertEqual(str(self.task.config.get("Folder Selector Config") or ""), widget.value_label.text())
+        self.assertEqual(str(self.task.config.get("文件夹选择配置") or ""), widget.value_label.text())
 
     def test_file_selector_config_uses_file_selector_widget(self):
         widget = config_widget(
             self.task.config_type,
             self.task.config_description,
             self.task.config,
-            "File Selector Config",
-            self.task.config.get("File Selector Config"),
+            "文件选择配置",
+            self.task.config.get("文件选择配置"),
             self.task,
         )
         self.assertIsInstance(widget, LabelAndFileSelector)
         self.assertEqual("file", widget.selector_type)
-        self.assertEqual("Python Files (*.py);;All Files (*)", widget.config_type["filter"])
+        self.assertEqual("Python 文件 (*.py);;所有文件 (*)", widget.config_type["filter"])
         self.assertFalse(hasattr(widget, "line_edit"))
-        self.assertEqual(str(self.task.config.get("File Selector Config") or ""), widget.value_label.text())
+        self.assertEqual(str(self.task.config.get("文件选择配置") or ""), widget.value_label.text())
 
     def test_button_options_config_uses_multiple_buttons(self):
         widget = config_widget(
             self.task.config_type,
             self.task.config_description,
             self.task.config,
-            "Button Options Config",
-            self.task.config.get("Button Options Config"),
+            "按钮选项配置",
+            self.task.config.get("按钮选项配置"),
             self.task,
         )
         self.assertIsInstance(widget, LabelAndButtons)
@@ -114,16 +114,16 @@ class TestMyOneTimeTask(TaskTestCase):
             self.task.config_type,
             self.task.config_description,
             self.task.config,
-            "Drop Down Options Config",
-            self.task.config.get("Drop Down Options Config"),
+            "下拉框选项配置",
+            self.task.config.get("下拉框选项配置"),
             self.task,
         )
         self.assertIsInstance(widget, ModifyListItem)
         self.assertTrue(widget.allow_duplication)
 
-        options = self.task.config_type["Drop Down Options Config"]["options_available"]
+        options = self.task.config_type["下拉框选项配置"]["options_available"]
         dialog = ModifyListDialog(
-            ["Available Drop Down Value 1"],
+            ["可用下拉框值 1"],
             widget,
             options_available=options,
             allow_duplication=widget.allow_duplication,
@@ -131,28 +131,28 @@ class TestMyOneTimeTask(TaskTestCase):
         result = []
         dialog.list_modified.connect(result.append)
 
-        dialog.add_available_item("Available Drop Down Value 2")
-        dialog.add_available_item("Available Drop Down Value 2")
+        dialog.add_available_item("可用下拉框值 2")
+        dialog.add_available_item("可用下拉框值 2")
         dialog.confirm()
 
         self.assertEqual(
             [
-                "Available Drop Down Value 1",
-                "Available Drop Down Value 2",
-                "Available Drop Down Value 2",
+                "可用下拉框值 1",
+                "可用下拉框值 2",
+                "可用下拉框值 2",
             ],
             result[0],
         )
-        widget.list_modified(["Available Drop Down Value 1", "Not Available"])
-        self.assertEqual(["Available Drop Down Value 1"], self.task.config["Drop Down Options Config"])
+        widget.list_modified(["可用下拉框值 1", "不可用值"])
+        self.assertEqual(["可用下拉框值 1"], self.task.config["下拉框选项配置"])
 
     def test_string_config_input_uses_minimum_width_when_empty(self):
         widget = config_widget(
             self.task.config_type,
             self.task.config_description,
             self.task.config,
-            "String Config",
-            self.task.config.get("String Config"),
+            "字符串配置",
+            self.task.config.get("字符串配置"),
             self.task,
         )
 
@@ -168,15 +168,15 @@ class TestMyOneTimeTask(TaskTestCase):
             + widget.HORIZONTAL_PADDING
         )
         self.assertEqual(expected_width, widget.line_edit.width())
-        self.task.config["String Config"] = self.task.default_config["String Config"]
+        self.task.config["字符串配置"] = self.task.default_config["字符串配置"]
 
     def test_text_edit_config_uses_minimum_width_when_empty(self):
         widget = config_widget(
             self.task.config_type,
             self.task.config_description,
             self.task.config,
-            "Text Edit Config",
-            self.task.config.get("Text Edit Config"),
+            "多行文本配置",
+            self.task.config.get("多行文本配置"),
             self.task,
         )
 
@@ -195,7 +195,7 @@ class TestMyOneTimeTask(TaskTestCase):
             ),
         )
         self.assertEqual(expected_width, widget.text_edit.width())
-        self.task.config["Text Edit Config"] = self.task.default_config["Text Edit Config"]
+        self.task.config["多行文本配置"] = self.task.default_config["多行文本配置"]
 
     def test_run_shows_config_values(self):
         self.task.config.reset_to_default()
@@ -203,17 +203,17 @@ class TestMyOneTimeTask(TaskTestCase):
 
         for key, value in self.task.config.items():
             self.assertEqual(self.task.translate_config_value(value), self.task.info_get(key))
-        self.assertEqual("下拉框值 1", self.task.info_get("Drop Down Config"))
-        self.assertEqual("bool值 True", self.task.info_get("Boolean Config"))
-        self.assertEqual("字符串值", self.task.info_get("String Config"))
-        self.assertEqual(["列表值 1", "列表值 2"], self.task.info_get("List Config"))
+        self.assertEqual("下拉框值 1", self.task.info_get("下拉框配置"))
+        self.assertEqual("真", self.task.info_get("布尔配置"))
+        self.assertEqual("字符串值", self.task.info_get("字符串配置"))
+        self.assertEqual(["列表值 1", "列表值 2"], self.task.info_get("列表配置"))
         self.assertEqual(
             ["可用下拉框值 1"],
-            self.task.info_get("Drop Down Options Config"),
+            self.task.info_get("下拉框选项配置"),
         )
         self.assertEqual(
             ["多选值 1", "多选值 2"],
-            self.task.info_get("Multi Selection Config"),
+            self.task.info_get("多选配置"),
         )
 
     def test_ocr1(self):

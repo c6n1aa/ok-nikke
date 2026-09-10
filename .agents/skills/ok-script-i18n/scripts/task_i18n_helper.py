@@ -110,25 +110,66 @@ def scan_task(path):
 
 
 def iter_po_paths(i18n_dir):
-    for root, _, files in os.walk(i18n_dir):
-        if "ok.po" in files:
-            yield os.path.join(root, "ok.po")
+    """列出目录下的全部 .po，顺序稳定。
+
+    除了 ok.po（应用 UI），项目里还可能有 ocr.po（游戏画面文字，域为 "ocr"），
+    两者都要编译，因此按后缀遍历而不是只认 ok.po。
+    """
+    for root, dirnames, files in os.walk(i18n_dir):
+        dirnames.sort()
+        for name in sorted(files):
+            if name.endswith(".po"):
+                yield os.path.join(root, name)
+
+
+def find_duplicate_msgids(po):
+    ids = [entry.msgid for entry in po if entry.msgid]
+    return sorted(msgid for msgid, count in Counter(ids).items() if count > 1)
+
+
+def needs_space_stripped_entries(po_path):
+    """英文词条需要额外一份去掉空格的 msgid。
+
+    OCR 结果经常丢掉词间空格，框架匹配时会先查原串、再查一次去空格串，
+    因此只有空格有意义（英文）的词条需要这份变体。与框架
+    ok.core.translation 里 duplicate_spaced_msgids 的做法一致。
+    """
+    return any(part.startswith("en") for part in os.path.normpath(po_path).split(os.sep))
+
+
+def add_space_stripped_entries(po):
+    existing = {entry.msgid for entry in po}
+    added = []
+    for entry in po:
+        if not entry.msgid or " " not in entry.msgid or not entry.msgstr:
+            continue
+        stripped = entry.msgid.replace(" ", "")
+        if stripped in existing:
+            continue
+        existing.add(stripped)
+        added.append(polib.POEntry(msgid=stripped, msgstr=entry.msgstr))
+    po.extend(added)
+    return len(added)
 
 
 def compile_i18n(i18n_dir):
     for po_path in iter_po_paths(i18n_dir):
-        mo_path = os.path.join(os.path.dirname(po_path), "ok.mo")
         po = polib.pofile(str(po_path))
+        duplicates = find_duplicate_msgids(po)
+        if duplicates:
+            raise SystemExit(f"duplicate msgid entries in {po_path}: {duplicates}")
+        added = add_space_stripped_entries(po) if needs_space_stripped_entries(po_path) else 0
+        mo_path = os.path.splitext(po_path)[0] + ".mo"
         po.save_as_mofile(mo_path)
-        print(f"compiled {po_path} -> {mo_path}")
+        extra = f" (+{added} space-stripped entries)" if added else ""
+        print(f"compiled {po_path} -> {mo_path}{extra}")
 
 
 def check_i18n(i18n_dir):
     failed = False
     for po_path in iter_po_paths(i18n_dir):
         po = polib.pofile(str(po_path))
-        ids = [entry.msgid for entry in po if entry.msgid]
-        duplicates = sorted(msgid for msgid, count in Counter(ids).items() if count > 1)
+        duplicates = find_duplicate_msgids(po)
         if duplicates:
             failed = True
             print(f"duplicate msgid entries in {po_path}:")

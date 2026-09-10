@@ -2,18 +2,19 @@ from ok import Logger
 
 logger = Logger.get_logger(__name__)
 
-# 语言补丁：裁剪设置页语言下拉 + 解析「实际生效语言」。
+# 语言补丁：裁剪设置页语言下拉 + 解析「实际生效语言」+ 限制词条生成语言。
 #
-# 背景：框架 SettingTab 的下拉写死了 7 项语言，但本项目只提供 zh_CN/en_US 两套
-# gettext 词条（i18n/），任务字符串本身是简体中文。用户选西语/韩语时会出现
-# 「框架外壳西/韩语 + 项目内容中文」的割裂界面；更隐蔽的是语言默认值 AUTO 跟随
-# 系统，系统语言为西/韩的用户不选也会命中。故暂时隐藏这两项。
+# 背景：框架 SettingTab 的下拉写死了 7 项语言，但本项目只提供 zh_CN/zh_TW/en_US/
+# ja_JP 四套 gettext 词条（i18n/），任务字符串本身是简体中文（基准语种）。用户选
+# 西语/韩语时会出现「框架外壳西/韩语 + 项目内容中文」的割裂界面；更隐蔽的是语言
+# 默认值 AUTO 跟随系统，系统语言为西/韩的用户不选也会命中。故暂时隐藏这两项。
 #
-# 两处补丁互相配合：
+# 三处补丁互相配合：
 # 1. SettingTab 构造后把隐藏语言从下拉里删掉。框架的 texts 与 Language 枚举是
 #    按位置对齐的，不能直接改 texts，否则剩余项的语言映射会串位。
 # 2. init_app_config 里把配置语言解析成实际生效语言：显式选中被隐藏语言、或
 #    AUTO 命中不了保留语言时统一按英语兜底。
+# 3. debug 模式「生成翻译文件」只给支持的语言写 ok.po，避免 i18n/ 里多出空目录。
 
 
 def _kept_languages():
@@ -33,6 +34,12 @@ def _hidden_languages():
     from ok.ui.qt.common.config import Language
     kept = set(_kept_languages())
     return tuple(language for language in Language if language not in kept)
+
+
+def supported_locales():
+    """实际提供词条的语言目录名（i18n/<locale>/LC_MESSAGES/），AUTO 不算。"""
+    from ok.ui.qt.common.config import Language
+    return {language.value.name() for language in _kept_languages() if language is not Language.AUTO}
 
 
 def _resolve_auto_language(system_locale):
@@ -118,7 +125,28 @@ def _patch_setting_tab_language_options():
     logger.info('patched SettingTab to hide unsupported languages from dropdown')
 
 
+def _patch_update_po_file():
+    # debug 模式「开发工具 → 生成翻译文件」按框架 Language 枚举给全部 7 种语言各写一份
+    # ok.po，未支持的语言只会留下空目录（还会被打进便携包）。这里只放行 supported_locales()，
+    # 保证 i18n/ 下的目录与支持的语言始终一致；返回值仅用于打开目录，给回 i18n 根目录即可。
+    from ok.core import translation as translation_module
+    from ok.util.file import get_path_relative_to_exe
+
+    original = translation_module.update_po_file
+    supported = supported_locales()
+
+    def _update_po_file(strings, language_code):
+        if language_code not in supported:
+            logger.debug(f'skip generating po file for unsupported language {language_code}')
+            return get_path_relative_to_exe('i18n')
+        return original(strings, language_code)
+
+    translation_module.update_po_file = _update_po_file
+    logger.info(f'patched update_po_file to only generate {sorted(supported)}')
+
+
 def apply():
     # 语言解析兜底与下拉裁剪，都必须在 ok.OK(config) 构造前应用
     _patch_init_app_config()
     _patch_setting_tab_language_options()
+    _patch_update_po_file()

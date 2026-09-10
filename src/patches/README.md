@@ -39,5 +39,6 @@
 
 1. 包装 `SettingTab.__init__`，构造完成后从下拉里删除西语（`Español`）/韩语（`한국인`）两项。框架的 `texts` 与 `Language` 枚举按位置 zip，不能直接改 `texts`（会串位），只能构造后按 `itemData` 删除并同步 `optionToText`。
 2. 包装 `ok.ui.qt.util.app.init_app_config`，在加载 Qt/Fluent 翻译前把 `cfg.language` **临时**替换为「实际生效语言」并在 `finally` 还原：显式选中被隐藏语言、或 `AUTO` 匹配不到保留语言时统一兜底英语（框架层无对应 `.qm` 与项目层无 gettext 词条都会退化为半翻译）。直接给 `ConfigItem.value` 赋值不落盘、不触发「重启生效」提示。
+3. 包装 `ok.core.translation.update_po_file`：debug 模式「生成翻译文件」原本按框架 `Language` 枚举给全部 7 种语言各写一份 `ok.po`，这里只放行 `supported_locales()`（即下拉保留语言去掉 AUTO，当前为 `zh_CN`/`zh_TW`/`en_US`/`ja_JP`），避免 `i18n/` 里多出空目录。
 
-原因：项目只提供 `zh_CN`/`en_US` 两套 gettext 词条，任务字符串本身是简体中文；选西/韩会得到「框架外壳西/韩语 + 项目内容中文」的割裂界面，而语言默认值 `AUTO` 跟随系统、系统为西/韩时不选也会命中。
+原因：项目只提供上述四套 gettext 词条，任务字符串本身是简体中文（基准语种）；选西/韩会得到「框架外壳西/韩语 + 项目内容中文」的割裂界面，而语言默认值 `AUTO` 跟随系统、系统为西/韩时不选也会命中。

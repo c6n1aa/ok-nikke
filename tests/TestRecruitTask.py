@@ -7,6 +7,7 @@ from ok.task.exceptions import WaitFailedException
 from ok.test.TaskTestCase import TaskTestCase
 
 from src.config import config
+from src.screens import _keyword
 from src.tasks.RecruitTask import RecruitTask
 
 _TEST_CONFIG_DIR = os.path.join('dev_tools', 'test_configs')
@@ -201,7 +202,7 @@ class TestRecruitTask(_DebugOffTestCase):
 
     def test_recruit_screen_registered(self):
         self.assertIn("recruit_page", self.task.screens)  # 招募界面已注册。
-        self.assertEqual(["招募队员"], self.task.screens["recruit_page"]["keywords"])  # OCR 关键词判定。
+        self.assertEqual([_keyword("招募队员")], self.task.screens["recruit_page"]["keywords"])  # OCR 关键词判定。
         self.assertEqual("box_sub_pages_title", self.task.screens["recruit_page"]["ocr_box"])  # 限定标题区域。
 
 
