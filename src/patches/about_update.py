@@ -87,23 +87,35 @@ def _patch_startup_version_change():
 
 
 def _patch_empty_changelog():
-    """「更新成功 / 降级成功」卡片正文为空时隐藏正文区。
+    """「更新成功 / 降级成功」卡片正文为空时，把整张卡片收掉。
 
-    我们不再显示更新内容（pyappify 时代由启动器的 update_note 提供），不收起的话
-    卡片里会留一块空白；只换 AboutTab 里那个模块级名字，不动 ok 源码。
+    我们不显示更新内容（pyappify 时代由启动器的 update_note 提供），但**只隐藏正文 label
+    是不够的**：AboutTab 用 add_card 把正文包进一张 Card，隐藏 label 后界面里仍会留一个空框
+    （已实测）。所以这里两件事一起做：换掉 ChangeLogView（空文本时自身隐藏）+ 包装
+    AboutTab.add_card（正文为空则把外层 Card 一并隐藏）。只影响「关于」页，不动 ok 源码。
     """
     import ok.ui.qt.about.AboutTab as about_tab_module
 
-    original = about_tab_module.ChangeLogView
+    original_changelog = about_tab_module.ChangeLogView
 
-    class _CollapsedWhenEmpty(original):
+    class _CollapsedWhenEmpty(original_changelog):
         def __init__(self, text='', parent=None):
             super().__init__(text, parent)
             if not str(text or '').strip():
                 self.setVisible(False)
 
     about_tab_module.ChangeLogView = _CollapsedWhenEmpty
-    logger.info('patched ChangeLogView to collapse when empty')
+
+    original_add_card = about_tab_module.AboutTab.add_card
+
+    def add_card(self, title, widget, stretch=0, parent=None):
+        container = original_add_card(self, title, widget, stretch=stretch, parent=parent)
+        if isinstance(widget, _CollapsedWhenEmpty) and not str(widget.text() or '').strip():
+            container.setVisible(False)  # 空正文：连外层卡片一起收掉，不留空框
+        return container
+
+    about_tab_module.AboutTab.add_card = add_card
+    logger.info('patched AboutTab.add_card + ChangeLogView to collapse empty changelog cards')
 
 
 STARTUP_UPDATE_CHECK_DELAY_MS = 3000  # 启动自检延迟（框架默认 30 秒，用户等得太久）
