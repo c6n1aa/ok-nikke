@@ -53,7 +53,11 @@ class TestCashShopTask(_DebugOffTestCase):
 
     def test_enter_cash_shop_transitions_to_screen(self):
         # 迁移到 transition 原语：点击入口后由原语等待确认进入付费商店界面。
-        with patch.object(self.task, "wait_click_feature") as click_mock, \
+        # 冻结 time.time()：transition 用 int(deadline - time.time()) 把确认等待压进总预算，
+        # 而 Windows 上 time.time() 分辨率只有 15.625ms——两次取时间一旦跨过一个 tick 就截断成 9，
+        # 断言会随机器负载抖动（CI 上同进程后台线程抢占，跨 tick 概率远高于本地）。
+        with patch('time.time', return_value=1000.0), \
+                patch.object(self.task, "wait_click_feature") as click_mock, \
                 patch.object(self.task, "wait_screen", return_value=True) as wait_mock:
             self.task._enter_cash_shop()
         click_mock.assert_called_once_with("cash_shop", time_out=10, raise_if_not_found=True, after_sleep=1)
