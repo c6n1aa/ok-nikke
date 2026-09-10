@@ -1,130 +1,160 @@
+# ok-nikke 英文词条
 #
+# 基准语种是简体中文，msgid 与源码里的中文字符串完全一致（含标点与空格）。
 msgid ""
 msgstr ""
-"Project-Id-Version: 1.0\n"
-"Report-Msgid-Bugs-To: you@example.com\n"
-"Last-Translator: you@example.com\n"
+"Project-Id-Version: ok-nikke\n"
+"Report-Msgid-Bugs-To: \n"
+"Last-Translator: \n"
 "Language-Team: English\n"
+"Language: en_US\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-msgid "Configuration Demo Task"
+msgid "配置演示任务"
 msgstr "Configuration Demo Task"
 
-msgid "Demonstrates every configuration widget for English to Chinese translation."
-msgstr "Demonstrates every configuration widget for English to Chinese translation."
+msgid "演示各配置控件从简体中文翻译到其它语言的效果。"
+msgstr "Demonstrates how every configuration widget is translated from Simplified Chinese into other languages."
 
-msgid "Drop Down Config"
+msgid "下拉框配置"
 msgstr "Drop Down Config"
 
-msgid "Boolean Config"
+msgid "布尔配置"
 msgstr "Boolean Config"
 
-msgid "Integer Config"
+msgid "整数配置"
 msgstr "Integer Config"
 
-msgid "Float Config"
+msgid "浮点数配置"
 msgstr "Float Config"
 
-msgid "String Config"
+msgid "字符串配置"
 msgstr "String Config"
 
-msgid "Text Edit Config"
+msgid "多行文本配置"
 msgstr "Text Edit Config"
 
-msgid "Folder Selector Config"
+msgid "文件夹选择配置"
 msgstr "Folder Selector Config"
 
-msgid "File Selector Config"
+msgid "文件选择配置"
 msgstr "File Selector Config"
 
-msgid "List Config"
+msgid "列表配置"
 msgstr "List Config"
 
-msgid "Drop Down Options Config"
+msgid "下拉框选项配置"
 msgstr "Drop Down Options Config"
 
-msgid "Multi Selection Config"
+msgid "多选配置"
 msgstr "Multi Selection Config"
 
-msgid "Sub Boolean Config"
+msgid "子布尔配置"
 msgstr "Sub Boolean Config"
 
-msgid "Sub String Config"
+msgid "子字符串配置"
 msgstr "Sub String Config"
 
-msgid "Sub Float Config"
+msgid "子浮点数配置"
 msgstr "Sub Float Config"
 
-msgid "Button Config"
-msgstr "Button Config"
-
-msgid "Button Options Config"
-msgstr "Button Options Config"
-
-msgid "Drop-down configuration with translated option values."
-msgstr "Drop-down configuration with translated option values."
-
-msgid "Single-line string configuration with a translated value."
-msgstr "Single-line string configuration with a translated value."
-
-msgid "Multi-line string configuration with a translated value."
-msgstr "Multi-line string configuration with a translated value."
-
-msgid "Folder selector configuration that stores the selected folder path."
-msgstr "Folder selector configuration that stores the selected folder path."
-
-msgid "File selector configuration with an optional file filter."
-msgstr "File selector configuration with an optional file filter."
-
-msgid "Dropdown option list restricted to available translated values."
-msgstr "Dropdown option list restricted to available translated values."
-
-msgid "Button configuration that displays all current values."
-msgstr "Button configuration that displays all current values."
-
-msgid "Button configuration with multiple action buttons."
-msgstr "Button configuration with multiple action buttons."
-
-msgid "Drop Down Value 1"
+msgid "下拉框值 1"
 msgstr "Drop Down Value 1"
 
-msgid "Drop Down Value 2"
+msgid "下拉框值 2"
 msgstr "Drop Down Value 2"
 
-msgid "Multi Selection Value 1"
-msgstr "Multi Selection Value 1"
-
-msgid "Multi Selection Value 2"
-msgstr "Multi Selection Value 2"
-
-msgid "Multi Selection Value 3"
-msgstr "Multi Selection Value 3"
-
-msgid "Show Config Values"
-msgstr "Show Config Values"
-
-msgid "Show Notification"
-msgstr "Show Notification"
-
-msgid "String Value"
+msgid "字符串值"
 msgstr "String Value"
 
-msgid "Text Edit Value"
-msgstr "Text Edit Value"
-
-msgid "List Value 1"
-msgstr "List Value 1"
-
-msgid "List Value 2"
-msgstr "List Value 2"
-
-msgid "Sub String Value"
+msgid "子字符串值"
 msgstr "Sub String Value"
 
-msgid "Available Drop Down Value 1"
+msgid "多行文本值"
+msgstr "Text Edit Value"
+
+msgid "列表值 1"
+msgstr "List Value 1"
+
+msgid "列表值 2"
+msgstr "List Value 2"
+
+msgid "可用下拉框值 1"
 msgstr "Available Drop Down Value 1"
+
+msgid "可用下拉框值 2"
+msgstr "Available Drop Down Value 2"
+
+msgid "可用下拉框值 3"
+msgstr "Available Drop Down Value 3"
+
+msgid "多选值 1"
+msgstr "Multi Selection Value 1"
+
+msgid "多选值 2"
+msgstr "Multi Selection Value 2"
+
+msgid "多选值 3"
+msgstr "Multi Selection Value 3"
+
+msgid "选择演示文件夹"
+msgstr "Select Demo Folder"
+
+msgid "选择演示文件"
+msgstr "Select Demo File"
+
+msgid "Python 文件 (*.py);;所有文件 (*)"
+msgstr "Python Files (*.py);;All Files (*)"
+
+msgid "按钮值"
+msgstr "Button Value"
+
+msgid "显示配置值"
+msgstr "Show Config Values"
+
+msgid "显示通知"
+msgstr "Show Notification"
+
+msgid "带已翻译选项值的下拉框配置。"
+msgstr "Drop-down configuration with translated option values."
+
+msgid "带已翻译值的单行字符串配置。"
+msgstr "Single-line string configuration with translated value."
+
+msgid "带已翻译值的多行文本配置。"
+msgstr "Multi-line string configuration with translated value."
+
+msgid "保存所选文件夹路径的文件夹选择配置。"
+msgstr "Folder selector configuration that stores the selected folder path."
+
+msgid "带可选文件过滤器的文件选择配置。"
+msgstr "File selector configuration with an optional file filter."
+
+msgid "仅可从已翻译可用值中选择的下拉框选项配置。"
+msgstr "Dropdown option list restricted to available translated values."
+
+msgid "显示全部当前配置值的按钮配置。"
+msgstr "Button configuration that displays all current values."
+
+msgid "带多个操作按钮的按钮配置。"
+msgstr "Button configuration with multiple action buttons."
+
+msgid "请从可用下拉框值中选择。"
+msgstr "Select one of the available drop-down values."
+
+msgid "请仅选择可用的多选值。"
+msgstr "Select only available multi-selection values."
+
+msgid "请仅选择可用的下拉框选项值。"
+msgstr "Select only available drop-down option values."
+
+msgid "已显示全部配置值。"
+msgstr "Configuration values displayed."
+
+msgid "已显示按钮通知。"
+msgstr "Button notification displayed."
 
 msgid "True"
 msgstr "True"
@@ -133,7 +163,7 @@ msgid "False"
 msgstr "False"
 
 msgid "触发器会不断调用run方法"
-msgstr "The trigger repeatedly calls the run method"
+msgstr "The trigger task keeps calling run()."
 
 msgid "一般根据frame来判断是否需要运行"
-msgstr "Typically determines whether to run based on the frame"
+msgstr "Usually decides whether to run based on the current frame."
