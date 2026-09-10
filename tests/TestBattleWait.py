@@ -234,7 +234,9 @@ class TestBattleWait(TaskTestCase):
     def test_real_tower_victory_screenshot_detected(self):
         """回归测试：用户实测 1883x1058 窗口下胜利结算未被识别（REWARD 文字缩放失配）。"""
         self.set_image('tests/images/battle_finish_tower.png')  # 真实企业塔胜利结算截图。
-        result, box = self.task.wait_battle_finish(time_out=4, check_interval=1)
+        # 超时给足：本用例走真实 OCR，CI 上首次调用要冷加载 OpenVINO/onnxocr 模型，
+        # 4 秒预算在共享 runner 上会先超时再断言，属于环境性假失败（本地约 0.3s）。
+        result, box = self.task.wait_battle_finish(time_out=30, check_interval=1)
         self.assertEqual("success", result)  # 必须能识别出战斗结束。
         self.assertIsNotNone(box)  # 返回确认按钮框供调用方点击。
 
@@ -242,7 +244,8 @@ class TestBattleWait(TaskTestCase):
         """回归测试：OCR 未命中 ESC 的竖屏 Tetra Tower 结算界面，
         依靠 box_battle_finish_bottom_right 内的 battle_finish_statistics 兜底判定胜利。"""
         self.set_image('tests/images/battle_finish_statistics.png')  # 真实竖屏通关结算截图（ESC 不可识别）。
-        result, box = self.task.wait_battle_finish(time_out=4, check_interval=1)
+        # 同 test_real_tower_victory_screenshot_detected：真实 OCR 需容忍冷加载，超时给足。
+        result, box = self.task.wait_battle_finish(time_out=30, check_interval=1)
         self.assertEqual("success", result)  # statistics 兜底必须能识别出战斗结束。
         self.assertIsNotNone(box)  # 返回确认按钮框供调用方点击。
 
