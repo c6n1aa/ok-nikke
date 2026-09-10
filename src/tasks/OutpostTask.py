@@ -120,8 +120,8 @@ class OutpostTask(NikkeBaseTask):  # 前哨基地任务：执行派遣公告栏�
             return  # 结束任务。
         self._do_dispatch()  # 执行派遣子流程。
         self._do_brief_encounter()  # 执行突发剧情子流程。
-        self._do_advise()  # 执行咨询子流程（放在最后）。
-        self._exit_to_lobby()  # 各子流程收尾均回到前哨基地界面，此处统一返回大厅收尾（基类幂等实现）。
+        self._do_advise()  # 执行咨询子流程（放在最后，结束后已自行直接返回大厅）。
+        self._exit_to_lobby()  # 派遣/突发剧情收尾仍在前哨基地界面，此处统一返回大厅（基类幂等实现，已在大厅则只确认）。
         self.log_info("前哨基地任务完成")  # 记录任务完成。
 
     def _nav_to_outpost(self):  # 导航到前哨基地界面（幂等入口闸门，供统一入口与各子流程开头复用）。
@@ -176,17 +176,23 @@ class OutpostTask(NikkeBaseTask):  # 前哨基地任务：执行派遣公告栏�
         self.mark_done("advise", "day")  # 记录本周期已完成。
         self.log_info("咨询任务完成")  # 记录子流程完成。
 
-    def _advise_flow(self):  # 咨询整体流程：确保在前哨基地→指挥中心→咨询→逐角色咨询→回前哨基地。
+    def _enter_advise(self):  # 咨询入口：前哨基地→指挥中心→咨询入口，确认到达[咨询]界面。
         self._nav_to_outpost()  # 确保处于前哨基地界面（正常已就位；失败恢复回大厅后由此重新进入）。
         self.wait_click_feature("command_center", raise_if_not_found=True, after_sleep=1)  # 点指挥中心建筑，弹出入场确认。
         self.transition("command_center", click_feature="command_center_enter", wait_confirm=10,
                         after_sleep=1)  # 点入场并确认进入[指挥中心]界面。
         self.click_box(self._box_or_fail("box_command_center_advise_enter"), after_sleep=1)  # 点咨询入口。
         self.assert_screen("advise", time_out=10)  # 等[咨询]界面。
+
+    def _exit_advise_to_lobby(self):  # 咨询出口：从咨询界面（列表/详情页）直接返回大厅，不再逐级退回前哨基地。
+        self._exit_to_lobby()  # 基类幂等实现：查主页按钮（含坐标偏移兜底）点击并确认回到大厅。
+
+    def _advise_flow(self):  # 咨询整体流程：进入咨询界面→逐角色咨询→直接返回大厅。
+        self._enter_advise()  # 进入[咨询]界面（前哨基地→指挥中心→咨询入口）。
         count_box = self._optional_box("box_advise_count_feature")  # 咨询次数区域（缺失视为无剩余次数）。
         if count_box is None or not self.is_feature_enabled(count_box):  # 次数区域灰白禁用 = 无剩余咨询次数。
             self.log_info("无剩余咨询次数，咨询流程结束")  # 记录结束原因。
-            self._exit_advise_to_outpost()  # 返回前哨基地。
+            self._exit_advise_to_lobby()  # 返回大厅。
             return  # 由调用方标记完成。
         self.click_box(self._box_or_fail("box_advise_nikke"), after_sleep=1)  # 点第一个可咨询角色打开详情。
         switches = 0  # 切换角色计数，超限强行结束。
@@ -198,7 +204,7 @@ class OutpostTask(NikkeBaseTask):  # 前哨基地任务：执行派遣公告栏�
                 star_box = self._optional_box("box_advise_nikke_star")  # 星标区域（缺失视为未星标）。
                 if star_box is None or not self.is_feature_enabled(star_box):  # 当前角色未星标。
                     self.log_info("当前角色未星标，咨询流程结束")  # 记录结束原因。
-                    self._exit_advise_to_outpost()  # 返回前哨基地。
+                    self._exit_advise_to_lobby()  # 返回大厅。
                     return  # 由调用方标记完成。
             skip = False  # 是否跳过当前角色直接切换下一个。
             if self.find_one("advise_bond_max") is not None:  # 好感度已满。
@@ -211,26 +217,18 @@ class OutpostTask(NikkeBaseTask):  # 前哨基地任务：执行派遣公告栏�
                 if advise_box is not None and self.is_feature_enabled(advise_box):  # 咨询按钮可用。
                     self._advise_once(name, advise_box)  # 执行一次咨询：确认弹窗→对话→答题→跳过→回详情。
                 if self._advise_count_zero():  # 咨询次数已用尽（0/10）。
-                    self._exit_advise_to_outpost()  # 返回前哨基地。
+                    self._exit_advise_to_lobby()  # 返回大厅。
                     return  # 由调用方标记完成。
             switched = self._switch_advise_nikke(name)  # 点击下一个切换角色（以名称变更为准）。
             if not switched:  # 重试用尽仍无法切换。
                 self.log_warning("无法切换到下一个咨询角色，咨询流程结束")  # 记录结束原因。
-                self._exit_advise_to_outpost()  # 返回前哨基地。
+                self._exit_advise_to_lobby()  # 返回大厅。
                 return  # 由调用方标记完成。
             switches += 1  # 切换计数加一。
             if switches > _ADVISE_MAX_SWITCH:  # 超过切换上限，强行结束防止异常界面无限循环。
                 self.log_warning(f"切换角色超过 {_ADVISE_MAX_SWITCH} 次，强行结束咨询流程")  # 记录强行结束。
-                self._exit_advise_to_outpost()  # 返回前哨基地。
+                self._exit_advise_to_lobby()  # 返回大厅。
                 return  # 由调用方标记完成。
-
-    def _exit_advise_to_outpost(self):  # 退出咨询子流程回前哨基地：详情页（common_back 坐标偏移）→咨询列表→指挥中心→前哨基地。
-        if self.is_screen("advise_nikke"):  # 若仍停在咨询详情页：其 common_back 坐标与其他界面有偏移，需走带区域兜底的返回按钮查找。
-            back = self._find_back_button()  # 查找返回按钮（先精确匹配，未命中再左下角区域兜底，覆盖坐标偏移）。
-            if back is None:  # 未找到返回按钮。
-                raise WaitFailedException("咨询详情页未找到返回按钮")  # 抛异常由 try_step 捕获恢复。
-            self.click_box(back, after_sleep=1)  # 点击返回回到咨询列表页。
-        self._back_through_screens("command_center", "outpost")  # 咨询列表→指挥中心→前哨基地，逐级返回。
 
     def _read_advise_name(self):  # OCR 咨询详情页角色名称区域，返回文本（无识别结果返回空串）。
         box = self._box_or_fail("box_advise_nikke_name")  # 详情页名字条区域（区别于列表页点击槽 box_advise_nikke）。

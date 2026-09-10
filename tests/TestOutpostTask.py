@@ -308,14 +308,11 @@ class TestOutpostTaskAdvise(_DebugOffTestCase):
         self.task.clear_done_all()
 
     def test_do_advise_marks_done(self):
-        with patch.object(self.task, "_nav_to_outpost"), \
-                patch.object(self.task, "transition"), \
-                patch.object(self.task, "wait_click_feature"), \
-                patch.object(self.task, "assert_screen"), \
+        with patch.object(self.task, "_enter_advise"), \
                 patch.object(self.task, "get_box_by_name", side_effect=lambda name: _named_box(name)), \
                 patch.object(self.task, "is_feature_enabled", side_effect=[False]), \
                 patch.object(self.task, "click_box"), \
-                patch.object(self.task, "_exit_advise_to_outpost"), \
+                patch.object(self.task, "_exit_advise_to_lobby"), \
                 patch.object(self.task, "sleep"):
             self.task._do_advise()  # 无剩余咨询次数也算流程成功，标记完成。
         self.assertTrue(self.task.is_done("advise", "day"))
@@ -337,27 +334,22 @@ class TestOutpostTaskAdvise(_DebugOffTestCase):
             self.task._do_advise()
 
     def test_flow_count_unavailable_ends(self):
-        with patch.object(self.task, "_nav_to_outpost"), \
-                patch.object(self.task, "transition"), \
-                patch.object(self.task, "wait_click_feature"), \
-                patch.object(self.task, "assert_screen"), \
+        with patch.object(self.task, "_enter_advise") as enter_mock, \
                 patch.object(self.task, "get_box_by_name", side_effect=lambda name: _named_box(name)), \
                 patch.object(self.task, "is_feature_enabled", side_effect=[False]), \
                 patch.object(self.task, "click_box") as click_box_mock, \
                 patch.object(self.task, "find_one",
                              side_effect=AssertionError("无次数不应继续识别")), \
-                patch.object(self.task, "_exit_advise_to_outpost") as exit_mock, \
+                patch.object(self.task, "_exit_advise_to_lobby") as exit_mock, \
                 patch.object(self.task, "sleep"):
             self.task._advise_flow()
-        self.assertEqual(["box_command_center_advise_enter"],  # 仅点咨询入口，不点角色。
-                         [c.args[0].name for c in click_box_mock.call_args_list])
-        exit_mock.assert_called_once()  # 返回前哨基地标记完成。
+        enter_mock.assert_called_once()  # 入口拆分：先单独进入咨询界面。
+        click_box_mock.assert_not_called()  # 无剩余次数不点角色。
+        exit_mock.assert_called_once()  # 直接返回大厅标记完成。
 
     def test_flow_star_not_starred_ends(self):
         self.task.config["只咨询星标"] = True
-        with patch.object(self.task, "_nav_to_outpost"), \
-                patch.object(self.task, "transition"), \
-                patch.object(self.task, "wait_click_feature"), \
+        with patch.object(self.task, "_enter_advise"), \
                 patch.object(self.task, "assert_screen"), \
                 patch.object(self.task, "get_box_by_name", side_effect=lambda name: _named_box(name)), \
                 patch.object(self.task, "is_feature_enabled", side_effect=[True, False]), \
@@ -367,16 +359,14 @@ class TestOutpostTaskAdvise(_DebugOffTestCase):
                 patch.object(self.task, "_read_advise_name", return_value="拉毗"), \
                 patch.object(self.task, "_advise_once",
                              side_effect=AssertionError("未星标不应咨询")), \
-                patch.object(self.task, "_exit_advise_to_outpost") as exit_mock, \
+                patch.object(self.task, "_exit_advise_to_lobby") as exit_mock, \
                 patch.object(self.task, "sleep"):
             self.task._advise_flow()
         exit_mock.assert_called_once()
 
     def test_flow_full_round_advises_then_count_zero_ends(self):
         advise_box = _named_box("box_advise_feature")
-        with patch.object(self.task, "_nav_to_outpost"), \
-                patch.object(self.task, "transition"), \
-                patch.object(self.task, "wait_click_feature"), \
+        with patch.object(self.task, "_enter_advise"), \
                 patch.object(self.task, "assert_screen"), \
                 patch.object(self.task, "get_box_by_name", side_effect=lambda name: _named_box(name)), \
                 patch.object(self.task, "is_feature_enabled", side_effect=[True, True]), \
@@ -385,20 +375,18 @@ class TestOutpostTaskAdvise(_DebugOffTestCase):
                 patch.object(self.task, "_read_advise_name", return_value="拉毗"), \
                 patch.object(self.task, "_advise_once") as advise_once_mock, \
                 patch.object(self.task, "_advise_count_zero", return_value=True), \
-                patch.object(self.task, "_exit_advise_to_outpost") as exit_mock, \
+                patch.object(self.task, "_exit_advise_to_lobby") as exit_mock, \
                 patch.object(self.task, "sleep"):
             self.task._advise_flow()
         advise_once_mock.assert_called_once()  # 恰好咨询一次。
         self.assertEqual("拉毗", advise_once_mock.call_args.args[0])
         self.assertEqual("box_advise_feature", advise_once_mock.call_args.args[1].name)
-        exit_mock.assert_called_once()  # 次数用尽返回前哨基地。
+        exit_mock.assert_called_once()  # 次数用尽直接返回大厅。
 
     def test_flow_bond_max_progress_skips_without_advise(self):
         self.task.config["补齐咨询日志"] = True
         bond_box = _named_box("advise_bond_max")
-        with patch.object(self.task, "_nav_to_outpost"), \
-                patch.object(self.task, "transition"), \
-                patch.object(self.task, "wait_click_feature"), \
+        with patch.object(self.task, "_enter_advise"), \
                 patch.object(self.task, "assert_screen"), \
                 patch.object(self.task, "wait_screen", return_value=True), \
                 patch.object(self.task, "get_box_by_name", side_effect=lambda name: _named_box(name)), \
@@ -408,7 +396,7 @@ class TestOutpostTaskAdvise(_DebugOffTestCase):
                 patch.object(self.task, "_read_advise_name", side_effect=["A", "B", "B"]), \
                 patch.object(self.task, "_advise_once") as advise_once_mock, \
                 patch.object(self.task, "_advise_count_zero", return_value=True), \
-                patch.object(self.task, "_exit_advise_to_outpost") as exit_mock, \
+                patch.object(self.task, "_exit_advise_to_lobby") as exit_mock, \
                 patch.object(self.task, "sleep"):
             self.task._advise_flow()
         advise_once_mock.assert_called_once()  # 仅第二个角色被咨询。
@@ -419,9 +407,7 @@ class TestOutpostTaskAdvise(_DebugOffTestCase):
         exit_mock.assert_called_once()
 
     def test_flow_switch_retry_cleans_popups_then_ends(self):
-        with patch.object(self.task, "_nav_to_outpost"), \
-                patch.object(self.task, "transition"), \
-                patch.object(self.task, "wait_click_feature"), \
+        with patch.object(self.task, "_enter_advise"), \
                 patch.object(self.task, "assert_screen"), \
                 patch.object(self.task, "wait_screen", return_value=True) as wait_screen_mock, \
                 patch.object(self.task, "get_box_by_name", side_effect=lambda name: _named_box(name)), \
@@ -432,7 +418,7 @@ class TestOutpostTaskAdvise(_DebugOffTestCase):
                 patch.object(self.task, "_advise_once"), \
                 patch.object(self.task, "_advise_count_zero", return_value=False), \
                 patch.object(self.task, "dismiss_all_popups") as dismiss_mock, \
-                patch.object(self.task, "_exit_advise_to_outpost") as exit_mock, \
+                patch.object(self.task, "_exit_advise_to_lobby") as exit_mock, \
                 patch.object(self.task, "sleep"):
             self.task._advise_flow()
         next_clicks = [c for c in click_box_mock.call_args_list if c.args[0].name == "advise_next"]
@@ -457,45 +443,31 @@ class TestOutpostTaskAdvise(_DebugOffTestCase):
         click_mock.assert_called_once()  # 清理后复核已成功，不得补点跳过角色。
         dismiss_mock.assert_called_once_with(wait_for_popup=False, time_out=5)  # 确认失败后清理遮罩。
 
-    def test_exit_advise_from_detail_backs_through_screens(self):
-        # 停在咨询详情页退出：详情页 common_back 坐标有偏移，走带区域兜底的 _find_back_button 先点返回，
-        # 再逐级退回指挥中心、前哨基地。
-        back = _named_box("common_back")
-        with patch.object(self.task, "is_screen", return_value=True), \
-                patch.object(self.task, "_find_back_button", return_value=back) as find_mock, \
-                patch.object(self.task, "click_box") as click_mock, \
-                patch.object(self.task, "_back_through_screens") as back_mock:
-            self.task._exit_advise_to_outpost()
-        find_mock.assert_called_once()  # 详情页返回按钮走带兜底的查找。
-        click_mock.assert_called_once_with(back, after_sleep=1)
-        back_mock.assert_called_once_with("command_center", "outpost")  # 咨询列表→指挥中心→前哨基地。
+    def test_enter_advise_navigates_and_confirms(self):
+        # 入口拆分：前哨基地→指挥中心→咨询入口，确认到达[咨询]列表页。
+        with patch.object(self.task, "_nav_to_outpost") as nav_mock, \
+                patch.object(self.task, "wait_click_feature") as click_feature_mock, \
+                patch.object(self.task, "transition") as transition_mock, \
+                patch.object(self.task, "get_box_by_name", side_effect=lambda name: _named_box(name)), \
+                patch.object(self.task, "click_box") as click_box_mock, \
+                patch.object(self.task, "assert_screen") as assert_mock:
+            self.task._enter_advise()
+        nav_mock.assert_called_once()  # 先就位前哨基地。
+        self.assertEqual("command_center", click_feature_mock.call_args.args[0])  # 点指挥中心建筑。
+        transition_mock.assert_called_once_with(
+            "command_center", click_feature="command_center_enter", wait_confirm=10, after_sleep=1)
+        self.assertEqual("box_command_center_advise_enter", click_box_mock.call_args.args[0].name)  # 点咨询入口。
+        assert_mock.assert_called_once_with("advise", time_out=10)  # 确认到达咨询列表页。
 
-    def test_exit_advise_from_list_skips_detail_back(self):
-        # 停在咨询列表页退出：不经过详情页，直接逐级退回指挥中心、前哨基地。
-        with patch.object(self.task, "is_screen", return_value=False), \
-                patch.object(self.task, "_find_back_button") as find_mock, \
-                patch.object(self.task, "click_box") as click_mock, \
-                patch.object(self.task, "_back_through_screens") as back_mock:
-            self.task._exit_advise_to_outpost()
-        find_mock.assert_not_called()  # 未按详情页处理。
-        click_mock.assert_not_called()
-        back_mock.assert_called_once_with("command_center", "outpost")
-
-    def test_exit_advise_detail_back_missing_raises(self):
-        # 详情页找不到返回按钮时抛异常交 try_step 恢复。
-        with patch.object(self.task, "is_screen", return_value=True), \
-                patch.object(self.task, "_find_back_button", return_value=None), \
-                patch.object(self.task, "click_box"), \
-                patch.object(self.task, "_back_through_screens") as back_mock:
-            with self.assertRaises(WaitFailedException):
-                self.task._exit_advise_to_outpost()
-        back_mock.assert_not_called()  # 未进入逐级返回。
+    def test_exit_advise_to_lobby_delegates(self):
+        # 出口拆分：咨询结束直接返回大厅，委托基类幂等收尾（含主页按钮坐标偏移兜底与延迟遮罩重试）。
+        with patch.object(self.task, "_exit_to_lobby") as exit_mock:
+            self.task._exit_advise_to_lobby()
+        exit_mock.assert_called_once_with()
 
     def test_flow_switch_cap_force_ends(self):
         counter = itertools.count()  # 每次读取返回新名称，模拟一直能切换成功。
-        with patch.object(self.task, "_nav_to_outpost"), \
-                patch.object(self.task, "transition"), \
-                patch.object(self.task, "wait_click_feature"), \
+        with patch.object(self.task, "_enter_advise"), \
                 patch.object(self.task, "assert_screen"), \
                 patch.object(self.task, "wait_screen", return_value=True), \
                 patch.object(self.task, "get_box_by_name", side_effect=lambda name: _named_box(name)), \
@@ -506,7 +478,7 @@ class TestOutpostTaskAdvise(_DebugOffTestCase):
                              side_effect=lambda: f"角色{next(counter)}"), \
                 patch.object(self.task, "_advise_once"), \
                 patch.object(self.task, "_advise_count_zero", return_value=False), \
-                patch.object(self.task, "_exit_advise_to_outpost") as exit_mock, \
+                patch.object(self.task, "_exit_advise_to_lobby") as exit_mock, \
                 patch.object(self.task, "sleep"):
             self.task._do_advise()  # 经 try_step 成功路径标记完成。
         next_clicks = [c for c in click_box_mock.call_args_list if c.args[0].name == "advise_next"]
