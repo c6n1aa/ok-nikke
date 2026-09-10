@@ -31,10 +31,6 @@ logger = Logger.get_logger(__name__)
 # 更新期间留给应用优雅退出的时间；超时则硬退（update.py 会等本进程真正消失）
 GRACEFUL_EXIT_MS = 3000
 
-# 发现新版本时的通知范围：只弹窗口内 InfoBar（配「关于」页红点），不发系统托盘气泡。
-# 框架的 MainWindow.show_notification 由这个 tray 参数决定是否调 notify_system()。
-NOTIFY_TRAY_BALLOON = False
-
 
 class NikkeUpdateCard(QWidget):
     """版本选择 + 更新源切换 + 执行更新。"""
@@ -42,6 +38,9 @@ class NikkeUpdateCard(QWidget):
     update_available_changed = Signal(bool)
     check_started = Signal()
     _tags_loaded = Signal(object)
+    # 发现新版本时的通知范围：只弹窗口内 InfoBar（配「关于」页红点），不发系统托盘气泡
+    # （框架的 MainWindow.show_notification 由 tray 参数决定是否调 notify_system()）
+    NOTIFY_TRAY_BALLOON = False
 
     def __init__(self, current_version, pyappify_module=None, parent=None, exit_event=None,
                  download_url=None):
@@ -196,7 +195,7 @@ class NikkeUpdateCard(QWidget):
             self._notified_version = newest_newer
             communicate.notification.emit(
                 f'发现新版本 {newest_newer}，可在「关于 → 应用更新」一键升级。',
-                'ok-nikke 更新', False, NOTIFY_TRAY_BALLOON, None, None, None)
+                'ok-nikke 更新', False, self.NOTIFY_TRAY_BALLOON, None, None, None)
         if not self.tags:
             self._set_version_controls_visible(False)
             self._set_status('未获取到任何正式版本')
