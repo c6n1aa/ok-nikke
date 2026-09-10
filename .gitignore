@@ -36,6 +36,17 @@ __pycache__/
 *.msgpack
 *.dat
 
+# ---- 便携包（见 docs/portable-refactor.md）：随包分发但绝不入 git ----
+version.txt
+version.txt.prev
+git/
+ok-nikke.exe
+launcher/*.exe
+launcher/*.obj
+launcher/*.res
+launcher/build-stamp/
+launcher/_build_*.rc
+
 # ---- Packaging / build / virtual envs ----
 .Python
 build/

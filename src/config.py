@@ -1,4 +1,5 @@
 import os
+import sys
 
 import numpy as np
 
@@ -6,8 +7,35 @@ from src.patches import apply_all  # 受控补丁唯一入口
 
 apply_all()  # 启动器/运行时/任务列表等补丁，必须在 ok.OK(config) 构造前应用
 
-version = "dev"
-#不需要修改version, Github Action打包会自动修改
+VERSION_FILE = 'version.txt'
+
+
+def _read_version():
+    """版本号来源：包根 version.txt（由 build 写入、update.py 更新，见 docs/portable-refactor.md §5.3）。
+
+    取不到（源码直跑）时回退 "dev"。不用 src/config.py 里的字面量做唯一来源：该文件会被
+    git checkout 覆盖，仓库里恒为 dev，更新后会回退。
+    """
+    candidates = []
+    try:
+        candidates.append(os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), VERSION_FILE))
+    except Exception:
+        pass
+    candidates.append(os.path.join(os.getcwd(), VERSION_FILE))
+    for path in candidates:
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                # lstrip BOM：CI 里用 PowerShell Set-Content -Encoding utf8 会写入 BOM，
+                # 不清理会让版本号变成 "\ufeffvX"，后续版本比较全部失真
+                text = f.read().lstrip('\ufeff').strip()
+            if text:
+                return text
+        except OSError:
+            continue
+    return 'dev'
+
+
+version = _read_version()
 
 
 config = {
