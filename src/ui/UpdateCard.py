@@ -31,6 +31,10 @@ logger = Logger.get_logger(__name__)
 # 更新期间留给应用优雅退出的时间；超时则硬退（update.py 会等本进程真正消失）
 GRACEFUL_EXIT_MS = 3000
 
+# 发现新版本时的通知范围：只弹窗口内 InfoBar（配「关于」页红点），不发系统托盘气泡。
+# 框架的 MainWindow.show_notification 由这个 tray 参数决定是否调 notify_system()。
+NOTIFY_TRAY_BALLOON = False
+
 
 class NikkeUpdateCard(QWidget):
     """版本选择 + 更新源切换 + 执行更新。"""
@@ -47,6 +51,7 @@ class NikkeUpdateCard(QWidget):
         self.download_url = download_url
         self.tags = []
         self._busy = False
+        self._notified_version = None  # 已弹过通知的版本，避免自动检查与手动检查重复提示
         self.config = update_config.load()
 
         self.channel_combo = ComboBox(self)
@@ -83,6 +88,12 @@ class NikkeUpdateCard(QWidget):
         self.notes_label.setWordWrap(True)
         self.notes_label.setTextFormat(Qt.TextFormat.PlainText)
         self.notes_label.setVisible(False)
+        # 上次更新失败过（update.py 落盘的记录）：直接显示原因，别让用户「还是旧版本但不知道为什么」
+        failure = update_config.read_update_failure()
+        if failure:
+            self.status_label.setText(
+                f'上次更新到 {failure["target"] or "目标版本"} 失败：{failure["reason"]}'
+                f'（详见 logs/update.log；可重新点「检查更新」再试）')
 
         source_row = QHBoxLayout()
         source_row.setSpacing(DesignToken.ROW_SPACING)
@@ -179,6 +190,13 @@ class NikkeUpdateCard(QWidget):
         self.version_combo.blockSignals(False)
         newest_newer = update_config.newest_stable_update(tags, self.current_version)
         self.update_available_changed.emit(newest_newer is not None)
+        # 发现新版本时主动通知（框架的 communicate.notification → 窗口内 InfoBar），只提示一次；
+        # 「关于」页的红点徽标是常驻提示，托盘气泡按 NOTIFY_TRAY_BALLOON 关闭。
+        if newest_newer is not None and newest_newer != self._notified_version:
+            self._notified_version = newest_newer
+            communicate.notification.emit(
+                f'发现新版本 {newest_newer}，可在「关于 → 应用更新」一键升级。',
+                'ok-nikke 更新', False, NOTIFY_TRAY_BALLOON, None, None, None)
         if not self.tags:
             self._set_version_controls_visible(False)
             self._set_status('未获取到任何正式版本')

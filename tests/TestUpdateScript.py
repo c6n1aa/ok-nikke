@@ -234,5 +234,33 @@ class TestGuardrails(unittest.TestCase):
         self.assertNotEqual(ignored.returncode, 0, 'launcher 源码不能命中 .gitignore')
 
 
+class TestFailureRecordAndConsole(unittest.TestCase):
+    """更新过程对用户可见：进度落日志、失败记录落盘、控制台输出不依赖第三方。"""
+
+    def test_progress_is_written_to_log(self):
+        with tempfile.TemporaryDirectory() as folder:
+            update.progress(folder, 3, '安装依赖…')
+            with open(os.path.join(folder, update.LOG_REL), encoding='utf-8') as f:
+                text = f.read()
+        self.assertIn(f'[3/{update.TOTAL_STEPS}]', text)
+        self.assertIn('安装依赖', text)
+
+    def test_failure_record_roundtrip(self):
+        with tempfile.TemporaryDirectory() as folder:
+            update.record_failure(folder, 'v9.9.9', '下载失败：网络不可达')
+            with open(os.path.join(folder, update.FAILED_REL), encoding='utf-8') as f:
+                data = json.load(f)
+            self.assertEqual('v9.9.9', data['target'])
+            self.assertEqual('下载失败：网络不可达', data['reason'])
+            update.clear_failure(folder)
+            self.assertFalse(os.path.exists(os.path.join(folder, update.FAILED_REL)))
+            update.clear_failure(folder)  # 没有记录时也不能抛
+
+    def test_console_helpers_do_not_raise_without_console(self):
+        with tempfile.TemporaryDirectory() as folder:
+            update.set_console_title('ok-nikke test')  # 无控制台时静默失败
+            update.pause_before_exit(folder, seconds=0)  # 给 0 秒，测试不等待
+
+
 if __name__ == '__main__':
     unittest.main()

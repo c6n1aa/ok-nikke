@@ -138,13 +138,55 @@ class TestPrereleasePolicy(unittest.TestCase):
         self.assertIsNone(update_config.newest_prerelease_update(['v0.2.0', 'v0.1.0'], 'v0.1.0'))
 
 
+class TestUpdateFailureRecord(unittest.TestCase):
+    """上次更新失败的记录（update.py 落盘 → 「关于」页回显）。"""
+
+    def test_missing_broken_or_reasonless_record_returns_none(self):
+        with tempfile.TemporaryDirectory() as folder:
+            self.assertIsNone(update_config.read_update_failure(folder))
+            path = os.path.join(folder, update_config.UPDATE_FAILED_REL)
+            os.makedirs(os.path.dirname(path))
+            with open(path, 'w', encoding='utf-8') as f:
+                f.write('{not json')
+            self.assertIsNone(update_config.read_update_failure(folder))
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump({'target': 'v1.0.0'}, f)  # 缺 reason，视为无记录
+            self.assertIsNone(update_config.read_update_failure(folder))
+
+    def test_reads_target_and_reason(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, update_config.UPDATE_FAILED_REL)
+            os.makedirs(os.path.dirname(path))
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump({'target': 'v1.2.3', 'reason': '下载 v1.2.3 失败：网络不可达'}, f)
+            self.assertEqual(
+                update_config.read_update_failure(folder),
+                {'target': 'v1.2.3', 'reason': '下载 v1.2.3 失败：网络不可达'})
+
+
+class TestStartUpdate(unittest.TestCase):
+
+    def test_start_update_opens_a_console(self):
+        """更新子进程必须带 CREATE_NEW_CONSOLE，否则用户看不到任何进度（只有应用消失）。"""
+        from unittest.mock import patch
+        with patch('src.update_config.subprocess.Popen') as popen:
+            update_config.start_update('v9.9.9', root=ROOT, wait_pid=1234)
+        command = popen.call_args.args[0]
+        self.assertEqual('v9.9.9', command[command.index('--target') + 1])
+        self.assertEqual('1234', command[command.index('--wait-pid') + 1])
+        self.assertEqual(update_config.CREATE_NEW_CONSOLE, popen.call_args.kwargs['creationflags'])
+        self.assertEqual(ROOT, popen.call_args.kwargs['cwd'])
+
+
 class TestAboutUpdatePatch(unittest.TestCase):
 
     def test_apply_swaps_framework_update_ui(self):
         import ok.ui.qt.MainWindow as main_window_module
         import ok.ui.qt.about.AboutTab as about_tab_module
+        from ok.ui.qt.about.UpdateCard import ChangeLogView
         from src.ui.UpdateCard import NikkeUpdateCard
 
+        original_changelog = ChangeLogView
         about_update.apply()
 
         self.assertIs(about_tab_module.UpdateCard, NikkeUpdateCard)
@@ -155,6 +197,14 @@ class TestAboutUpdatePatch(unittest.TestCase):
         # MainWindow 依赖的三个成员必须同名提供，否则导航徽标/自动检查会失效
         for attribute in ('update_available_changed', 'check_started', 'check_for_updates'):
             self.assertTrue(hasattr(NikkeUpdateCard, attribute), attribute)
+        # 启动自检延迟被缩短（框架默认 30 秒），否则用户要等半分钟才看到更新提示
+        self.assertEqual(about_update.STARTUP_UPDATE_CHECK_DELAY_MS,
+                         main_window_module.update_check_delay_ms())
+        # 不显示更新内容：空正文的「更新成功」卡片不应留白（ChangeLogView 被换成「空则隐藏」子类）
+        self.assertIsNot(about_tab_module.ChangeLogView, original_changelog)
+        self.assertTrue(issubclass(about_tab_module.ChangeLogView, original_changelog))
+        # 发现新版本只弹窗口内 InfoBar，不发系统托盘气泡（配「关于」页红点）
+        self.assertFalse(NikkeUpdateCard.NOTIFY_TRAY_BALLOON)
 
     def test_pending_version_change_consumed_once(self):
         with tempfile.TemporaryDirectory() as folder:

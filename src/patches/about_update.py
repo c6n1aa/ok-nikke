@@ -13,7 +13,7 @@
    因此 MainWindow 的「30 秒自动检查 + 导航徽标」逻辑原样可用，无需再补 MainWindow。
 2. `get_startup_version_change` → 基于 `version.txt` / `version.txt.prev` 的实现，
    让「已更新 vX → vY」提示在去掉 pyappify 环境变量后继续可用（首次调用即消费掉 prev 文件，
-   避免每次启动都弹）。
+   避免每次启动都弹）。正文不显示更新内容，空正文由 `_patch_empty_changelog` 收起，避免留白。
 """
 
 from __future__ import annotations
@@ -61,7 +61,7 @@ def _get_startup_version_change(pyappify_module=None):
     return StartupVersionChange(
         title=f'{change["action"].capitalize()} success '
               f'{change["from_version"]} -> {change["to_version"]}',
-        content='',
+        content='',  # 不显示更新内容：卡片只留标题，空正文由 _patch_empty_changelog 收起
         action=change['action'],
         from_version=change['from_version'],
         to_version=change['to_version'],
@@ -86,8 +86,48 @@ def _patch_startup_version_change():
     logger.info('patched get_startup_version_change to read version.txt')
 
 
+def _patch_empty_changelog():
+    """「更新成功 / 降级成功」卡片正文为空时隐藏正文区。
+
+    我们不再显示更新内容（pyappify 时代由启动器的 update_note 提供），不收起的话
+    卡片里会留一块空白；只换 AboutTab 里那个模块级名字，不动 ok 源码。
+    """
+    import ok.ui.qt.about.AboutTab as about_tab_module
+
+    original = about_tab_module.ChangeLogView
+
+    class _CollapsedWhenEmpty(original):
+        def __init__(self, text='', parent=None):
+            super().__init__(text, parent)
+            if not str(text or '').strip():
+                self.setVisible(False)
+
+    about_tab_module.ChangeLogView = _CollapsedWhenEmpty
+    logger.info('patched ChangeLogView to collapse when empty')
+
+
+STARTUP_UPDATE_CHECK_DELAY_MS = 3000  # 启动自检延迟（框架默认 30 秒，用户等得太久）
+
+
+def _patch_update_check_delay():
+    """把启动自检延迟从 30 秒缩短到 3 秒。
+
+    MainWindow._schedule_update_check 在调用时按模块名查找 update_check_delay_ms，
+    所以替换模块属性即可生效，不需要改 ok 源码（也不动 MainWindow）。
+    """
+    import ok.ui.qt.MainWindow as main_window_module
+
+    def update_check_delay_ms():
+        return STARTUP_UPDATE_CHECK_DELAY_MS
+
+    main_window_module.update_check_delay_ms = update_check_delay_ms
+    logger.info(f'patched update_check_delay_ms to {STARTUP_UPDATE_CHECK_DELAY_MS}ms')
+
+
 def apply():
     # 先消费一次版本变更（apply_all 在 ok.OK(config) 构造前调用，早于任何 UI 构建）
     pending_version_change()
     _patch_update_card()
     _patch_startup_version_change()
+    _patch_update_check_delay()
+    _patch_empty_changelog()

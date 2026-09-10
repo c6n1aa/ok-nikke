@@ -44,8 +44,10 @@ MARKER_REL = os.path.join('configs', '.updating')
 RUNNER_REL = os.path.join('configs', '.update_runner.py')
 LOG_REL = os.path.join('logs', 'update.log')
 TARGET_REQUIREMENTS_REL = os.path.join('configs', '.requirements.target.txt')
+FAILED_REL = os.path.join('configs', 'update_failed.json')
 REQUIREMENTS_FILE = 'requirements.txt'
 MAIN_SCRIPT = 'main.py'
+TOTAL_STEPS = 6
 
 # 只写包内 .git/info/exclude，避免 seed commit 把运行期产物/内联目录/独立解释器提交进本地基线
 EXCLUDE_PATTERNS = [
@@ -75,7 +77,11 @@ WAIT_PARENT_TIMEOUT = 60
 
 
 def log(root: str, message: str) -> None:
-    """写 logs/update.log；pythonw 无 stdout 时也能留痕。"""
+    """写 logs/update.log，并回显到控制台：更新期间用户能看到当前在做什么。
+
+    有控制台时只写 stdout（stdout/stderr 同指向控制台，两个都写会重复一行）；
+    没有 stdout（pythonw 等）时才退到 stderr。
+    """
     line = f'[{time.strftime("%Y-%m-%d %H:%M:%S")}] {message}'
     try:
         path = os.path.join(root, LOG_REL)
@@ -85,9 +91,45 @@ def log(root: str, message: str) -> None:
     except Exception:
         pass
     try:
-        if sys.stderr is not None:
-            sys.stderr.write(line + '\n')
-            sys.stderr.flush()
+        stream = sys.stdout if sys.stdout is not None else sys.stderr
+        if stream is not None:
+            stream.write(line + '\n')
+            stream.flush()
+    except Exception:
+        pass
+
+
+def set_console_title(title: str) -> None:
+    """设置控制台窗口标题（无控制台/非 Windows 时静默跳过）。"""
+    try:
+        ctypes.windll.kernel32.SetConsoleTitleW(title)
+    except Exception:
+        pass
+
+
+def progress(root: str, step: int, text: str) -> None:
+    """控制台进度行：[n/6] …，同时落 logs/update.log。"""
+    log(root, f'[{step}/{TOTAL_STEPS}] {text}')
+
+
+def record_failure(root: str, target: str, reason: str) -> None:
+    """更新失败落盘：控制台可能已被关掉，应用启动时读它提示用户。"""
+    write_json(os.path.join(root, FAILED_REL),
+               {'target': target, 'reason': reason, 'time': time.time()})
+
+
+def clear_failure(root: str) -> None:
+    try:
+        os.remove(os.path.join(root, FAILED_REL))
+    except OSError:
+        pass
+
+
+def pause_before_exit(root: str, seconds: float = 15) -> None:
+    """失败后让控制台停留一会儿，用户能看清原因（成功时不等待）。"""
+    log(root, f'窗口将在 {int(seconds)} 秒后自动关闭；失败原因也写入了 logs/update.log 与 configs/update_failed.json')
+    try:
+        time.sleep(seconds)
     except Exception:
         pass
 
@@ -512,26 +554,36 @@ def run_update(options) -> int:
         return 2
 
     git = Git(git_exe, root, dry_run=options.dry_run)
+    current_version = read_version(root)
+    failure = {'reason': ''}
+    set_console_title(f'ok-nikke 更新中：{current_version or "未知"} -> {options.target}')
+
+    def abort(reason: str, code: int = 1) -> int:
+        """更新失败：落盘 + 控制台留痕（应用启动时会读 configs/update_failed.json 提示用户）。"""
+        failure['reason'] = reason
+        record_failure(root, options.target, reason)
+        _clear_marker(root)
+        log(root, f'更新失败：{reason}')
+        log(root, f'当前仍是 {current_version or "未知"}，稍后会自动重启旧版本；详情见 logs/update.log')
+        return code
 
     if options.wait_pid:
+        progress(root, 1, '等待旧版本退出…')
         if not wait_for_process_exit(options.wait_pid, options.wait_timeout):
-            log(root, f'old process {options.wait_pid} did not exit in {options.wait_timeout}s, abort')
-            return 2
-        log(root, f'old process {options.wait_pid} exited')
+            return abort(f'旧进程 {options.wait_pid} 在 {int(options.wait_timeout)} 秒内没有退出', 2)
+    progress(root, 1, f'准备更新到 {options.target}（更新源：{git_url}）')
 
     _backup_runner(root)
     _write_marker(root, {'target': options.target, 'pid': os.getpid(), 'started': time.time()})
 
-    current_version = read_version(root)
     try:
         ensure_repository(git, root, git_url, current_version)
         old_ref = git.output('rev-parse', 'HEAD').strip()
 
+        progress(root, 2, f'下载 {options.target} 的代码…')
         code, _, err = git.run('fetch', '--depth=1', 'origin', 'tag', options.target)
         if code != 0:
-            log(root, f'fetch {options.target} failed: {err}, keep current code')
-            _clear_marker(root)
-            return 1
+            return abort(f'下载 {options.target} 失败：{err or "网络不可达"}')
 
         # 依赖：用目标 tag 里的 requirements.txt 生成临时文件，在 checkout 之前安装；
         # 失败时工作区仍是旧版本，无需回滚。
@@ -540,27 +592,32 @@ def run_update(options) -> int:
             old_fingerprint = requirements_fingerprint(_read_text(os.path.join(root, REQUIREMENTS_FILE)) or '')
             new_fingerprint = requirements_fingerprint(new_requirements) if code == 0 else None
             if options.force_pip or (new_fingerprint and new_fingerprint != old_fingerprint):
+                progress(root, 3, '依赖有变化，安装依赖（可能需要几分钟）…')
                 log(root, f'dependencies changed (force_pip={options.force_pip}), installing before checkout')
                 if not _install_requirements(root, python_exe, new_requirements, pip_index, options.dry_run,
                                             options.pip_attempts, options.pip_retry_delay):
-                    log(root, 'pip failed, keep current code')
-                    _clear_marker(root)
-                    return 1
+                    return abort('安装依赖失败（详见本窗口上方 pip 输出）')
+            else:
+                progress(root, 3, '依赖没有变化，跳过安装')
 
+        progress(root, 4, f'切换到 {options.target}…')
         code, _, err = git.run('checkout', '-f', options.target)
         if code != 0:
-            log(root, f'checkout {options.target} failed: {err}, keep current code')
-            _clear_marker(root)
-            return 1
+            return abort(f'切换代码失败：{err}')
 
         write_version(root, options.target, current_version)
         prune_old_tags(git, root, options.target)
         _clear_marker(root)
         _restore_runner_if_missing(root)
+        clear_failure(root)
+        progress(root, 5, f'更新完成：{current_version or "unknown"} -> {options.target}（重启后生效）')
         log(root, f'update done: {current_version or "unknown"} -> {options.target} (old_ref={old_ref})')
     finally:
         if not options.no_relaunch:
+            progress(root, TOTAL_STEPS, '正在重启应用…')
             relaunch_app(root, pythonw_exe)
+        if failure['reason'] and not options.dry_run:
+            pause_before_exit(root)
     return 0
 
 

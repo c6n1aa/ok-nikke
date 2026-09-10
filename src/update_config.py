@@ -27,6 +27,14 @@ UPDATE_CONFIG_REL = os.path.join('configs', 'update.json')
 if _update is not None:
     UPDATE_CONFIG_REL = _update.UPDATE_CONFIG_REL
 
+# 上次更新的失败记录（由 update.py 落盘，这里读出来在「关于」页提示用户）
+UPDATE_FAILED_REL = os.path.join('configs', 'update_failed.json')
+if _update is not None:
+    UPDATE_FAILED_REL = _update.FAILED_REL
+
+# 给更新子进程一个新控制台：进度与失败原因对用户可见（原来 CREATE_NO_WINDOW 是全隐身）
+CREATE_NEW_CONSOLE = 0x00000010
+
 # 与 update.py 的 DEFAULT_UPDATE_CONFIG 保持一致（若 update.py 可用则以它为准，避免漂移）
 DEFAULT_UPDATE_CONFIG = {
     'channel': 'auto',
@@ -224,7 +232,8 @@ def build_update_command(target: str, root: str = None, wait_pid: int = 0) -> li
 def start_update(target: str, root: str = None, wait_pid: int = 0):
     """启动 update.py（不等待）：它会等本进程退出后再 fetch/checkout/pip。
 
-    用 pythonw 无关紧要（update.py 自己写 logs/update.log），这里给 CREATE_NO_WINDOW 避免闪黑框。
+    用 CREATE_NEW_CONSOLE 开一个控制台窗口：拉代码/装依赖/失败原因都看得见，
+    否则用户只看到「应用关掉、过一会儿自己回来」。进度同时写 logs/update.log。
     """
     if not target:
         raise ValueError('缺少目标版本')
@@ -232,7 +241,7 @@ def start_update(target: str, root: str = None, wait_pid: int = 0):
         raise FileNotFoundError(f'未找到 {UPDATE_SCRIPT}')
     return subprocess.Popen(
         build_update_command(target, root, wait_pid), cwd=root or package_root(),
-        close_fds=True, creationflags=0x08000000 if os.name == 'nt' else 0,
+        close_fds=True, creationflags=CREATE_NEW_CONSOLE if os.name == 'nt' else 0,
     )
 
 
@@ -251,3 +260,22 @@ def read_versions(root: str = None) -> tuple:
         else:
             previous = value
     return current, previous
+
+
+def read_update_failure(root: str = None):
+    """上次更新失败的记录：{'target','reason'}；无记录或文件损坏返回 None。
+
+    由 update.py 写在 configs/update_failed.json（成功更新时会被删掉），
+    这里读出来在「关于 → 应用更新」里回显，避免用户「更新完还是旧版本但不知道为什么」。
+    """
+    try:
+        with open(os.path.join(root or package_root(), UPDATE_FAILED_REL), 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except Exception:
+        return None
+    if not isinstance(data, dict):
+        return None
+    reason = str(data.get('reason') or '').strip()
+    if not reason:
+        return None
+    return {'target': str(data.get('target') or '').strip(), 'reason': reason}
