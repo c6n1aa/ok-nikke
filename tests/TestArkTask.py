@@ -798,10 +798,11 @@ class TestDailyTaskArkIntegration(_DebugOffTestCase):
                 patch.object(daily, "_daily_end_flow"), \
                 patch.object(daily, "log_info") as log_mock:  # 收尾流程会真实抓帧/置前窗口，必须拦截（不碰真实环境）。
             daily.run()
-        notify_calls = [c for c in log_mock.call_args_list if c.kwargs.get("notify")]
-        self.assertEqual(1, len(notify_calls))
-        self.assertIn("极乐净土", notify_calls[0].args[0])
+        notify_calls = [c for c in log_mock.call_args_list if c.kwargs.get("notify")]  # 全部带托盘通知的收尾日志。
+        self.assertEqual(2, len(notify_calls))  # 失败塔提醒 + 日常完成通知各一条。
+        self.assertIn("极乐净土", notify_calls[0].args[0])  # 第一条是方舟失败塔的统一提醒。
         self.assertIn("朝圣者", notify_calls[0].args[0])
+        self.assertEqual("日常完成。", notify_calls[1].args[0])  # 第二条是日常完成通知。
 
 
 class TestEnsureLobby(_DebugOffTestCase):
