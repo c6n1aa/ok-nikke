@@ -13,6 +13,7 @@ ok-nikke 是基于 PyPI `ok-script`（2.x）构建的《胜利女神：NIKKE》W
 - **测试不碰真实环境**：`wait_for_lobby`（真实置前窗口）、`dismiss_all_popups`（真实抓帧+OCR）等必经方法必须 `patch.object` 拦截并断言参数。
 - **测试不得执行真实 OCR**：部分 runner 的 CPU 上 onnxocr/OpenVINO 会执行到非法指令（`0xC000001D`）把测试进程整个带走——没有 traceback、没有断言失败，只剩一个十六进制退出码。CI 与 `run_tests.ps1` 已设 `OK_NIKKE_NO_REAL_OCR=1`，漏网的真实 OCR 调用会变成可定位的异常；确需真实 OCR 的用例用 `unittest.skipUnless(REAL_OCR_ENABLED, ...)`（`OK_NIKKE_REAL_OCR=1` 才跑）标记为手动用例，并登记到 `dev_tools/check_real_ocr.py`。
 - **更新相关红线**（详见 `docs/portable-refactor.md`）：`update.py` 只用标准库、pip 带 `--no-deps --no-cache-dir`；`version.txt`(含 `.prev`) 不入 git 与 `deploy.txt`；不设 `support_schedule_task=True`；启动时 cwd 与 `sys.path[0]` 都必须是包根。
+- **依赖别自己升级**：`ok-script` / `openvino` / `onnxocr-ppocrv5` 一律以 `ok-script-app` 模板为基准（`pyproject.toml` 只声明 `ok-script[...]==<模板版本>` + `openvino` + `opencv-python`，其余交给框架 extras）。升级前必须：① 核对 `src/patches/` 依赖的框架 API 与配置层（如 `GlobalConfig`）差异；② 用 CI 的真实 OCR 跑一轮验证（Actions → Build → Run workflow 勾 `real_ocr`，或设仓库变量 `OK_NIKKE_REAL_OCR=1`，都不需要改代码）。2026-09 的 `0xC000001D`（onnxocr/OpenVINO 在部分 runner CPU 上执行非法指令、测试进程被直接带走）是自升级 `ok-script 2.0.2` 后出现的，对齐依赖栈后消失：旧栈 4 轮崩 2 轮 → 新栈 8 轮全绿。
 
 ## 关键机制
 
