@@ -1,7 +1,8 @@
 src
-ok
 main.py
 main_debug.py
+update.py
+launcher
 icons
 requirements.txt
 README.md
