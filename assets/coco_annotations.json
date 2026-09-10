@@ -1852,12 +1852,12 @@
             "image_id": 35,
             "category_id": 106,
             "bbox": [
-                2529,
-                187,
-                23,
-                22
+                2457,
+                225,
+                53,
+                41
             ],
-            "area": 506,
+            "area": 2173,
             "iscrowd": 0
         },
         {
@@ -1865,12 +1865,12 @@
             "image_id": 35,
             "category_id": 107,
             "bbox": [
-                2457,
-                225,
-                53,
-                41
+                2529,
+                184,
+                30,
+                25
             ],
-            "area": 2173,
+            "area": 750,
             "iscrowd": 0
         },
         {
@@ -4079,12 +4079,12 @@
         },
         {
             "id": 106,
-            "name": "box_pass_badge",
+            "name": "box_pass_area",
             "supercategory": ""
         },
         {
             "id": 107,
-            "name": "box_pass_area",
+            "name": "box_pass_badge",
             "supercategory": ""
         },
         {
