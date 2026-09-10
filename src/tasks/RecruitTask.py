@@ -6,7 +6,7 @@ from ok.task.exceptions import WaitFailedException  # 特征缺失/确认超时�
 from src.tasks.NikkeBaseTask import NikkeBaseTask  # 项目基类，所有任务统一继承它。
 
 # 招募结果「确认」按钮 OCR 匹配模式：OCR 文本常带尾随标点/拆框，用正则部分匹配。
-_CONFIRM_PATTERN = re.compile(r"确认")
+_CONFIRM_PATTERN = re.compile(r"确认", re.IGNORECASE)
 
 # 招募页签翻页上限：目标入口翻遍所有页签仍未找到时结束查找，防止特征缺失导致死循环。
 _MAX_RECRUIT_PAGES = 8

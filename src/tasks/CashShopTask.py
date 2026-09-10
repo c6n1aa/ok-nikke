@@ -37,8 +37,8 @@ class CashShopTask(NikkeBaseTask):  # 付费商店免费礼包领取任务，继
         self._switch_nav("cash_shop_nav_limited_time_package")  # 切换到限时礼包导航项。
         self.wait_feature("cash_shop_limited_time_package", time_out=10, raise_if_not_found=True)  # 确认已进入限时礼包页面。
         tab_bar = self.get_box_by_name("box_cash_shop_tab_bars")  # 获取页签栏标注区域。
-        self.wait_click_ocr(box=tab_bar, match=re.compile("STEP UP"), time_out=10, raise_if_not_found=True, after_sleep=1)  # OCR 识别并点击 STEP UP 页签。
-        free_box = self.wait_ocr(box=self.get_box_by_name("box_cash_shop_free_stepup"), match=re.compile("免费"), time_out=3, raise_if_not_found=False)  # 等待在免费购买按钮区域 OCR 识别“免费”。
+        self.wait_click_ocr(box=tab_bar, match=re.compile("STEP UP", re.IGNORECASE), time_out=10, raise_if_not_found=True, after_sleep=1)  # OCR 识别并点击 STEP UP 页签。
+        free_box = self.wait_ocr(box=self.get_box_by_name("box_cash_shop_free_stepup"), match=re.compile("免费", re.IGNORECASE), time_out=3, raise_if_not_found=False)  # 等待在免费购买按钮区域 OCR 识别“免费”。
         if free_box:  # 识别到免费按钮。
             self.click_box(free_box[0], after_sleep=1)  # 点击免费按钮购买礼包。
             self.dismiss_all_popups(time_out=10)  # 处理购买后出现的遮罩层（默认等待弹窗出现）。
@@ -54,7 +54,7 @@ class CashShopTask(NikkeBaseTask):  # 付费商店免费礼包领取任务，继
         for keyword, done_key, period in self._ORDINARY_TABS:  # 依次处理每日/每周/每月页签。
             if self.is_done(done_key, period):  # 本周期已完成则跳过。
                 continue  # 处理下一个页签。
-            tab = self.wait_click_ocr(box=tab_bar, match=re.compile(keyword), time_out=10, raise_if_not_found=False, after_sleep=1)  # OCR 识别并点击当前页签。
+            tab = self.wait_click_ocr(box=tab_bar, match=re.compile(keyword, re.IGNORECASE), time_out=10, raise_if_not_found=False, after_sleep=1)  # OCR 识别并点击当前页签。
             if tab is None:  # 当前页签不存在。
                 self.log_warning(f"未找到{keyword}页签，跳过。")  # 记录跳过原因。
                 continue  # 处理下一个页签。

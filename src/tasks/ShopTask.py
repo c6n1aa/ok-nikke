@@ -12,7 +12,7 @@ from src.tasks.NikkeBaseTask import NikkeBaseTask  # 项目基类，所有任务
 # 商店购买确认后的「资金不足」toast OCR 匹配模式：OCR 文本常带尾随句号（如「资金不足。」），
 # 框架对普通字符串走全等、re.Pattern 走 re.search 部分匹配，必须用编译模式（同 ArkTask._SEASON_END_PATTERN）。
 # 文案属游戏画面渲染文本：i18n 恢复后由 fix_match_regex 经 ok.po 在运行期翻译为对应游戏语言。
-_NO_CURRENCY_PATTERN = re.compile(r"资金不足")
+_NO_CURRENCY_PATTERN = re.compile(r"资金不足", re.IGNORECASE)
 
 # 竞技场代码模板（第一列 1-3 格随机出现，用模板匹配识别），名称 -> 模板路径。
 _CODE_TEMPLATES = {
@@ -355,7 +355,8 @@ class ShopTask(NikkeBaseTask):  # 商店自动兑换任务，继承项目基类�
             title_box = self.get_box_by_name("box_shop_title")  # 获取商店标题标注区域（已按当前分辨率缩放）。
         except ValueError:  # 特征缺失时抛等待失败异常。
             raise WaitFailedException("box_shop_title 特征缺失")  # 由 try_step 捕获恢复。
-        if self.wait_ocr(box=title_box, match=keyword, time_out=10, raise_if_not_found=False) is None:  # OCR 未匹配到关键词。
+        if self.wait_ocr(box=title_box, match=re.compile(keyword, re.IGNORECASE), time_out=10,
+                         raise_if_not_found=False) is None:  # OCR 未匹配到关键词。
             raise WaitFailedException(f"未确认进入商店：{keyword}")  # 抛异常由 try_step 捕获恢复。
 
     def _enter_general_shop(self):  # 从大厅进入普通商店。

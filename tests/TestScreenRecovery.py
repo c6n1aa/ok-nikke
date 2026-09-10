@@ -7,7 +7,7 @@ from ok.task.exceptions import WaitFailedException
 from ok.test.TaskTestCase import TaskTestCase
 
 from src.config import config
-from src.screens import LOGIN_PAGE_PATTERN, SCREENS
+from src.screens import LOGIN_PAGE_PATTERN, SCREENS, _keyword
 from src.tasks.HarvestTask import HarvestTask
 
 
@@ -32,9 +32,9 @@ class TestScreenRecovery(TaskTestCase):
             "ark": {"features": ["ark_tribe_tower", "ark_simulation_room"]},
             "tribe_tower": {"features": ["tribe_tower_mark"]},
             "simulation_room": {"any_features": ["simulation_mark", "simulation_overclock_update"]},
-            "shop": {"keywords": ["百货商店"], "ocr_box": "box_sub_pages_title"},
-            "cash_shop": {"keywords": ["付费商店"], "ocr_box": "box_sub_pages_title"},
-            "recruit_page": {"keywords": ["招募队员"], "ocr_box": "box_sub_pages_title"},
+            "shop": {"keywords": [_keyword("百货商店")], "ocr_box": "box_sub_pages_title"},
+            "cash_shop": {"keywords": [_keyword("付费商店")], "ocr_box": "box_sub_pages_title"},
+            "recruit_page": {"keywords": [_keyword("招募队员")], "ocr_box": "box_sub_pages_title"},
             "coop_page": {"features": ["coop_page"]},
             "coop_nikke_select_page": {"features": ["coop_nikke_select_page"]},
             "solo_raid_page": {"features": ["solo_raid_page"]},
@@ -44,13 +44,13 @@ class TestScreenRecovery(TaskTestCase):
             "special_arena": {"features": ["special_arena_page"]},
             "ark_ranking": {"features": ["ark_ranking_page"]},
             "interception_page": {"features": ["common_interception_active"],
-                                  "keywords": ["拦截战"], "ocr_box": "box_sub_pages_title"},
+                                  "keywords": [_keyword("拦截战")], "ocr_box": "box_sub_pages_title"},
             "anomaly_interception_page": {"features": ["anomaly_interception_page", "anomaly_interception_active"]},
             "common_interception_page": {"features": ["common_interception_page"]},
             "anomaly_interception_team_select_page": {"features": ["anomaly_interception_team_select_page"]},
-            "outpost": {"features": ["command_center"], "keywords": ["前哨基地"], "ocr_box": "box_sub_pages_title"},
-            "command_center": {"keywords": ["指挥中心"], "ocr_box": "box_sub_pages_title"},
-            "advise": {"features": ["advise_page_icon"], "keywords": ["咨询"], "ocr_box": "box_sub_pages_title"},
+            "outpost": {"features": ["command_center"], "keywords": [_keyword("前哨基地")], "ocr_box": "box_sub_pages_title"},
+            "command_center": {"keywords": [_keyword("指挥中心")], "ocr_box": "box_sub_pages_title"},
+            "advise": {"features": ["advise_page_icon"], "keywords": [_keyword("咨询")], "ocr_box": "box_sub_pages_title"},
             "advise_nikke": {"features": ["advise_detail_page", "advise_gift"]},
             "conversation": {"any_features": ["conversation_cancel", "conversation_log", "conversation_skip"],
                              "feature_box": "box_conversation_icon"},

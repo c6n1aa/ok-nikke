@@ -10,6 +10,7 @@ from ok.test.TaskTestCase import TaskTestCase
 from ok.task.exceptions import WaitFailedException
 
 from src.config import config
+from src.screens import _keyword
 from src.tasks.OutpostTask import _ADVISE_MAX_SWITCH, _BF_LIST_OPEN_MAX_ATTEMPTS, _SINGLE_OPTION_CLICK_X, \
     OutpostTask, _normalize_answer_text, _normalize_query_name
 
@@ -89,12 +90,12 @@ class TestOutpostTaskMeta(_DebugOffTestCase):
 
     def test_screens_registered(self):
         self.assertEqual(["command_center"], self.task.screens["outpost"]["features"])
-        self.assertEqual(["前哨基地"], self.task.screens["outpost"]["keywords"])
+        self.assertEqual([_keyword("前哨基地")], self.task.screens["outpost"]["keywords"])
         self.assertEqual("box_sub_pages_title", self.task.screens["outpost"]["ocr_box"])
-        self.assertEqual(["指挥中心"], self.task.screens["command_center"]["keywords"])
+        self.assertEqual([_keyword("指挥中心")], self.task.screens["command_center"]["keywords"])
         self.assertEqual("box_sub_pages_title", self.task.screens["command_center"]["ocr_box"])
         self.assertEqual(["advise_page_icon"], self.task.screens["advise"]["features"])
-        self.assertEqual(["咨询"], self.task.screens["advise"]["keywords"])
+        self.assertEqual([_keyword("咨询")], self.task.screens["advise"]["keywords"])
         self.assertEqual(["advise_detail_page", "advise_gift"], self.task.screens["advise_nikke"]["features"])
         self.assertEqual(["conversation_cancel", "conversation_log", "conversation_skip"],
                          self.task.screens["conversation"]["any_features"])

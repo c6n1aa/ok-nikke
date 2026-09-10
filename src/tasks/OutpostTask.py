@@ -10,7 +10,7 @@ from ok.task.exceptions import WaitFailedException  # 框架等待失败异常�
 from src.tasks.NikkeBaseTask import NikkeBaseTask  # 项目基类，所有任务统一继承它。
 
 # 派遣公告栏窗口标题匹配模式：OCR 部分匹配（框架对 re.Pattern 走 re.search，兼容尾随标点）。
-_DISPATCH_BOARD_TITLE_PATTERN = re.compile("派遣公告栏")
+_DISPATCH_BOARD_TITLE_PATTERN = re.compile("派遣公告栏", re.IGNORECASE)
 # 咨询剩余次数计数匹配模式：提取 "X/10" 的分子。分子与分母的 0 均容忍 OCR 误识为 O/o，
 # 匹配后分子统一归一（O/o→0）再判 0（实测 OCR 会把分子的 0 识成 O 导致漏判用尽）。
 _ADVISE_COUNT_PATTERN = re.compile(r"([0-9Oo]+)\s*/\s*1[0Oo]")

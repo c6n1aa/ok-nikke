@@ -24,14 +24,14 @@ class PopupsMixin:
     _MODAL_BLANK_CLOSE_Y = 0.50  # 相对坐标 y：面板纵向中部，避开展示元素。
     _MODAL_BLANK_CLOSE_ATTEMPTS = 2  # 未确认关闭时的补点次数（领奖遮罩可能吞掉首次点击）。
     # 登录奖励（DAILY LOGIN）弹窗：面板皮肤每期不同，存在判据只取不随皮肤变的「全部领取」文字（OCR）。
-    _DAILY_LOGIN_CLAIM_ALL_TEXT = re.compile("全部领取")  # 「全部领取」按钮文字，OCR 部分匹配（兼容拆框/噪声）。
+    _DAILY_LOGIN_CLAIM_ALL_TEXT = re.compile("全部领取", re.IGNORECASE)  # 「全部领取」按钮文字，OCR 部分匹配（兼容拆框/噪声）。
     _DAILY_LOGIN_CLAIM_PAD = (0.2, 0.36)  # 文字框外扩比例（宽, 高）：OCR 只框到白字，外扩取到按钮底色才能判断可领与否；用比例而非固定像素，保证各分辨率下都不超出按钮本体。
 
     # 遮罩提示文字 OCR 关键词：框架对字符串是全等匹配，OCR 常把提示拆成多个文本框
     # （如实测「点击进行下一步」被拆成「点击进行下一」+「步」），一律用正则走部分匹配。
-    _MASK_CLAIM_PATTERN = re.compile("点击领取奖励")  # 领奖遮罩提示。
-    _MASK_ANYWHERE_PATTERN = re.compile("点击任意处")  # 点击任意处关闭遮罩提示。
-    _CLICK_TO_PROCEED_PATTERN = re.compile("点击进行")  # 「点击进行下一步」好感度提升等遮罩提示。
+    _MASK_CLAIM_PATTERN = re.compile("点击领取奖励", re.IGNORECASE)  # 领奖遮罩提示。
+    _MASK_ANYWHERE_PATTERN = re.compile("点击任意处", re.IGNORECASE)  # 点击任意处关闭遮罩提示。
+    _CLICK_TO_PROCEED_PATTERN = re.compile("点击进行", re.IGNORECASE)  # 「点击进行下一步」好感度提升等遮罩提示。
 
     def close_popup_by_blank(self, verify, x=None, y=None, attempts=None, time_out=3, raise_on_fail=False):
         """点击面板外空白关闭模态弹窗，按 verify 判据确认关闭，未关闭则补点。

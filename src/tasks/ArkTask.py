@@ -39,8 +39,7 @@ _ANOMALY_TEAM_MAX_ACTIVATE = 5
 
 # 竞技场「赛季已结束」横幅匹配模式：OCR 结果常带句号等尾随标点（如「赛季已结束。」），
 # 框架对 re.Pattern 走 re.search 部分匹配、对普通字符串走全等比较，必须用编译模式而非关键词列表。
-# IGNORECASE 对中文是 no-op 故省略；i18n 增加英文分支时并入 alternation 并补 re.IGNORECASE。
-_SEASON_END_PATTERN = re.compile(r"赛季已结束")
+_SEASON_END_PATTERN = re.compile(r"赛季已结束", re.IGNORECASE)
 
 # 新人竞技场（战力标注区域， 免费挑战区域）对，自上而下对应 1-3 号对手。
 _ROOKIE_CP_ENCOUNTER_PAIRS = (
@@ -309,7 +308,7 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
 
     def _match_anomaly_boss(self):  # 切换异常个体直到与配置的 BOSS选择 一致（OCR 部分匹配兼容标点噪声）。
         boss = self.config.get("BOSS选择")  # 目标异常个体名。
-        pattern = re.compile(re.escape(boss))  # 编译为正则以触发框架的部分匹配（普通字符串走全等）。
+        pattern = re.compile(re.escape(boss), re.IGNORECASE)  # 编译为正则以触发框架的部分匹配（普通字符串走全等）。
         if self._anomaly_boss_matches(pattern):  # 当前已选中目标 BOSS。
             return  # 无需切换。
         for _ in range(_ANOMALY_BOSS_MAX_SWITCH):  # 有限次切换，避免 OCR 抖动导致死循环。
