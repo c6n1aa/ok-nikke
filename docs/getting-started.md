@@ -4,8 +4,9 @@
 
 ## 下载与运行
 
-1. 从 [GitHub Releases](https://github.com/c6n1aa/ok-nikke/releases) 下载最新便携包并解压到任意目录：海外网络用 `ok-nikke-win32-portable.zip`，国内网络用 `ok-nikke-win32-portable-cn.zip`。
-2. 以管理员身份运行 `ok-nikke.exe`。
+1. 从 [GitHub Releases](https://github.com/c6n1aa/ok-nikke/releases) 下载最新便携包 `ok-nikke-win32-portable.zip`，解压到任意英文目录。
+2. 以管理员身份运行 `ok-nikke.exe`（入口程序会自己请求提权，弹 UAC 时点「是」）。
+3. 若解压目录里已有旧版本，建议解压到新目录再切换，避免新旧文件混在一起。
 
 ## 使用要求
 
@@ -16,10 +17,16 @@
 
 ## 应用内更新
 
-启动器按 git tag 自动检查并完成更新，无需手动重新下载；更新源由包根目录的 `pyappify.yml` 决定。
+「关于 → 应用更新」里可以检查更新、切换更新源（自动 / GitHub / CNB 镜像 / 自定义 URL）并升级或降级到任意版本：
+
+- 出厂为「自动」：中文系统默认走 CNB 国内镜像，其它系统走 GitHub。
+- 更新时会自动拉取代码，必要时重装依赖，完成后应用自动重启；过程日志在包内 `logs/update.log`。
+- 更新源写入 `configs/update.json`，与主程序共用同一份配置。
 
 ## 常见问题
 
 - **截图全黑或识别不到画面**：确认程序与游戏权限一致（同为非管理员或同为管理员），并关闭 HDR 或允许 AutoHDR 提示。
 - **分辨率不匹配**：确认游戏窗口为 16:9 且不低于 1600×900。
-- **更新后打不开**：删除 `configs/` 目录下的配置后重启（会重置任务配置），仍失败则从 Releases 重新下载便携包。
+- **检查更新失败**：确认网络可达所选更新源，或到「关于 → 应用更新」切换到另一个源 / 手填自定义 URL。
+- **更新后打不开**：查看 `logs/update.log` 与 `logs/ok-script.log`；必要时删除 `configs/` 目录下的配置后重启（会重置任务配置），仍失败则从 Releases 重新下载便携包。
+- **从旧版（v0.1.x）升级**：旧包用的是 pyappify 启动器，新形态多了 `python/`、`git/` 与入口 exe，**无法自动升级**，请重新下载便携包。

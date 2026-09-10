@@ -11,7 +11,7 @@
 | `gui` | `type` 固定 `'qt'`（本项目不使用 Web UI）+ `window_size` 窗口/最小尺寸 |
 | `supported_resolution` | 支持的比例（16:9）、最低分辨率（1600×900）与非 16:9 时的 `resize_to` 目标 |
 | `links` | 「关于」页展示的项目主页、分享文案与反馈链接 |
-| `version` | 由打包工作流自动改写，源码中保持 `"dev"` |
+| `version` | 由包根 `version.txt` 提供（build 写入、update.py 更新），取不到时回退源码里的 `"dev"` |
 | `screenshots_folder` | 截图输出目录，每次启动清空 |
 
 ## 运行目标
@@ -52,5 +52,5 @@
 
 ## 依赖与更新源
 
-- 依赖源是 `pyproject.toml`：`pip-compile pyproject.toml -o requirements.txt`，生成后删除 `pyside6`/`pyside6-addons` 条目（只装 `pyside6-essentials`）。
-- 更新仓库地址在 `pyappify.yml` 的 `git_url`；便携包分全球版（GitHub）与国内版（CNB 镜像）两个，更新源在打包时固化进各自 `data/`。详见[打包与发布](release.md)。
+- 依赖源是 `pyproject.toml`：`pip-compile pyproject.toml -o requirements.txt`，生成后删除 `pyside6`/`pyside6-addons` 条目（只装 `pyside6-essentials`）。**框架（`ok-script`）升级时两者必须一起 bump 并与 tag 一起提交**——应用内更新只在依赖指纹变化时重装依赖，不同步就会「界面已更新、框架没升级」。
+- 便携包只有一个，更新源是运行时配置 `configs/update.json`（`channel`: `auto`/`github`/`cnb`/`custom`），可在「关于 → 应用更新」切换；`auto` 按系统语言选择（中文 → CNB 镜像，其它 → GitHub）。更新实现见根目录 `update.py`，详见[打包与发布](release.md)与[纯便携化改造方案](portable-refactor.md)。

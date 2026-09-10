@@ -2,34 +2,58 @@
 
 面向开发者。普通用户从 [GitHub Releases](https://github.com/c6n1aa/ok-nikke/releases) 下载便携包即可，见[快速开始](getting-started.md)。
 
+设计背景（现状、决策与实测数据）见 [纯便携化改造方案](portable-refactor.md)。
+
+## 发布形态
+
+**单包**：`ok-nikke-win32-portable.zip`，解压即用，不再区分「全球版 / 国内版」两个包，也不再使用 pyappify 启动器。
+
+包内结构：
+
+```
+ok-nikke/
+├── ok-nikke.exe            # 入口 shim：自身提权(UAC) + 以包根为 cwd 拉起 python\pythonw.exe main.py
+├── python/                 # python-build-standalone（可重定位，自带 pip），依赖装在其 Lib/site-packages
+├── git/                    # MinGit（cmd/git.exe），供应用内更新 fetch/checkout
+├── src/ assets/ icons/ i18n/ main.py main_debug.py update.py
+├── version.txt             # 版本号（build 写、update.py 维护；不入 git）
+└── configs/update.json     # 更新源（channel: auto|github|cnb|custom）
+```
+
+- 依赖来源是 `requirements.txt`（**保留 `ok-script`/`pyappify`**，方案 C 不再内联框架源码）。
+- 更新源出厂为 `auto`（按系统语言：中文 → CNB 镜像，其它 → GitHub），用户可在「关于 → 应用更新」切换。
+
 ## 发布相关文件
 
-- `.github/workflows/build.yml`：监听 `v*` tag，运行测试（逐文件独立进程）、把 ok-script 内联进源码包（`inline_ok_requirements`，从 requirements 删除以加速应用内更新），再用 pyappify-action 只编译启动器 exe（`build_exe_only`），对每个 profile 执行 `ok-nikke.exe -c setup -p <profile>` 生成 `data/`（内嵌 Python + venv + 按 tag 克隆的代码），压缩成便携 zip 并创建 GitHub Release。不使用 NSIS 安装器。
-- `pyappify.yml`：定义应用名称、入口、图标、Python 版本和更新仓库。两个 profile：`Release`（GitHub）与 `Release-CN`（CNB 镜像）；profile 名与 workflow 中 `setup` 步骤的 `-p` 参数对应。
-- `deploy.txt`：定义同步到 CNB 国内镜像仓库的文件（`src`、`ok`、`main.py`、`assets`、`pyappify.yml` 等）。
+- `.github/workflows/build.yml`：监听 `v*` tag，按顺序执行——装 runner 依赖 → 逐文件跑测试 → 下载 python-build-standalone 到 `python/` → 下载 MinGit 到 `git/` → 往包内解释器装 `requirements.txt`（`--no-deps`）→ 写 `version.txt` 与默认 `configs/update.json` → 用 MSVC 编入口 exe（`launcher/build.py`，链接后校验 UAC manifest）→ 同步 CNB 镜像并断言 tag 存在 → 打单个便携 zip → 创建 GitHub Release。不使用 NSIS 安装器。
+- `deploy.txt`：同步到 CNB 国内镜像仓库的文件清单（`src`、`main.py`、`update.py`、`launcher`、`assets` 等）。镜像仓库与 GitHub 同 tag，供 CN 用户应用内更新。
+- `launcher/`：入口 shim 源码（`launcher.c` / `launcher.manifest` / `launcher.rc`）与构建脚本 `build.py`（MinGW 或 MSVC 自动探测）。改图标/提权行为后需重新发版——**入口 exe 与 `python/`、`git/` 都无法通过 git 更新**（见方案文档 §10）。
+- `update.py`：应用内更新 bootstrap（零第三方依赖），负责 fetch tag → checkout → 必要时 pip → 写版本号 → 重启应用。
 
 ## 发布产物
 
-每个 tag 发布以下文件：
+每个 tag 发布一个文件：
 
-- `ok-nikke-win32-portable.zip`：全球版完整便携包（启动器 exe + `data/` 全部依赖），更新源为 GitHub。解压到任意目录后运行其中的 `ok-nikke.exe`（需管理员权限）。
-- `ok-nikke-win32-portable-cn.zip`：国内版完整便携包，更新源为 CNB 镜像（`https://cnb.cool/c6n1aa/ok-nikke`）。解压到任意目录后运行其中的 `ok-nikke.exe`（需管理员权限）。
-- `ok-nikke-win32.zip`：仅含启动器 exe，供 CI 复用加速后续构建（见下文「复用启动器加速构建」），普通用户无需下载。
+- `ok-nikke-win32-portable.zip`：完整便携包。解压到任意目录后运行其中的 `ok-nikke.exe`（需管理员权限；UAC 弹窗未签名时会显示「未知发布者」）。
 
-两个包的 exe 相同，区别只在打包时 `setup` 用的 profile（Global 用 `Release`，CN 用 `Release-CN`），因此各自 `data/` 里固化的更新源（当前 profile）不同。
+## 更新机制
 
-应用内更新由启动器通过 git tag 完成（fetch `git_url` → checkout → 依赖变化时重跑 pip），与发布产物形态无关；`git_url` 由仓库中的 `pyappify.yml` 驱动，修改后随下一版生效，无需重编启动器。
+应用内更新完全由 `update.py` 完成（git tag 语义，支持升级与降级）：
+
+1. 应用内「检查更新」= `update.py --list-tags` 列出远端 tag；「更新/降级」= `update.py --target <tag> --wait-pid <本进程>`。
+2. `update.py` 等旧进程退出 → `git init`/seed（首次）→ `git fetch --depth=1 origin tag <tag>` → 依赖指纹变化时先 pip 再 `checkout -f` → 写 `version.txt`。
+3. 任一步失败都以旧版本拉起应用，绝不留下起不来的包；日志见包内 `logs/update.log`。
+
+**发布时务必注意（方案 C 的约定）**：框架升级必须同时 bump `pyproject.toml` 并重新 `pip-compile` 生成 `requirements.txt`，与 tag 一起提交；否则 tag 里的 lock 仍是旧版本，用户界面上显示已更新、框架却没升级。`version.txt` 与 `version.txt.prev` 不要提交、不要加进 `deploy.txt`。
 
 ## 调整构建配置
 
 如需调整发布配置，修改 `.github/workflows/build.yml`：
 
-- Git 用户信息、源码库与更新库地址。
+- 独立解释器版本线（`STANDALONE_PYTHON`）、Git 用户信息、仓库地址。
 - 便携包名称与 Release 下载链接。
 
-工作流已声明 `permissions: contents: write`，无需额外配置 Secrets。
-
-本项目未集成 Mirror酱、CNB 或网盘渠道，如需接入请参考 ok-script 框架文档相应小节。
+工作流已声明 `permissions: contents: write`，无需额外配置 Secrets（CNB 同步用仓库 secret `CNB_DEPLOY_TOKEN`）。
 
 ## 发布新版本
 
@@ -42,11 +66,7 @@ git push origin v0.x.0
 
 `v*` tag 推送后，GitHub Actions 会运行测试、打包便携 zip 并创建 GitHub Release；tag 名含 `-`（如 `v0.2.0-beta.1`）会被标记为 prerelease。
 
-## 复用启动器加速构建
+## 从 pyappify 时代迁移（v0.1.x → 新版）
 
-启动器 exe 的 Tauri 编译约占构建耗时的 70%（约 12 分钟）。图标（`icons/`）与 `pyappify.yml` 都内嵌在 exe 中，因此只要二者自某个已发布版本起都未变化，后续版本即可复用该版本的启动器：
-
-1. 每个 Release 都附带 `ok-nikke-win32.zip` 启动器包资产（顶层目录 `ok-nikke/ok-nikke.exe`，与 pyappify 基础包格式一致）。
-2. 把 `.github/workflows/build.yml` 中的 `USE_RELEASE` 环境变量改为某个 Release 的 API URL（如 `https://api.github.com/repos/c6n1aa/ok-nikke/releases/tags/v0.1.1`），构建即跳过编译、直接从该 Release 下载 exe；平时保持为空。
-
-注意 pyappify-action 自带的 `use_release` 输入与 `build_exe_only` 互斥且会连带打包 NSIS 安装器，本工作流不用它，而是在 `Reuse launcher from previous release` 步骤中做等价实现。修改图标或 `pyappify.yml` 的版本必须留空全量编译，否则会产出含旧配置的旧启动器。
+- 老便携包（含 `data/` 与 pyappify 启动器）无法自动升级到新形态：新包多了 `python/`、`git/`、入口 exe，这些是 git 更新拿不到的，**必须重新下载便携包**。
+- 过渡期仓库里保留 `pyappify.yml`（仅供老启动器继续工作），确认用户迁移完成后再删除；同一时期 `deploy.txt` 也保留它，避免镜像缺文件导致老启动器更新失败。

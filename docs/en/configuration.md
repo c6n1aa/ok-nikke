@@ -11,7 +11,7 @@ For developers. App configuration lives in `src/config.py` and takes effect befo
 | `gui` | `type` fixed to `'qt'` (this project does not use the Web UI) + `window_size` window/minimum size |
 | `supported_resolution` | Supported ratio (16:9), minimum resolution (1600×900), and `resize_to` targets for non-16:9 |
 | `links` | Project home, share text, and feedback links shown on the "About" page |
-| `version` | Rewritten by the packaging workflow automatically; keep `"dev"` in source |
+| `version` | Taken from `version.txt` in the package root (written by the build, maintained by update.py); falls back to `"dev"` when absent |
 | `screenshots_folder` | Screenshot output folder, cleared on every start |
 
 ## Runtime Target
@@ -52,5 +52,5 @@ Register new or modified tasks here; see [Task development](tasks.md).
 
 ## Dependencies and Update Source
 
-- The dependency source is `pyproject.toml`: `pip-compile pyproject.toml -o requirements.txt`, then delete the generated `pyside6`/`pyside6-addons` entries (only `pyside6-essentials` is installed).
-- The update repository URL is `git_url` in `pyappify.yml`; the release ships two portable packages (global = GitHub, China = CNB mirror), each with its update source baked into its own `data/`. See [Packaging and release](release.md).
+- The dependency source is `pyproject.toml`: `pip-compile pyproject.toml -o requirements.txt`, then delete the generated `pyside6`/`pyside6-addons` entries (only `pyside6-essentials` is installed). **When upgrading the framework (`ok-script`), bump both files and commit them with the tag** — in-app updates only reinstall dependencies when the requirements fingerprint changes.
+- The release ships a single portable package; the update source is the runtime setting `configs/update.json` (`channel`: `auto`/`github`/`cnb`/`custom`), switchable under "About → App update". `auto` follows the system language (Chinese → CNB mirror, otherwise → GitHub). The implementation is `update.py` in the package root; see [Packaging and release](release.md).

@@ -4,8 +4,9 @@ For end users: download the portable package, run it, and troubleshoot. To work 
 
 ## Download and Run
 
-1. Download the latest portable package from [GitHub Releases](https://github.com/c6n1aa/ok-nikke/releases) and extract it anywhere: use `ok-nikke-win32-portable.zip` outside China, or `ok-nikke-win32-portable-cn.zip` inside China.
-2. Run `ok-nikke.exe` as administrator.
+1. Download `ok-nikke-win32-portable.zip` from [GitHub Releases](https://github.com/c6n1aa/ok-nikke/releases) and extract it to an English path.
+2. Run `ok-nikke.exe` as administrator (the entry shim requests elevation itself; accept the UAC prompt).
+3. If an older version already sits in the same folder, prefer extracting to a new folder to avoid mixing files.
 
 ## Requirements
 
@@ -16,7 +17,11 @@ For end users: download the portable package, run it, and troubleshoot. To work 
 
 ## In-App Updates
 
-The launcher checks and applies updates by git tag automatically; no manual re-download is needed. The update source is decided by `pyappify.yml` in the package root.
+Under "About → App update" you can check for updates, switch the update source (Auto / GitHub / CNB mirror / custom URL) and upgrade or downgrade to any version:
+
+- The factory default is "Auto": Chinese systems use the CNB mirror, other systems use GitHub.
+- Updating pulls the code, reinstalls dependencies when needed and restarts the app; the log is `logs/update.log`.
+- The update source is stored in `configs/update.json`, shared with the main program.
 
 ## Common Issues
 

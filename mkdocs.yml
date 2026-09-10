@@ -43,6 +43,7 @@ nav:
           - 任务简报模板: task_brief_template.md
           - 界面识别与失败恢复: screen-and-recovery.md
           - 打包与发布: release.md
+          - 纯便携化改造方案: portable-refactor.md
           - 文档网站: documentation.md
   - English:
       - Home: en/index.md

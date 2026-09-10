@@ -11,6 +11,7 @@ ok-nikke 是基于 PyPI `ok-script`（2.x）构建的《胜利女神：NIKKE》W
 - **`assets/images/*.png` 是模板图集，不是游戏截图**，不要读画面/OCR/理解 UI。
 - 不覆写 `click_box`；战斗结束等结果用 `wait_battle_finish`，不用 `wait_feature`/`wait_ocr` 忙轮询。
 - **测试不碰真实环境**：`wait_for_lobby`（真实置前窗口）、`dismiss_all_popups`（真实抓帧+OCR）等必经方法必须 `patch.object` 拦截并断言参数。
+- **更新相关红线**（详见 `docs/portable-refactor.md`）：`update.py` 只用标准库、pip 带 `--no-deps --no-cache-dir`；`version.txt`(含 `.prev`) 不入 git 与 `deploy.txt`；不设 `support_schedule_task=True`；启动时 cwd 与 `sys.path[0]` 都必须是包根。
 
 ## 关键机制
 
@@ -24,19 +25,21 @@ ok-nikke 是基于 PyPI `ok-script`（2.x）构建的《胜利女神：NIKKE》W
 - `src/tasks/`：全部任务类所在，`NikkeBaseTask.py` 是基类（集成界面识别/导航/恢复、完成状态、模板缩放、弹窗清理、战斗等待等通用方法，用法见「关键机制」）；基类的实现按职责拆在 `src/tasks/base/` 下的 mixin 里，`NikkeBaseTask` 只做组合，新增/修改基类能力一律改对应 mixin，不要动 `NikkeBaseTask.py`。新增任务模板见同目录 `MyOneTimeTask`（一次性）/`MyTriggerTask`（后台触发）。任务清单注册在 `src/config.py` 的 `onetime_tasks`（`trigger_tasks` 当前为空）。
 - `src/patches/`：ok-script 猴子补丁唯一入口（`basic_options`/`start_controller`/`runtime`/`tasks_tab`），各补丁职责见 `src/patches/README.md`。
 - `src/screens.py`：界面识别单一数据源（`SCREENS` 注册表 + `INTERRUPTS` 中断哨兵）。
-- `src/ui/`：自定义 tab（当前仅 `DailyTab`，经 `src/config.py` 的 `custom_tabs` 注册）。
+- `src/ui/`：自定义 tab（当前仅 `DailyTab`，经 `src/config.py` 的 `custom_tabs` 注册）与「关于」页更新卡片 `UpdateCard.py`（配合 `src/update_config.py`，由 `src/patches/about_update.py` 替换框架卡片）。
 - 资产：`assets/coco_annotations.json`（COCO 标注）+ `assets/images/`（图集）+ `assets/template/`（手动裁剪小图）+ `assets/db/advise.db`（咨询答案库，由 `nikke-advise-data` 仓库构建后复制导入；本仓库不存源数据与构建脚本）。
 - 运行时产物（`configs/`/`logs/`/`screenshots/` 等）与框架本体（`ok/` 等）不入仓，以 `.gitignore` 为准；开发时使用或生产的一次性脚本/中间产物/调试文件放 `dev_tools/`（已 gitignore），XAL 标注导入在 `scripts/import_xal.py`。
-- CI：`.github/workflows/build.yml`（监听 `v*` tag → 测试 + pyappify 编译启动器 + 打包便携 zip + Release，不出 NSIS 安装器）、`docs.yml`（部署 mkdocs）。
+- CI：`.github/workflows/build.yml`（`v*` tag → 逐文件测试 + 单包便携 zip + Release，流程细节见 `docs/release.md`）、`docs.yml`（部署 mkdocs）。
 
 ## 环境与命令
 
 - 仅 Python 3.12，一律 `.\.venv\Scripts\python.exe`，不用全局 python / `py`。
+- shell 命令/脚本用 `pwsh`（PowerShell 7），不用 Windows PowerShell 5.1（中文会乱码）；CI 无需处理。
 
 | 操作 | 命令 |
 |---|---|
 | 装依赖 | `.\.venv\Scripts\python.exe -m pip install --no-deps -r requirements.txt --upgrade` |
 | 跑测试 | `.\.venv\Scripts\python.exe -m unittest tests.TestMain`（全量 `run_tests.ps1`） |
+| 编入口 exe | `.\.venv\Scripts\python.exe launcher\build.py` |
 | 发布 | `deploy` 技能（`.agents/skills/deploy/scripts/next_tag.py`） |
 
 - 装依赖必须 `--no-deps`（只装 `pyside6-essentials`，不要 `pyside6` 元包）；依赖源是 `pyproject.toml`，`pip-compile` 后删掉生成的 `pyside6`/`pyside6-addons` 条目。
