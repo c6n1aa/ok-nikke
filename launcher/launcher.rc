@@ -1,0 +1,40 @@
+/* 资源脚本：图标 + 版本信息。
+ * UAC manifest 不写在这里：MinGW 的 gcc 会通过 *endfile spec 自动链接它自己的
+ * default-manifest.o（asInvoker，资源 ID 同样是 1），与我们的 manifest 冲突
+ * （ld: .rsrc merge failure: multiple non-default manifests）。
+ * 因此由 build.py 按工具链分别处理：
+ *   - MinGW：把 launcher.manifest 编译成同名 default-manifest.o 放进临时目录，
+ *            再用 -B 让 gcc 的 spec 找到并链接「我们的那份」（唯一 manifest）；
+ *   - MSVC ：把 `1 24 "launcher.manifest"` 追加进本文件后交给 rc.exe（link.exe 不会自动加 manifest）。
+ * 路径用正斜杠，windres 与 rc 都接受。 */
+#include <windows.h>
+
+1 ICON "../icons/icon.ico"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION 1,0,0,0
+PRODUCTVERSION 1,0,0,0
+FILEFLAGSMASK 0x3fL
+FILEFLAGS 0x0L
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "080404b0"
+        BEGIN
+            VALUE "CompanyName", "ok-nikke\0"
+            VALUE "FileDescription", "\346\254\242\350\277\216\345\233\236\345\256\266\357\274\232NIKKE\357\274\210ok-nikke\357\274\211\0"
+            VALUE "FileVersion", "1.0.0.0\0"
+            VALUE "InternalName", "ok-nikke.exe\0"
+            VALUE "OriginalFilename", "ok-nikke.exe\0"
+            VALUE "ProductName", "ok-nikke\0"
+            VALUE "ProductVersion", "1.0.0.0\0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x804, 1200
+    END
+END
