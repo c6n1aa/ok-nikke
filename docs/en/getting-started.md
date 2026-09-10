@@ -17,10 +17,11 @@ For end users: download the portable package, run it, and troubleshoot. To work 
 
 ## In-App Updates
 
-Under "About → App update" you can check for updates, switch the update source (Auto / GitHub / CNB mirror / custom URL) and upgrade or downgrade to any version:
+Under "About → App update" you can check for updates, switch the update source (Auto / GitHub / CNB mirror / custom URL) and upgrade or downgrade among the five most recent stable versions:
 
 - The factory default is "Auto": Chinese systems use the CNB mirror, other systems use GitHub.
 - "Check for updates" only offers stable releases: prereleases (alpha/beta) never raise the badge - download them manually from the Release page.
+- The version dropdown lists the five most recent stable tags (excluding the current one; selecting an older tag turns the button into "Downgrade").
 - The automatic check runs about 3 seconds after startup; a new version shows an in-app notice (InfoBar) and the "About" item gets a red dot.
 - Updating pulls the code, reinstalls dependencies when needed and restarts the app; **a console window shows the progress** (fetch / dependencies / failure reason), the log is `logs/update.log`, and the failure reason is also shown in "About → App update".
 - The update source is stored in `configs/update.json`, shared with the main program.

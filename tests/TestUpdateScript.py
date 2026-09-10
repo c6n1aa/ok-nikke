@@ -215,7 +215,7 @@ class TestGuardrails(unittest.TestCase):
         with open(os.path.join(ROOT, '.gitignore'), encoding='utf-8') as f:
             lines = {line.strip() for line in f}
         for name in (update.VERSION_FILE, update.PREV_VERSION_FILE, 'git/'):
-            self.assertIn(name, lines, f'{name} 必须加入 .gitignore（见 portable-refactor.md §5.3）')
+            self.assertIn(name, lines, f'{name} 必须加入 .gitignore')
 
     def test_launcher_sources_are_tracked(self):
         """入口 shim 的源码必须真的被 git 跟踪。

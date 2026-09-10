@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """ok-nikke 应用内更新 bootstrap（零第三方依赖：只使用标准库）。
 
-设计见 docs/portable-refactor.md §5.4。要点：
+要点：
 - 所有路径都相对 --root（默认本文件所在目录），不写解压目录之外的任何位置；git 配置只写本地 .git/config。
 - 首次更新会在本地 git init + seed commit（把「包里的旧代码」变成 tracked 基线），
   否则 checkout 会因「未跟踪文件将被覆盖」失败，且新版本里被删除的文件永远清不掉。

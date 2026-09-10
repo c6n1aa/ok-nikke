@@ -11,7 +11,7 @@ VERSION_FILE = 'version.txt'
 
 
 def _read_version():
-    """版本号来源：包根 version.txt（由 build 写入、update.py 更新，见 docs/portable-refactor.md §5.3）。
+    """版本号来源：包根 version.txt（由 build 写入、update.py 更新）。
 
     取不到（源码直跑）时回退 "dev"。不用 src/config.py 里的字面量做唯一来源：该文件会被
     git checkout 覆盖，仓库里恒为 dev，更新后会回退。

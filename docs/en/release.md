@@ -2,8 +2,6 @@
 
 For developers. Regular users can download the portable package from [GitHub Releases](https://github.com/c6n1aa/ok-nikke/releases) — see [Getting started](getting-started.md).
 
-For the design background (current state, decisions and measured data) see the [portable refactor plan](portable-refactor.md) (Chinese).
-
 ## Release Format
 
 **A single package**: `ok-nikke-win32-portable.zip`, extract and run.
@@ -43,7 +41,7 @@ In-app updates are fully handled by `update.py` (git tag semantics, upgrades and
 1. "Check for updates" runs `update.py --list-tags`; "Update/Downgrade" runs `update.py --target <tag> --wait-pid <current pid>`.
 2. `update.py` waits for the old process to exit → `git init`/seed (first run) → `git fetch --depth=1 origin tag <tag>` → installs dependencies first when the requirements fingerprint changed → `checkout -f` → writes `version.txt`.
 3. Any failing step falls back to launching the old version; the package must never be left unbootable. Logs: `logs/update.log`.
-4. **Stable releases only**: prereleases (tags containing `-`, e.g. `v0.2.0-beta.1`) never raise the navigation badge and never appear in the version dropdown (see `is_prerelease` in `src/update_config.py`, which shares its rule with `update.py.version_key`); users who want a prerelease download it manually from the Release page.
+4. **Stable releases only**: prereleases (tags containing `-`, e.g. `v0.2.0-beta.1`) never raise the navigation badge and never appear in the version dropdown (see `is_prerelease` in `src/update_config.py`, which shares its rule with `update.py.version_key`); users who want a prerelease download it manually from the Release page. The dropdown lists the five most recent stable tags (`update_config.selectable_versions` / `MAX_VERSION_OPTIONS`), excluding the current version; selecting an older tag turns the button into "Downgrade".
 
 **Release checklist (option C)**: when upgrading the framework, bump `pyproject.toml` and re-run `pip-compile` so `requirements.txt` matches the tag; otherwise the lock inside the tag is stale and users see an updated version with an old framework. Never commit `version.txt` / `version.txt.prev`, and never add them to `deploy.txt`.
 
