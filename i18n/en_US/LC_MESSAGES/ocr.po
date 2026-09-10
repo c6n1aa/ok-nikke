@@ -1,7 +1,4 @@
-# ok-nikke 游戏画面文本词条（英文）
-#
-# msgid 是简体中文客户端的文案，msgstr 必须是英文客户端里实际显示的文案；
-# 译错等于永远匹配不上，因此拿不准时宁可留空（留空时按简体中文匹配，与现状一致）。
+# ok-nikke 游戏画面文本词条（英文）：msgid 为简体中文文案，msgstr 须为英文客户端实际文案，拿不准就留空。
 msgid ""
 msgstr ""
 "Project-Id-Version: ok-nikke\n"
@@ -15,79 +12,76 @@ msgstr ""
 
 # src/screens.py：界面标题（box_sub_pages_title 区域 OCR）
 msgid "百货商店"
-msgstr ""
+msgstr "Content Shop"
 
 msgid "付费商店"
-msgstr ""
+msgstr "Cash Shop"
 
 msgid "招募队员"
-msgstr ""
+msgstr "Recruit"
 
 msgid "拦截战"
-msgstr ""
+msgstr "Interception"
 
 msgid "前哨基地"
-msgstr ""
+msgstr "Outpost"
 
 msgid "指挥中心"
-msgstr ""
+msgstr "Command Center"
 
 msgid "咨询"
-msgstr ""
+msgstr "Advise"
 
 # ShopTask：商店页签标题
 msgid "普通商店"
-msgstr ""
+msgstr "Common Shop"
 
 msgid "竞技场商店"
-msgstr ""
+msgstr "Arena Shop"
 
 msgid "废铁商店"
-msgstr ""
+msgstr "Recycling Shop"
 
 # CashShopTask：付费商店页签与免费标签
 msgid "免费"
-msgstr ""
+msgstr "Free"
 
 msgid "每日"
-msgstr ""
+msgstr "Daily"
 
 msgid "每周"
-msgstr ""
+msgstr "Weekly"
 
 msgid "每月"
 msgstr ""
 
 # OutpostTask：派遣公告栏标题
 msgid "派遣公告栏"
-msgstr ""
+msgstr "Bulletin Board"
 
 # 通用按钮与提示（RecruitTask / base/_popups.py / base/_battle.py）
 msgid "确认"
-msgstr ""
+msgstr "Confirm"
 
 msgid "全部领取"
-msgstr ""
+msgstr "Claim All"
 
 msgid "点击领取奖励"
-msgstr ""
+msgstr "Tap to claim rewards"
 
 msgid "点击任意处"
-msgstr ""
+msgstr "Tap the blank area to continue"
 
 msgid "点击进行"
-msgstr ""
+msgstr "Tap to continue"
 
 # 状态提示（ShopTask / ArkTask）
 msgid "资金不足"
-msgstr ""
+msgstr "Not enough currency"
 
 msgid "赛季已结束"
 msgstr ""
 
 # MyOneTimeTask 调试方法里演示用的 OCR 目标
 msgid "方舟"
-msgstr ""
-
-msgid "招"
-msgstr ""
+msgstr "Ark"

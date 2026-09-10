@@ -1,9 +1,4 @@
-# ok-nikke 简体中文词条
-#
-# 简体中文是基准语种：源码里的 UI 字符串直接写简体中文，取不到译文时
-# gettext 原样返回 msgid，因此绝大多数字符串不需要在本文件里出现。
-# 只有「源码无法写成中文」的字符串才需要译文，目前仅布尔值显示
-# （任务用 og.app.tr(str(value))，msgid 固定为 "True" / "False"）。
+# ok-nikke 简体中文词条（基准语种）：只收录无法写成中文的字符串（目前是布尔值 True/False）。
 msgid ""
 msgstr ""
 "Project-Id-Version: ok-nikke\n"

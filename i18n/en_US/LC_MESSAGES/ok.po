@@ -1,6 +1,4 @@
-# ok-nikke 英文词条
-#
-# 基准语种是简体中文，msgid 与源码里的中文字符串完全一致（含标点与空格）。
+# ok-nikke 英文词条：msgid 为源码里的简体中文原文。
 msgid ""
 msgstr ""
 "Project-Id-Version: ok-nikke\n"
@@ -47,6 +45,12 @@ msgstr "List Config"
 
 msgid "下拉框选项配置"
 msgstr "Drop Down Options Config"
+
+msgid "按钮配置"
+msgstr "Button Config"
+
+msgid "按钮选项配置"
+msgstr "Button Options Config"
 
 msgid "多选配置"
 msgstr "Multi Selection Config"

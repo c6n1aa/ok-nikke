@@ -1,7 +1,4 @@
-# ok-nikke 游戏画面文本词条（繁体中文）
-#
-# msgid 是简体中文客户端的文案，msgstr 必须是繁体客户端里实际显示的文案；
-# 译错等于永远匹配不上，因此拿不准时宁可留空（留空时按简体中文匹配，与现状一致）。
+# ok-nikke 游戏画面文本词条（繁体中文）：msgid 为简体中文文案，msgstr 须为繁体客户端实际文案，拿不准就留空。
 msgid ""
 msgstr ""
 "Project-Id-Version: ok-nikke\n"
@@ -27,13 +24,13 @@ msgid "拦截战"
 msgstr ""
 
 msgid "前哨基地"
-msgstr ""
+msgstr "前哨基地"
 
 msgid "指挥中心"
-msgstr ""
+msgstr "指揮中心"
 
 msgid "咨询"
-msgstr ""
+msgstr "諮詢"
 
 # ShopTask：商店页签标题
 msgid "普通商店"
@@ -87,7 +84,4 @@ msgstr ""
 
 # MyOneTimeTask 调试方法里演示用的 OCR 目标
 msgid "方舟"
-msgstr ""
-
-msgid "招"
 msgstr ""

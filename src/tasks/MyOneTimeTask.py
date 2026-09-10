@@ -10,7 +10,6 @@ class MyOneTimeTask(NikkeBaseTask):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # 源码里的 UI 字符串一律写简体中文（基准语种），其它语言由 i18n/<locale>/LC_MESSAGES/ok.po 翻译。
         self.name = "配置演示任务"
         self.description = "演示各配置控件从简体中文翻译到其它语言的效果。"
         self.icon = FluentIcon.SYNC

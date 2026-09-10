@@ -1,7 +1,4 @@
-# ok-nikke 游戏画面文本词条（日语）
-#
-# msgid 是简体中文客户端的文案，msgstr 必须是日文客户端里实际显示的文案；
-# 译错等于永远匹配不上，因此拿不准时宁可留空（留空时按简体中文匹配，与现状一致）。
+# ok-nikke 游戏画面文本词条（日语）：msgid 为简体中文文案，msgstr 须为日文客户端实际文案，拿不准就留空。
 msgid ""
 msgstr ""
 "Project-Id-Version: ok-nikke\n"
@@ -21,29 +18,29 @@ msgid "付费商店"
 msgstr ""
 
 msgid "招募队员"
-msgstr ""
+msgstr "募集"
 
 msgid "拦截战"
-msgstr ""
+msgstr "迎撃戦"
 
 msgid "前哨基地"
-msgstr ""
+msgstr "前哨基地"
 
 msgid "指挥中心"
-msgstr ""
+msgstr "コマンドセンター"
 
 msgid "咨询"
-msgstr ""
+msgstr "面談"
 
 # ShopTask：商店页签标题
 msgid "普通商店"
-msgstr ""
+msgstr "一般ショップ"
 
 msgid "竞技场商店"
-msgstr ""
+msgstr "アリーナショップ"
 
 msgid "废铁商店"
-msgstr ""
+msgstr "鉄くずショップ"
 
 # CashShopTask：付费商店页签与免费标签
 msgid "免费"
@@ -60,7 +57,7 @@ msgstr ""
 
 # OutpostTask：派遣公告栏标题
 msgid "派遣公告栏"
-msgstr ""
+msgstr "派遣掲示板"
 
 # 通用按钮与提示（RecruitTask / base/_popups.py / base/_battle.py）
 msgid "确认"
@@ -87,7 +84,4 @@ msgstr ""
 
 # MyOneTimeTask 调试方法里演示用的 OCR 目标
 msgid "方舟"
-msgstr ""
-
-msgid "招"
-msgstr ""
+msgstr "アーク"
