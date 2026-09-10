@@ -38,6 +38,10 @@ jobs:
         run: pip install --no-deps -r requirements.txt
 
       - name: Run tests
+        env:
+          # 真实 OCR 在部分 runner 的 CPU 上会执行到非法指令（0xC000001D）直接把测试进程带走：
+          # 置 1 后漏网的真实 OCR 调用会变成可定位的异常。真实 OCR 回归见 dev_tools/check_real_ocr.py
+          OK_NIKKE_NO_REAL_OCR: '1'
         run: |
           Get-ChildItem -Path ".\tests\*.py" | ForEach-Object {
               Write-Host "Running tests in $($_.FullName)"

@@ -1,3 +1,5 @@
+import os
+
 from ok import Logger
 
 logger = Logger.get_logger(__name__)
@@ -142,7 +144,30 @@ def _patch_executor_ocr_init_join():
     logger.info("patched TaskExecutor.destroy to join DefaultOCRInit thread")
 
 
+def _patch_real_ocr_guard():
+    """测试/CI 下禁用真实 OCR 推理（OK_NIKKE_NO_REAL_OCR=1）。
+
+    部分 Windows runner 的 CPU 会让 onnxocr + OpenVINO 执行到非法指令（0xC000001D
+    STATUS_ILLEGAL_INSTRUCTION），整个测试进程被直接带走：日志里没有 traceback、没有断言
+    失败、没有 unittest 汇总，只剩一个十六进制退出码（已踩过两次，排查成本极高）。
+    这里把推理入口换成显式异常，让漏网的真实 OCR 调用变成可定位的失败；真实 OCR 回归
+    统一放 dev_tools/check_real_ocr.py（本地/发版前手动跑）。
+    """
+    if os.environ.get('OK_NIKKE_NO_REAL_OCR') != '1':
+        return
+    from ok.task.task import BaseTask
+
+    def blocked_ocr(self, *args, **kwargs):
+        raise RuntimeError('真实 OCR 在测试中被禁用（OK_NIKKE_NO_REAL_OCR=1）：'
+                           '用例需 patch.object(task, "ocr") 打桩；真实 OCR 见 dev_tools/check_real_ocr.py')
+
+    BaseTask.ocr = blocked_ocr
+    logger.info('real OCR disabled in tests (OK_NIKKE_NO_REAL_OCR=1)')
+
+
 def apply():
+    # 测试期禁用真实 OCR（仅当 OK_NIKKE_NO_REAL_OCR=1）
+    _patch_real_ocr_guard()
     # 禁用 OpenVINO 遥测，避免无网络时挂死进程退出
     _patch_openvino_telemetry()
     # 一次性任务运行期间，游戏窗口失焦则暂停执行器，回到前台自动恢复

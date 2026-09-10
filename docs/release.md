@@ -25,7 +25,7 @@ ok-nikke/
 
 ## 发布相关文件
 
-- `.github/workflows/build.yml`：监听 `v*` tag，按顺序执行——装 runner 依赖 → 逐文件跑测试 → 下载 python-build-standalone 到 `python/` → 下载 MinGit 到 `git/` → 往包内解释器装 `requirements.txt`（`--no-deps`）→ 写 `version.txt` 与默认 `configs/update.json` → 用 MSVC 编入口 exe（`launcher/build.py`，链接后校验 UAC manifest）→ 同步 CNB 镜像并断言 tag 存在 → 打单个便携 zip → 创建 GitHub Release。不使用 NSIS 安装器。
+- `.github/workflows/build.yml`：监听 `v*` tag，按顺序执行——装 runner 依赖 → 逐文件跑测试（`OK_NIKKE_NO_REAL_OCR=1`，真实 OCR 会在部分 runner 上崩进程，见 `AGENTS.md` 红线）→ 下载 python-build-standalone 到 `python/` → 下载 MinGit 到 `git/` → 往包内解释器装 `requirements.txt`（`--no-deps`）→ 写 `version.txt` 与默认 `configs/update.json` → 用 MSVC 编入口 exe（`launcher/build.py`，链接后校验 UAC manifest）→ 同步 CNB 镜像并断言 tag 存在 → 打单个便携 zip → 创建 GitHub Release。不使用 NSIS 安装器。
 - `deploy.txt`：同步到 CNB 国内镜像仓库的文件清单（`src`、`main.py`、`update.py`、`launcher`、`assets` 等）。镜像仓库与 GitHub 同 tag，供 CN 用户应用内更新。
 - `launcher/`：入口 shim 源码（`launcher.c` / `launcher.manifest` / `launcher.rc`）与构建脚本 `build.py`（MinGW 或 MSVC 自动探测）。改图标/提权行为后需重新发版——**入口 exe 与 `python/`、`git/` 都无法通过 git 更新**（见方案文档 §10）。
 - `update.py`：应用内更新 bootstrap（零第三方依赖），负责 fetch tag → checkout → 必要时 pip → 写版本号 → 重启应用。

@@ -89,8 +89,12 @@ class TestScreenRecovery(TaskTestCase):
             self.task.wait_screen("未注册", time_out=1)
 
     def test_screen_ocr_keywords_with_region(self):
-        self.task.register_screen("大厅ocr", keywords=["方舟"], ocr_box=[0.5, 0.5, 1, 1])
-        self.assertTrue(self.task.is_screen("大厅ocr"))
+        # 打桩 OCR（真实 OCR 在 CI 被禁用，见 AGENTS.md 红线）：验证列表形式 ocr_box 的区域识别路径。
+        with patch.object(self.task, "ocr",
+                          return_value=[Box(1, 1, 5, 5, confidence=1, name="方舟")]) as ocr_mock:
+            self.task.register_screen("大厅ocr", keywords=["方舟"], ocr_box=[0.5, 0.5, 1, 1])
+            self.assertTrue(self.task.is_screen("大厅ocr"))
+        ocr_mock.assert_called_once()  # 命中判定的关键词过滤走的是同一帧 OCR 结果缓存。
 
     def test_screen_ocr_keywords_with_named_box(self):
         # ocr_box 传 coco 区域特征名时，按当前分辨率解析后以 box= 传入 ocr；

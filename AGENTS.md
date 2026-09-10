@@ -11,6 +11,7 @@ ok-nikke 是基于 PyPI `ok-script`（2.x）构建的《胜利女神：NIKKE》W
 - **`assets/images/*.png` 是模板图集，不是游戏截图**，不要读画面/OCR/理解 UI。
 - 不覆写 `click_box`；战斗结束等结果用 `wait_battle_finish`，不用 `wait_feature`/`wait_ocr` 忙轮询。
 - **测试不碰真实环境**：`wait_for_lobby`（真实置前窗口）、`dismiss_all_popups`（真实抓帧+OCR）等必经方法必须 `patch.object` 拦截并断言参数。
+- **测试不得执行真实 OCR**：部分 runner 的 CPU 上 onnxocr/OpenVINO 会执行到非法指令（`0xC000001D`）把测试进程整个带走——没有 traceback、没有断言失败，只剩一个十六进制退出码。CI 与 `run_tests.ps1` 已设 `OK_NIKKE_NO_REAL_OCR=1`，漏网的真实 OCR 调用会变成可定位的异常；确需真实 OCR 的用例用 `unittest.skipUnless(REAL_OCR_ENABLED, ...)`（`OK_NIKKE_REAL_OCR=1` 才跑）标记为手动用例，并登记到 `dev_tools/check_real_ocr.py`。
 - **更新相关红线**（详见 `docs/portable-refactor.md`）：`update.py` 只用标准库、pip 带 `--no-deps --no-cache-dir`；`version.txt`(含 `.prev`) 不入 git 与 `deploy.txt`；不设 `support_schedule_task=True`；启动时 cwd 与 `sys.path[0]` 都必须是包根。
 
 ## 关键机制
@@ -58,3 +59,4 @@ ok-nikke 是基于 PyPI `ok-script`（2.x）构建的《胜利女神：NIKKE》W
 - mock 保证被测循环可终止：`while True` 流程（如爬塔）用 `side_effect` 有限序列，别 `return_value` 死循环。
 - 被测流程内 `sleep` 一律 patch；引用（方法名、config 键名）以源码为准。
 - 小范围机械改动（改参数名/方法名，不动功能或业务逻辑）不必跑测试；其余按影响面只跑相关单个测试文件。**全量必须逐文件独立进程**（CI/`run_tests.ps1` 方式），连跑多文件会因 ok 单例无法重建产生假错误。
+- 真实 OCR 回归不进 CI：发布前手动跑 `.\.venv\Scripts\python.exe dev_tools\check_real_ocr.py`（覆盖 TestBattleWait 的两张真实截图 + TestMain 的两条 OCR 用例）。
