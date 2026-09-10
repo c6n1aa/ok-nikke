@@ -32,7 +32,7 @@ This software is open-source and free, provided for personal learning and commun
 
 ## 🚀 Quick Start
 
-1. Download the portable package `ok-nikke-win32-portable.zip` (a single package; there are no separate China/global builds any more) from [GitHub Releases](https://github.com/c6n1aa/ok-nikke/releases) and extract it to an English path.
+1. Download the portable package `ok-nikke-win32-portable.zip` from [GitHub Releases](https://github.com/c6n1aa/ok-nikke/releases) and extract it to an English path.
 2. Run `ok-nikke.exe` as administrator.
 
 Notes:

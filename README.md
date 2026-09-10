@@ -32,7 +32,7 @@
 
 ## 🚀 快速开始
 
-1. 从 [GitHub Releases](https://github.com/c6n1aa/ok-nikke/releases) 下载便携包 `ok-nikke-win32-portable.zip`（单包，不再区分国内/海外），解压到任意英文目录。
+1. 从 [GitHub Releases](https://github.com/c6n1aa/ok-nikke/releases) 下载便携包 `ok-nikke-win32-portable.zip`，解压到任意英文目录。
 2. 以管理员身份运行 `ok-nikke.exe`。
 
 注意事项：
