@@ -8,6 +8,8 @@
 import ast
 import json
 import os
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -214,6 +216,22 @@ class TestGuardrails(unittest.TestCase):
             lines = {line.strip() for line in f}
         for name in (update.VERSION_FILE, update.PREV_VERSION_FILE, 'git/'):
             self.assertIn(name, lines, f'{name} 必须加入 .gitignore（见 portable-refactor.md §5.3）')
+
+    def test_launcher_sources_are_tracked(self):
+        """入口 shim 的源码必须真的被 git 跟踪。
+
+        踩过的坑：`.gitignore` 里给 PyInstaller 用的 `*.manifest` 把 launcher/launcher.manifest
+        一并忽略，git add 静默跳过 → CI 上构建入口 exe 直接 FileNotFoundError。
+        """
+        if not shutil.which('git') or not os.path.isdir(os.path.join(ROOT, '.git')):
+            self.skipTest('不是 git 工作区')
+        required = ['launcher/launcher.c', 'launcher/launcher.manifest', 'launcher/launcher.rc',
+                    'launcher/build.py']
+        tracked = subprocess.run(['git', 'ls-files', '--error-unmatch', *required],
+                                 cwd=ROOT, capture_output=True, text=True)
+        self.assertEqual(tracked.returncode, 0, f'未被 git 跟踪：{tracked.stderr.strip()}')
+        ignored = subprocess.run(['git', 'check-ignore', '--quiet', *required], cwd=ROOT)
+        self.assertNotEqual(ignored.returncode, 0, 'launcher 源码不能命中 .gitignore')
 
 
 if __name__ == '__main__':

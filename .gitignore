@@ -71,7 +71,9 @@ venv/
 python/
 
 # ---- PyInstaller ----
-*.manifest
+# 仅忽略根目录下 PyInstaller 生成的清单；launcher/launcher.manifest 是入口 exe 的 UAC 清单，
+# 必须入库（曾被 `*.manifest` 忽略导致 CI 上构建入口 exe 直接 FileNotFoundError）
+/*.manifest
 
 # ---- Installer / misc logs ----
 pip-log.txt
