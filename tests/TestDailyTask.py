@@ -142,6 +142,13 @@ class TestDailyTask(TaskTestCase):
         self.assertEqual(4, claim_mock.call_count)  # 初始 tab + 3 个红点 tab，每个只领一次。
         self.assertEqual(3, click_mock.call_count)  # 三个徽章各点击切换一次。
 
+    def test_run_notifies_user_when_finished(self):
+        with patch.object(self.task, "ensure_screen"), \
+                patch.object(self.task, "_daily_end_flow"), \
+                patch.object(self.task, "log_info") as log_mock:
+            self.task.run()  # 全部子流程关闭，走最短路径到流程结束。
+        self.assertIn(call("日常完成。", notify=True), log_mock.call_args_list)  # 流程完成后发系统托盘通知。
+
     def test_end_flow_failure_does_not_break_daily(self):
         with patch.object(self.task, "ensure_screen"), \
                 patch.object(self.task, "_daily_end_flow",

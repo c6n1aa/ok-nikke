@@ -146,4 +146,4 @@ class DailyTask(NikkeBaseTask):  # 定义清日常总编排的父任务类。
                     self.log_info(message, notify=True)  # 在所有日常子任务执行完成后统一提醒。
         if not self.try_step(self._daily_end_flow, name="日常收尾", raise_on_fail=False):  # 收尾流程失败不回滚已完成的子任务，恢复重试耗尽后记录并跳过。
             self.log_warning("日常收尾流程失败，已跳过。")  # 记录收尾结果，便于排查。
-        self.log_info("日常完成。")  # 记录父任务执行完成。
+        self.log_info("日常完成。", notify=True)  # 记录父任务执行完成，并发送系统托盘通知提示用户。
