@@ -169,17 +169,19 @@ class NikkeUpdateCard(QWidget):
             self.update_available_changed.emit(False)
             self._set_status(f'检查更新失败：{error}')
             return
-        self.tags = [tag for tag in tags if tag != self.current_version] or list(tags)
+        # 只把正式版纳入可更新列表：预发布（v0.2.0-beta.1）不亮徽标、不进版本下拉，
+        # 需要试的用户到 Release 页手动下载；这样「发布语义」与「更新语义」才对得上。
+        stable = update_config.stable_tags(tags)
+        self.tags = [tag for tag in stable if tag != self.current_version] or list(stable)
         self.version_combo.blockSignals(True)
         self.version_combo.clear()
         self.version_combo.addItems(self.tags)
         self.version_combo.blockSignals(False)
-        newest_newer = next(
-            (tag for tag in tags if update_config.compare(tag, self.current_version) > 0), None)
+        newest_newer = update_config.newest_stable_update(tags, self.current_version)
         self.update_available_changed.emit(newest_newer is not None)
         if not self.tags:
             self._set_version_controls_visible(False)
-            self._set_status('未获取到任何版本')
+            self._set_status('未获取到任何正式版本')
             return
         self._set_version_controls_visible(True)
         if newest_newer is not None:
@@ -188,7 +190,12 @@ class NikkeUpdateCard(QWidget):
             self._set_status(f'发现新版本 {newest_newer}')
         else:
             self.version_combo.setCurrentIndex(0)
-            self._set_status('已是最新版本')
+            prerelease_newer = update_config.newest_prerelease_update(tags, self.current_version)
+            if prerelease_newer:
+                self._set_status(f'已是最新正式版；预发布 {prerelease_newer} 不参与提示，'
+                                 f'需要请到 Release 页手动下载')
+            else:
+                self._set_status('已是最新版本')
         self._selection_changed()
 
     def _selection_changed(self, _index=None):

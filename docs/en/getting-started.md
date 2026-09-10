@@ -20,6 +20,7 @@ For end users: download the portable package, run it, and troubleshoot. To work 
 Under "About → App update" you can check for updates, switch the update source (Auto / GitHub / CNB mirror / custom URL) and upgrade or downgrade to any version:
 
 - The factory default is "Auto": Chinese systems use the CNB mirror, other systems use GitHub.
+- "Check for updates" only offers stable releases: prereleases (alpha/beta) never raise the badge - download them manually from the Release page.
 - Updating pulls the code, reinstalls dependencies when needed and restarts the app; the log is `logs/update.log`.
 - The update source is stored in `configs/update.json`, shared with the main program.
 

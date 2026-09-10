@@ -2,7 +2,6 @@ name: Build
 
 on:
   push:
-    # Sequence of patterns matched against refs/tags
     tags:
       - 'v*'
 
@@ -11,17 +10,14 @@ permissions:
 
 env:
   PYTHONIOENCODING: 'UTF-8'
-  # 便携包内独立解释器的版本线（与 pyproject.toml 的 requires-python 对齐）
-  STANDALONE_PYTHON: '3.12'
+  STANDALONE_PYTHON: '3.12'  # 与 pyproject.toml 的 requires-python 对齐
 
 jobs:
   build:
 
     runs-on: windows-latest
 
-    # 不指定 shell：托管 Windows runner 上 run 步骤默认就是 pwsh（PowerShell Core）。
-    # 步骤里只用 5.1/7 行为一致的写法（[System.IO.File]::WriteAllText / ConvertTo-Json /
-    # Invoke-RestMethod / Expand-Archive / 外部 tar），不依赖两版的输出编码差异。
+    # 不指定 shell：托管 runner 上 run 步骤默认就是 pwsh，步骤里只用 5.1/7 行为一致的写法。
     steps:
       - name: Configure git
         run: |
@@ -47,15 +43,14 @@ jobs:
               Write-Host "Running tests in $($_.FullName)"
               python -m unittest $_.FullName
               if ($LASTEXITCODE -ne 0) {
-                  # 退出码 1 = 用例/断言失败（日志必有 traceback）；负数或 0xC0000005 之类
-                  # = 解释器被原生崩溃带走（日志无 traceback）——带上退出码才区分得开
+                  # 1 = 用例失败（日志有 traceback）；负数 = 解释器被原生崩溃带走（无 traceback）
                   throw "Tests failed in $($_.FullName) (exit $LASTEXITCODE)"
               }
           }
 
       - name: Download standalone Python -> python/
         run: |
-          # 官方 python-build-standalone 的 install_only 归档：顶层就是 python/，可重定位、自带 pip
+          # install_only 归档：顶层即 python/，可重定位、自带 pip
           $headers = @{ 'User-Agent' = 'ok-nikke-build' }
           $release = Invoke-RestMethod -Uri 'https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest' -Headers $headers
           $pattern = "^cpython-$($env:STANDALONE_PYTHON)\.\d+\+.*-x86_64-pc-windows-msvc-install_only\.tar\.gz$"
@@ -71,7 +66,7 @@ jobs:
 
       - name: Download MinGit -> git/
         run: |
-          # 只需 cmd/git.exe：更新流程用 git fetch/checkout，不用 git-lfs、不用 bash，故 MinGit 足够
+          # 更新流程只需 cmd/git.exe（fetch/checkout，不用 lfs/bash），MinGit 足够
           $headers = @{ 'User-Agent' = 'ok-nikke-build' }
           $release = Invoke-RestMethod -Uri 'https://api.github.com/repos/git-for-windows/git/releases/latest' -Headers $headers
           $asset = $release.assets | Where-Object { $_.name -match '^MinGit-\d+(\.\d+)+-64-bit\.zip$' } | Select-Object -First 1
@@ -85,27 +80,26 @@ jobs:
 
       - name: Install deps into package interpreter
         run: |
-          # 方案 C：不内联 ok-script，依赖（含 ok-script/pyappify）全部装进包内解释器
-          # --no-deps 必须：PySide6-Fluent-Widgets 依赖 PySide6 元包，不加会拉 addons 几百 MB
+          # 不内联 ok-script：依赖全装进包内解释器。--no-deps 必须，否则
+          # PySide6-Fluent-Widgets 会拉 PySide6 元包，多出几百 MB addons。
           .\python\python.exe -m pip install --no-deps --no-cache-dir --disable-pip-version-check -r requirements.txt
-          # 断言 ok/pyappify 来自包内 site-packages（仓库根没有内联目录，防止日后被重新内联而静默遮蔽）
+          # 断言 ok/pyappify 来自包内 site-packages，防止日后被重新内联而静默遮蔽
           .\python\python.exe -c "import ok, pyappify, sys; print('ok      ', ok.__file__); print('pyappify', pyappify.__file__); assert 'site-packages' in ok.__file__, 'ok 不是来自 site-packages'; assert 'site-packages' in pyappify.__file__, 'pyappify 不是来自 site-packages'"
 
       - name: Write version.txt and default update config
         run: |
           $tag = "${{ github.ref_name }}"
-          # 显式写成无 BOM UTF-8：version.txt 会被 src/config.py 与 update.py 解析
+          # 必须无 BOM UTF-8：version.txt 由 src/config.py 与 update.py 读取
           $noBom = New-Object System.Text.UTF8Encoding($false)
           [System.IO.File]::WriteAllText((Join-Path $PWD 'version.txt'), "$tag`n", $noBom)
           New-Item -ItemType Directory -Path configs -Force | Out-Null
           $updateJson = @{ channel = 'auto'; custom_git_url = ''; pip_index = ''; update_method = 'manual' } | ConvertTo-Json
           [System.IO.File]::WriteAllText((Join-Path $PWD 'configs/update.json'), $updateJson, $noBom)
-          # 冒烟：包内解释器 + 包根为 cwd 时，配置与版本号都要正确
           .\python\python.exe -c "import sys; sys.argv=['main.py']; from src.config import config; print('version =', config['version']); assert config['version'] == '$tag', config['version']"
 
       - name: Build entry shim (MSVC)
         run: |
-          # 入口 exe 自身提权（manifest）并拉起 python\pythonw.exe main.py，链接后 launcher/build.py 会校验 manifest
+          # 入口 exe 自身提权（manifest）并拉起 python\pythonw.exe main.py；launcher/build.py 会校验 manifest
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           if (-not (Test-Path $vswhere)) { throw "找不到 vswhere.exe" }
           $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
@@ -119,7 +113,7 @@ jobs:
         env:
           CNB_DEPLOY_TOKEN: ${{ secrets.CNB_DEPLOY_TOKEN }}
         run: |
-          # 把 deploy.txt 里列出的文件 + 同名 tag 推送到国内镜像仓库，供 CN 用户应用内更新
+          # 按 deploy.txt 清单把文件与同名 tag 推到国内镜像，供 CN 用户应用内更新
           $tag = "${{ github.ref_name }}"
           $mirrorUrl = "https://cnb:$env:CNB_DEPLOY_TOKEN@cnb.cool/c6n1aa/ok-nikke"
           $work = Join-Path $env:RUNNER_TEMP "cnb-mirror"
@@ -127,12 +121,10 @@ jobs:
           git clone "$mirrorUrl" $work
           Set-Location $work
 
-          # 空仓库兜底: 无 HEAD 时先建 main 分支
           if (-not (git rev-parse --verify HEAD 2>$null)) {
             git checkout --orphan main
           }
 
-          # 按 deploy.txt 清单把文件从源码工作树拷进镜像
           $srcRoot = $env:GITHUB_WORKSPACE
           Get-Content (Join-Path $srcRoot "deploy.txt") |
             Where-Object { $_.Trim() -and -not $_.Trim().StartsWith('#') } |
@@ -145,7 +137,6 @@ jobs:
             }
 
           Get-ChildItem $work -Recurse -Directory -Filter "__pycache__" -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-          # launcher/build-stamp 是入口 exe 的中间产物（已 gitignore），不要同步进镜像
           Remove-Item (Join-Path $work 'launcher/build-stamp') -Recurse -Force -ErrorAction SilentlyContinue
 
           git add -A
@@ -159,14 +150,13 @@ jobs:
           git push origin HEAD
           git push origin "$tag" -f
 
-          # 断言镜像上目标 tag 确实存在：CNB 无 tag 时，CN 用户的应用内更新会静默失败
+          # CNB 上缺 tag 时，CN 用户的应用内更新会静默失败
           $remoteTag = git ls-remote --tags "https://cnb.cool/c6n1aa/ok-nikke" "refs/tags/$tag"
           if (-not $remoteTag) { throw "CNB 镜像上不存在 tag $tag，应用内更新会失败" }
           Write-Host "CNB mirror has tag $tag"
 
       - name: Package portable zip
         run: |
-          # 单包：仓库 tag 内容 + python/ + git/ + 入口 exe + version.txt + 默认 update.json
           $tag = "${{ github.ref_name }}"
           $stage = Join-Path $PWD 'dist/ok-nikke'
           New-Item -ItemType Directory -Path $stage -Force | Out-Null
@@ -194,8 +184,6 @@ jobs:
               请查看提交记录。
             ### 下载说明
               * [ok-nikke-win32-portable.zip](https://github.com/c6n1aa/ok-nikke/releases/download/${{ github.ref_name }}/ok-nikke-win32-portable.zip) 完整便携包: 解压到任意目录运行 ok-nikke.exe (需管理员权限)。
-                更新源出厂为「自动」(按系统语言选 GitHub / CNB 镜像)，可在「关于 → 应用更新」中随时切换或填自定义 URL。
-              * 从 v0.1.x 的老便携包升级请在应用内更新，或直接解压新包覆盖；新包不再需要 pyappify 启动器的 setup 步骤。
               * 无需下载 Source code, 仅供存档用。
           files: |
             dist/ok-nikke-win32-portable.zip

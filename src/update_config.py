@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -145,6 +146,35 @@ def compare(left: str, right: str) -> int:
     if left_key < right_key:
         return -1
     return 0
+
+
+def is_prerelease(tag: str) -> bool:
+    """是否为预发布/非正式 tag（含 alpha/beta 等后缀，或非版本号形式）。
+
+    判定与 update.py 的 version_key 同源（正式版 > 预发布），避免两处漂移。
+    """
+    if _update is not None:
+        return _update.version_key(tag)[3] == 0
+    return not re.match(r'^v?\d+(?:\.\d+)*$', str(tag or '').strip())
+
+
+def stable_tags(tags) -> list:
+    """只保留正式版 tag（保持传入顺序）。"""
+    return [str(tag) for tag in (tags or []) if not is_prerelease(str(tag))]
+
+
+def newest_stable_update(tags, current_version: str):
+    """比当前版本新的最新正式版；没有返回 None（导航徽标与「发现新版本」的唯一判定依据）。"""
+    return next((tag for tag in stable_tags(tags) if compare(tag, current_version) > 0), None)
+
+
+def newest_prerelease_update(tags, current_version: str):
+    """比当前版本新的最新预发布；仅用于状态文案提示，不参与徽标与版本下拉。
+
+    按传入顺序取第一个：列表来自 parse_remote_tags，已是新→旧排序。
+    """
+    return next((str(tag) for tag in (tags or [])
+                 if is_prerelease(str(tag)) and compare(str(tag), current_version) > 0), None)
 
 
 def parse_tags(stdout: str) -> list:

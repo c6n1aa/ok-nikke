@@ -6,7 +6,7 @@
 
 ## 发布形态
 
-**单包**：`ok-nikke-win32-portable.zip`，解压即用，不再区分「全球版 / 国内版」两个包，也不再使用 pyappify 启动器。
+**单包**：`ok-nikke-win32-portable.zip`，解压即用。
 
 包内结构：
 
@@ -43,6 +43,7 @@ ok-nikke/
 1. 应用内「检查更新」= `update.py --list-tags` 列出远端 tag；「更新/降级」= `update.py --target <tag> --wait-pid <本进程>`。
 2. `update.py` 等旧进程退出 → `git init`/seed（首次）→ `git fetch --depth=1 origin tag <tag>` → 依赖指纹变化时先 pip 再 `checkout -f` → 写 `version.txt`。
 3. 任一步失败都以旧版本拉起应用，绝不留下起不来的包；日志见包内 `logs/update.log`。
+4. **只对正式版提示**：含 `-` 的预发布（如 `v0.2.0-beta.1`）不亮导航徽标、不进版本下拉（判定见 `src/update_config.py` 的 `is_prerelease`，与 `update.py` 的 `version_key` 同源）；需要试预发布的用户到 Release 页手动下载。
 
 **发布时务必注意（方案 C 的约定）**：框架升级必须同时 bump `pyproject.toml` 并重新 `pip-compile` 生成 `requirements.txt`，与 tag 一起提交；否则 tag 里的 lock 仍是旧版本，用户界面上显示已更新、框架却没升级。`version.txt` 与 `version.txt.prev` 不要提交、不要加进 `deploy.txt`。
 
@@ -64,7 +65,7 @@ git tag v0.x.0
 git push origin v0.x.0
 ```
 
-`v*` tag 推送后，GitHub Actions 会运行测试、打包便携 zip 并创建 GitHub Release；tag 名含 `-`（如 `v0.2.0-beta.1`）会被标记为 prerelease。
+`v*` tag 推送后，GitHub Actions 会运行测试、打包便携 zip 并创建 GitHub Release；tag 名含 `-`（如 `v0.2.0-beta.1`）会被标记为 prerelease，**并且不会被应用内「检查更新」提示**——预发布只能从 Release 页手动下载。
 
 ## 从 pyappify 时代迁移（v0.1.x → 新版）
 

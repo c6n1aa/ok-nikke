@@ -6,7 +6,7 @@ For the design background (current state, decisions and measured data) see the [
 
 ## Release Format
 
-**A single package**: `ok-nikke-win32-portable.zip`, extract and run. There are no separate "global" and "China" packages any more, and the pyappify launcher is gone.
+**A single package**: `ok-nikke-win32-portable.zip`, extract and run.
 
 Package layout:
 
@@ -43,6 +43,7 @@ In-app updates are fully handled by `update.py` (git tag semantics, upgrades and
 1. "Check for updates" runs `update.py --list-tags`; "Update/Downgrade" runs `update.py --target <tag> --wait-pid <current pid>`.
 2. `update.py` waits for the old process to exit → `git init`/seed (first run) → `git fetch --depth=1 origin tag <tag>` → installs dependencies first when the requirements fingerprint changed → `checkout -f` → writes `version.txt`.
 3. Any failing step falls back to launching the old version; the package must never be left unbootable. Logs: `logs/update.log`.
+4. **Stable releases only**: prereleases (tags containing `-`, e.g. `v0.2.0-beta.1`) never raise the navigation badge and never appear in the version dropdown (see `is_prerelease` in `src/update_config.py`, which shares its rule with `update.py.version_key`); users who want a prerelease download it manually from the Release page.
 
 **Release checklist (option C)**: when upgrading the framework, bump `pyproject.toml` and re-run `pip-compile` so `requirements.txt` matches the tag; otherwise the lock inside the tag is stale and users see an updated version with an old framework. Never commit `version.txt` / `version.txt.prev`, and never add them to `deploy.txt`.
 
@@ -64,7 +65,7 @@ git tag v0.x.0
 git push origin v0.x.0
 ```
 
-After a `v*` tag is pushed, GitHub Actions runs the tests, builds the portable zip and creates the GitHub Release; tags containing `-` (e.g. `v0.2.0-beta.1`) are marked as prereleases.
+After a `v*` tag is pushed, GitHub Actions runs the tests, builds the portable zip and creates the GitHub Release; tags containing `-` (e.g. `v0.2.0-beta.1`) are marked as prereleases **and are never offered by the in-app update check** - prereleases are manual-download only.
 
 ## Migrating from the pyappify Era (v0.1.x → new layout)
 

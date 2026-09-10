@@ -110,6 +110,34 @@ class TestVersionCompare(unittest.TestCase):
             self.assertEqual(update_config.read_versions(folder), ('', ''))
 
 
+class TestPrereleasePolicy(unittest.TestCase):
+    """只对正式版提示：预发布 tag 不亮导航徽标、不进版本下拉。"""
+
+    def test_is_prerelease(self):
+        for tag in ('v0.2.0-beta.1', 'v0.2.0-alpha', 'v0.2.0-rc.2', '0.2.0-beta', 'dev', 'nightly'):
+            self.assertTrue(update_config.is_prerelease(tag), tag)
+        for tag in ('v0.2.0', 'v0.1.10', '1.0.0', 'v1'):
+            self.assertFalse(update_config.is_prerelease(tag), tag)
+
+    def test_stable_tags_keeps_order(self):
+        tags = ['v0.2.1-beta.1', 'v0.2.0', 'v0.1.9', 'v0.2.0-alpha']
+        self.assertEqual(update_config.stable_tags(tags), ['v0.2.0', 'v0.1.9'])
+        self.assertEqual(update_config.stable_tags([]), [])
+
+    def test_newest_stable_update_ignores_prerelease(self):
+        # 只有预发布比当前新 → 不提示
+        self.assertIsNone(update_config.newest_stable_update(['v0.2.0-beta.1', 'v0.1.0'], 'v0.1.0'))
+        # 预发布号段更高，也不能顶替正式版作为提示目标
+        self.assertEqual(update_config.newest_stable_update(['v0.3.0-alpha', 'v0.2.0'], 'v0.1.0'), 'v0.2.0')
+        # 与当前相同或更旧 → 不提示
+        self.assertIsNone(update_config.newest_stable_update(['v0.1.0', 'v0.0.9'], 'v0.1.0'))
+
+    def test_newest_prerelease_update_is_hint_only(self):
+        tags = ['v0.2.0-beta.2', 'v0.2.0-beta.1', 'v0.1.0']
+        self.assertEqual(update_config.newest_prerelease_update(tags, 'v0.1.0'), 'v0.2.0-beta.2')
+        self.assertIsNone(update_config.newest_prerelease_update(['v0.2.0', 'v0.1.0'], 'v0.1.0'))
+
+
 class TestAboutUpdatePatch(unittest.TestCase):
 
     def test_apply_swaps_framework_update_ui(self):

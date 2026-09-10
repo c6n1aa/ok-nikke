@@ -178,6 +178,7 @@ git/pip 任一步失败都以旧版本拉起，绝不留下「起不来的包」
 - 「检查更新」：后台线程（不要阻塞 UI）跑 `git\git.exe ls-remote --tags <git_url>`；**必须过滤注释 tag 的 `^{}` 行**（本仓库 tag 均为 annotated，已核实），再排序展示。
 - changelog：`git log <cur>..<tag>` **在 `--depth=1` 下只能看到目标那一个提交**（祖先图不存在，已核实），不要用它当更新日志。改用 GitHub/CNB Release API 或 `docs/`。
 - 「更新/降级」：确认后 `Popen([<root>/python/python.exe, "update.py", "--target", tag, "--wait-pid", str(os.getpid())], cwd=<root>)`，随后优雅收尾（`communicate.quit` / `executor.destroy`）再 `os._exit(0)`。
+- **预发布过滤**：只有正式版 tag 参与「发现新版本」判定与导航徽标（`update_config.is_prerelease`，与 `update.py.version_key` 同源判定）；预发布仅在状态文案里提示，不进版本下拉——否则发一个 alpha 就会给所有正式版用户亮红点。
   - 已核实 `Config.__setitem__` 是即写即存，硬退不会丢配置；但直接 `os._exit` 会跳过 `TaskExecutor.destroy` 的线程收尾（`src/patches/runtime.py` 专门加了 join），建议先优雅退再硬退。
   - 用 `python.exe`（有控制台）还是 `pythonw.exe` 跑 update.py 需定：pythonw 无输出 → 统一写 `logs/update.log`，并给 CreateProcess 加 `CREATE_NO_WINDOW` 避免闪黑框。
 - 更新完成下次启动弹「已更新 vX → vY」（读 `version.txt` 与 `version.txt.prev`）。
