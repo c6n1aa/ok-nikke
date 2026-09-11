@@ -23,10 +23,25 @@ ok-nikke/
 
 ## Release Files
 
-- `.github/workflows/build.yml`: watches `v*` tags and, in order: installs runner dependencies → runs tests (one file per process) → downloads python-build-standalone into `python/` → downloads MinGit into `git/` → installs `requirements.txt` into the package interpreter (`--no-deps`) → writes `version.txt` and the default `configs/update.json` → builds the entry exe with MSVC (`launcher/build.py`, which validates the UAC manifest after linking) → syncs the CNB mirror and asserts the tag exists → zips the single portable package → creates a GitHub Release. No NSIS installer.
+- `.github/workflows/build.yml`: watches `v*` tags and, in order: installs runner dependencies → runs tests (one file per process) → downloads python-build-standalone into `python/` → downloads MinGit into `git/` → installs `requirements.txt` into the package interpreter (`--no-deps`) → writes `version.txt` and the default `configs/update.json` → builds the entry exe with MSVC (`launcher/build.py`, which validates the UAC manifest after linking) → syncs the CNB mirror and asserts the tag exists → zips the single portable package → generates the release notes (`.github/scripts/release_notes.py`) → creates a GitHub Release. No NSIS installer.
 - `deploy.txt`: files synced to the CNB mirror repository (`src`, `main.py`, `update.py`, `launcher`, `assets`, ...). The mirror shares the same tags and serves in-app updates for China.
 - `launcher/`: entry shim sources (`launcher.c`, `launcher.manifest`, `launcher.rc`) plus `build.py` (auto-detects MinGW or MSVC). Changing the icon/elevation requires a new release — **the entry exe, `python/` and `git/` cannot be updated through git**.
 - `update.py`: in-app update bootstrap (standard library only): fetch tag → checkout → pip when needed → write version → restart the app.
+- `.github/scripts/release_notes.py`: release-note generation (standard library only; handwritten override plus conventional-commit sections, see below).
+- `changelog/`: optional user-facing release notes (`changelog/<tag>.md`); the `deploy` skill writes them only when release notes are explicitly requested, and the file takes precedence over the generated list (see below).
+
+## Release Notes
+
+The GitHub Release body is no longer hard-coded: before creating the release, CI runs `.github/scripts/release_notes.py` to write `release_notes.md` and passes it to `softprops/action-gh-release` via `body_path`. Rules:
+
+- **Handwritten override first**: when `changelog/<tag>.md` exists, its body becomes the changelog section verbatim (group with `####` subheadings; do not add a `### 更新日志` heading inside it; reference issues as `（#12）` and GitHub links them automatically), and it **must be committed with the tag** so CI can read it. The `deploy` skill does **not** write it by default - only when the user explicitly asks for release notes; manual releases may write it by hand. Leave it out to use the generated list.
+- **Auto-generated fallback**: otherwise the script classifies the non-merge commits in `<previous tag>..<tag>` — `feat` features, `fix` fixes, `perf` performance, `revert`/`refactor` other changes; `docs`/`chore`/`ci`/`test`/`build`/`style` stay hidden unless nothing else remains; entries marked `!` or with a `BREAKING CHANGE` body get their own section. The previous tag is the closest `v*` tag; a first release simply says so.
+- Both modes append: a prerelease notice (tags containing `-`), the download section (portable zip link) and a full-changelog compare link; auto mode also tells users to re-download the full package when `launcher/` changed in the range (the entry exe cannot be delivered through in-app git updates).
+- Preview locally without releasing (`release_notes.md` is git-ignored, safe to write at the repo root):
+
+  ```powershell
+  .\.venv\Scripts\python.exe .github\scripts\release_notes.py --tag v0.2.0 --out release_notes.md
+  ```
 
 ## Release Artifact
 
@@ -56,7 +71,7 @@ The workflow already declares `permissions: contents: write`; the CNB sync uses 
 
 ## Publishing a New Version
 
-Use the built-in `deploy` skill (`.agents/skills/deploy/`), which commits, creates the next annotated tag and pushes. Or do it manually:
+Use the built-in `deploy` skill (`.agents/skills/deploy/`), which commits, creates the next annotated tag and pushes; when release notes are explicitly requested it also writes the user-facing `changelog/<tag>.md`. Or do it manually:
 
 ```bash
 git tag v0.x.0
