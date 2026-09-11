@@ -190,3 +190,19 @@ msgstr "Whether to send friend gifts and collect Social Points."
 
 msgid "是否收取邮箱中的奖励。"
 msgstr "Whether to collect rewards from the mailbox."
+
+# OutpostDefenseTask
+msgid "歼灭"
+msgstr "Wipe Out"
+
+msgid "防御前哨基地进行收菜，可选使用珠宝追加次数。"
+msgstr "Defend the Outpost and claim rewards; optionally spend Jewels for extra attempts."
+
+msgid "使用珠宝歼灭次数"
+msgstr "Jewel Wipe Out Attempts"
+
+msgid "使用珠宝进行一举歼灭的次数，0-10，0表示仅使用免费次数。"
+msgstr "Number of Wipe Out attempts paid with Jewels (0-10). 0 means free attempts only."
+
+msgid "使用珠宝歼灭次数必须在 0 到 10 之间。"
+msgstr "Jewel Wipe Out attempts must be between 0 and 10."
