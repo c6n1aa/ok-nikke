@@ -575,3 +575,103 @@ msgstr "Enable"
 
 msgid "关闭"
 msgstr "Disable"
+
+# UpdateCard
+msgid "检查更新"
+msgstr "Check for Updates"
+
+msgid "更新"
+msgstr "Update"
+
+msgid "手动下载"
+msgstr "Download Manually"
+
+msgid "当前版本 {0}"
+msgstr "Current Version {0}"
+
+msgid "未知"
+msgstr "Unknown"
+
+msgid "点击「检查更新」获取可用版本"
+msgstr "Click \"Check for Updates\" to list available versions."
+
+msgid "上次更新到 {0} 失败：{1}"
+msgstr "The last update to {0} failed: {1}"
+
+msgid "目标版本"
+msgstr "target version"
+
+msgid "（详见 logs/update.log；可重新点「检查更新」再试）"
+msgstr "(see logs/update.log; click \"Check for Updates\" to retry)"
+
+msgid "更新源"
+msgstr "Update Source"
+
+msgid "版本"
+msgstr "Version"
+
+msgid "正在检查更新…"
+msgstr "Checking for updates…"
+
+msgid "确认"
+msgstr "Confirm"
+
+msgid "降级"
+msgstr "Downgrade"
+
+msgid "将把 ok-nikke 从 {0} 切换到 {1}。"
+msgstr "ok-nikke will be switched from {0} to {1}."
+
+msgid "{0}过程会联网拉取代码，必要时重装依赖；完成后应用会自动重启。"
+msgstr "The {0} process fetches code over the network and reinstalls dependencies if needed; the app restarts automatically when finished."
+
+msgid "期间请不要关闭电源或手动结束进程。"
+msgstr "Please do not power off or manually end the process during this time."
+
+msgid "启动更新失败：{0}"
+msgstr "Failed to start update: {0}"
+
+msgid "正在{0}到 {1}，应用即将自动重启…"
+msgstr "Now {0} to {1}; the app will restart automatically…"
+
+msgid "检查更新失败：{0}"
+msgstr "Failed to check for updates: {0}"
+
+msgid "发现新版本 {0}，可在「关于 → 应用更新」一键升级。"
+msgstr "New version {0} found; upgrade from \"About → App Update\"."
+
+msgid "ok-nikke 更新"
+msgstr "ok-nikke Update"
+
+msgid "未获取到任何正式版本"
+msgstr "No stable versions retrieved."
+
+msgid "发现新版本 {0}"
+msgstr "New version {0} found."
+
+msgid "已是最新正式版；预发布 {0} 不参与提示，需要请到 Release 页手动下载"
+msgstr "Already on the latest stable; prerelease {0} is not listed, download it from the Release page."
+
+msgid "已是最新版本"
+msgstr "Up to date."
+
+msgid "当前版本"
+msgstr "Current Version"
+
+msgid "当前已是 {0}。"
+msgstr "Already on {0}."
+
+msgid "{0}后：{1} → {2}（会重启应用；更新日志见 Release 页面）"
+msgstr "After {0}: {1} → {2} (the app restarts; see the Release page for the changelog)."
+
+msgid "更新源已切换为「{0}」，请重新检查更新"
+msgstr "Update source switched to \"{0}\"; check for updates again."
+
+msgid "更新源配置写入失败（configs/update.json）"
+msgstr "Failed to save the update source config (configs/update.json)."
+
+msgid "自动（按系统语言）"
+msgstr "Auto (by system language)"
+
+msgid "CNB 镜像"
+msgstr "CNB Mirror"

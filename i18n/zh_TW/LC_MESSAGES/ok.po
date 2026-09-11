@@ -575,3 +575,103 @@ msgstr "啟用"
 
 msgid "关闭"
 msgstr "關閉"
+
+# UpdateCard
+msgid "检查更新"
+msgstr "檢查更新"
+
+msgid "更新"
+msgstr "更新"
+
+msgid "手动下载"
+msgstr "手動下載"
+
+msgid "当前版本 {0}"
+msgstr "目前版本 {0}"
+
+msgid "未知"
+msgstr "未知"
+
+msgid "点击「检查更新」获取可用版本"
+msgstr "點擊「檢查更新」取得可用版本。"
+
+msgid "上次更新到 {0} 失败：{1}"
+msgstr "上次更新到 {0} 失敗：{1}"
+
+msgid "目标版本"
+msgstr "目標版本"
+
+msgid "（详见 logs/update.log；可重新点「检查更新」再试）"
+msgstr "（詳見 logs/update.log；可重新點「檢查更新」再試）"
+
+msgid "更新源"
+msgstr "更新來源"
+
+msgid "版本"
+msgstr "版本"
+
+msgid "正在检查更新…"
+msgstr "正在檢查更新…"
+
+msgid "确认"
+msgstr "確認"
+
+msgid "降级"
+msgstr "降級"
+
+msgid "将把 ok-nikke 从 {0} 切换到 {1}。"
+msgstr "將把 ok-nikke 從 {0} 切換到 {1}。"
+
+msgid "{0}过程会联网拉取代码，必要时重装依赖；完成后应用会自动重启。"
+msgstr "{0}過程會聯網拉取程式碼，必要時重裝依賴；完成後應用會自動重啟。"
+
+msgid "期间请不要关闭电源或手动结束进程。"
+msgstr "期間請不要關閉電源或手動結束程序。"
+
+msgid "启动更新失败：{0}"
+msgstr "啟動更新失敗：{0}"
+
+msgid "正在{0}到 {1}，应用即将自动重启…"
+msgstr "正在{0}到 {1}，應用即將自動重啟…"
+
+msgid "检查更新失败：{0}"
+msgstr "檢查更新失敗：{0}"
+
+msgid "发现新版本 {0}，可在「关于 → 应用更新」一键升级。"
+msgstr "發現新版本 {0}，可在「關於 → 應用更新」一鍵升級。"
+
+msgid "ok-nikke 更新"
+msgstr "ok-nikke 更新"
+
+msgid "未获取到任何正式版本"
+msgstr "未取得任何正式版本"
+
+msgid "发现新版本 {0}"
+msgstr "發現新版本 {0}"
+
+msgid "已是最新正式版；预发布 {0} 不参与提示，需要请到 Release 页手动下载"
+msgstr "已是最新正式版；預發布 {0} 不參與提示，需要請到 Release 頁手動下載"
+
+msgid "已是最新版本"
+msgstr "已是最新版本"
+
+msgid "当前版本"
+msgstr "目前版本"
+
+msgid "当前已是 {0}。"
+msgstr "目前已是 {0}。"
+
+msgid "{0}后：{1} → {2}（会重启应用；更新日志见 Release 页面）"
+msgstr "{0}後：{1} → {2}（會重啟應用；更新日誌見 Release 頁面）"
+
+msgid "更新源已切换为「{0}」，请重新检查更新"
+msgstr "更新來源已切換為「{0}」，請重新檢查更新"
+
+msgid "更新源配置写入失败（configs/update.json）"
+msgstr "更新來源配置寫入失敗（configs/update.json）"
+
+msgid "自动（按系统语言）"
+msgstr "自動（依系統語言）"
+
+msgid "CNB 镜像"
+msgstr "CNB 鏡像"
