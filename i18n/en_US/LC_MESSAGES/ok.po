@@ -406,16 +406,16 @@ msgid "Raid"
 msgstr "Raid"
 
 msgid "执行限时挑战（协同作战/个人突袭）任务"
-msgstr "Run limited-time challenge tasks (Union Raid / Solo Raid)."
+msgstr "Run limited-time challenge tasks (Co-op / Solo Raid)."
 
 msgid "协同作战"
-msgstr "Union Raid"
+msgstr "Co-op"
 
 msgid "个人突袭"
 msgstr "Solo Raid"
 
 msgid "自动匹配协同作战-普通难度"
-msgstr "Auto-match Union Raid on Normal difficulty."
+msgstr "Auto-match Co-op battles on Normal difficulty."
 
 msgid "自动执行个人突袭任务"
 msgstr "Automatically run Solo Raid tasks."
