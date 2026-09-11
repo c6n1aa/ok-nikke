@@ -139,7 +139,15 @@ class NikkeStartController(start_controller_module.StartController):
         return str(basic.get(LAUNCHER_PATH_KEY) or '').strip()
 
     def _launcher_button_text(self):
-        return LAUNCHER_BUTTON_TEXT
+        # 启动器按钮文案随游戏客户端语言变化，用 ocr 词条域取当前语言的识别关键字。
+        text = LAUNCHER_BUTTON_TEXT
+        executor = getattr(og, 'executor', None)
+        translation = getattr(executor, 'ocr_po_translation', None)
+        if translation is not None:
+            translated = translation.gettext(text)
+            if translated and translated != text:
+                return translated
+        return text
 
     def _launcher_button_region(self):
         return LAUNCHER_BUTTON_REGION

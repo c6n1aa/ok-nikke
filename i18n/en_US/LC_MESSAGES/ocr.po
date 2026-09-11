@@ -85,3 +85,7 @@ msgstr ""
 # MyOneTimeTask 调试方法里演示用的 OCR 目标
 msgid "方舟"
 msgstr "Ark"
+
+# start_controller：启动器启动按钮 OCR
+msgid "启动"
+msgstr "LAUNCH"
