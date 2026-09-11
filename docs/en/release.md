@@ -18,7 +18,7 @@ ok-nikke/
 └── configs/update.json     # update source (channel: auto|github|cnb)
 ```
 
-- Dependencies come from `requirements.txt`, which **keeps `ok-script`/`pyappify`** (option C: the framework is no longer inlined into the source tree).
+- Dependencies come from `requirements.txt`, which **keeps `ok-script`/`pyappify`**.
 - The update channel defaults to `auto` (by system language: Chinese → CNB mirror, otherwise → GitHub) and can be changed under "About → App update".
 
 ## Release Files
@@ -65,7 +65,3 @@ git push origin v0.x.0
 
 After a `v*` tag is pushed, GitHub Actions runs the tests, builds the portable zip and creates the GitHub Release; tags containing `-` (e.g. `v0.2.0-beta.1`) are marked as prereleases **and are never offered by the in-app update check** - prereleases are manual-download only.
 
-## Migrating from the pyappify Era (v0.1.x → new layout)
-
-- Old portable packages (with `data/` and the pyappify launcher) cannot upgrade in place: the new layout adds `python/`, `git/` and the entry exe, none of which git updates can deliver. **Download the new portable package.**
-- During the transition the repository keeps `pyappify.yml` (so old launchers keep working) and keeps it in `deploy.txt`; remove both once users have migrated.

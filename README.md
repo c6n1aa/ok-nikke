@@ -34,6 +34,11 @@
 
 1. 从 [GitHub Releases](https://github.com/c6n1aa/ok-nikke/releases) 下载便携包 `ok-nikke-win32-portable.zip`，解压到任意英文目录。
 2. 以管理员身份运行 `ok-nikke.exe`。
+3. 启动游戏本体
+4. 打开“日常设置”界面，对需要运行的任务进行开关、配置
+![daily_config.png](docs/images/daily_config.png)
+5. 回到“任务”界面，点击“日常”开始
+![task.png](docs/images/task.png)
 
 注意事项：
 

@@ -33,7 +33,7 @@
 
 ### 3. 打包与发布
 
-- [ ] 确认便携包 / Release 含 `i18n/**`（尤其 `.mo`）：`build.yml`、`pyappify.yml` 未显式声明
+- [x] 便携包 / Release 含 `i18n/**`（尤其 `.mo`）：`build.yml` 用 `git archive` 打包，git 跟踪文件全量进包
 
 ### 4. 实机验证（非中文客户端）
 

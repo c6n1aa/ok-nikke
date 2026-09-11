@@ -27,4 +27,3 @@ scripts
 src
 tests
 update.py
-pyappify.yml

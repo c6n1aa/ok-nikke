@@ -18,7 +18,7 @@ ok-nikke/
 └── configs/update.json     # 更新源（channel: auto|github|cnb）
 ```
 
-- 依赖来源是 `requirements.txt`（**保留 `ok-script`/`pyappify`**，方案 C 不再内联框架源码）。
+- 依赖来源是 `requirements.txt`（**保留 `ok-script`/`pyappify`**）。
 - 更新源出厂为 `auto`（按系统语言：中文 → CNB 镜像，其它 → GitHub），用户可在「关于 → 应用更新」切换。
 
 ## 发布相关文件
@@ -65,7 +65,3 @@ git push origin v0.x.0
 
 `v*` tag 推送后，GitHub Actions 会运行测试、打包便携 zip 并创建 GitHub Release；tag 名含 `-`（如 `v0.2.0-beta.1`）会被标记为 prerelease，**并且不会被应用内「检查更新」提示**——预发布只能从 Release 页手动下载。
 
-## 从 pyappify 时代迁移（v0.1.x → 新版）
-
-- 老便携包（含 `data/` 与 pyappify 启动器）无法自动升级到新形态：新包多了 `python/`、`git/`、入口 exe，这些是 git 更新拿不到的，**必须重新下载便携包**。
-- 过渡期仓库里保留 `pyappify.yml`（仅供老启动器继续工作），确认用户迁移完成后再删除；同一时期 `deploy.txt` 也保留它，避免镜像缺文件导致老启动器更新失败。
