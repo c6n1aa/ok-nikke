@@ -456,3 +456,112 @@ msgstr "Whether to run Misc (claim PASS rewards)."
 
 msgid "前往日常设置"
 msgstr "Open Daily Settings"
+
+# ArkTask
+msgid "方舟"
+msgstr "Ark"
+
+msgid "执行企业塔/模拟室/拦截战/竞技场相关任务"
+msgstr "Runs Tribe Tower / Simulation Room / Interception / Arena tasks."
+
+msgid "企业塔"
+msgstr "Tribe Tower"
+
+msgid "关闭自动爬塔"
+msgstr "Disable Auto Climb"
+
+msgid "模拟室"
+msgstr "Simulation Room"
+
+msgid "拦截战"
+msgstr "Interception"
+
+msgid "异常拦截战"
+msgstr "Anomaly Interception"
+
+msgid "只进行快速战斗"
+msgstr "Quick Battle Only"
+
+msgid "BOSS选择"
+msgstr "Boss Selection"
+
+msgid "异常拦截队伍配置"
+msgstr "Anomaly Team Setup"
+
+msgid "克拉肯"
+msgstr "Kraken"
+
+msgid "镜像容器"
+msgstr "Mirror Container"
+
+msgid "茵迪维利亚"
+msgstr "Indivilia"
+
+msgid "过激派"
+msgstr "Ultra"
+
+msgid "死神"
+msgstr "Harvester"
+
+msgid "新人竞技场"
+msgstr "Rookie Arena"
+
+msgid "对手选择策略"
+msgstr "Opponent Selection Strategy"
+
+msgid "特殊竞技场"
+msgstr "Special Arena"
+
+msgid "收取排名奖励"
+msgstr "Claim Ranking Rewards"
+
+msgid "是否执行企业塔(无限之塔)子流程"
+msgstr "Whether to run the Tribe Tower sub-flow."
+
+msgid "进入战斗后自动撤退，适合只完成日常任务而不需要爬塔的指挥官"
+msgstr "Auto-retreats after entering battle, for commanders who only need to finish dailies without climbing the tower."
+
+msgid "使用立即完成-快速模拟，通关模拟室流程"
+msgstr "Uses instant-complete Quick Simulation to clear the Simulation Room."
+
+msgid "进行特殊拦截战(与异常拦截战互斥，不可同时开启)"
+msgstr "Runs Special Interception (mutually exclusive with Anomaly Interception)."
+
+msgid "使用快速战斗进行异常个体拦截战扫荡(与拦截战互斥，不可同时开启)"
+msgstr "Uses Quick Battle to sweep Anomaly Interception (mutually exclusive with Interception)."
+
+msgid "开启后<b>只进行每周快速战斗</b>，不可进行快速战斗时跳过拦截战任务流程(建议每周手动打一次，后续使用快速战斗进行扫荡)<br/>关闭后<b>当快速战斗不可用时</b>，将进行<b>普通自动战斗</b>"
+msgstr "When on, <b>only the weekly Quick Battle is run</b>, and the Interception flow is skipped when Quick Battle is unavailable (recommended: play one manual run per week, then sweep with Quick Battle).<br/>When off, <b>normal auto battle</b> runs <b>when Quick Battle is unavailable</b>."
+
+msgid "选择异常个体"
+msgstr "Select the Anomaly boss."
+
+msgid "异常个体对应队伍选择，关闭则固定使用队伍1"
+msgstr "Squad selection per Anomaly boss; when off, Squad 1 is always used."
+
+msgid "异常个体「克拉肯」使用的队伍"
+msgstr "Squad used against the Anomaly \"Kraken\"."
+
+msgid "异常个体「镜像容器」使用的队伍"
+msgstr "Squad used against the Anomaly \"Mirror Container\"."
+
+msgid "异常个体「茵迪维利亚」使用的队伍"
+msgstr "Squad used against the Anomaly \"Indivilia\"."
+
+msgid "异常个体「过激派」使用的队伍"
+msgstr "Squad used against the Anomaly \"Ultra\"."
+
+msgid "异常个体「死神」使用的队伍"
+msgstr "Squad used against the Anomaly \"Harvester\"."
+
+msgid "使用每天5次的免费战斗(启用此功能请先配置好队伍)"
+msgstr "Uses the 5 free battles per day (configure your squad before enabling)."
+
+msgid "优先选择稳定战力压制的对手(<b>己方战力 * 0.846 > 对手战力</b>)；关闭则固定选择最下面的对手"
+msgstr "Prefer opponents whose combat power can be stably suppressed (<b>your CP * 0.846 > opponent CP</b>); when off, always picks the bottom opponent."
+
+msgid "收取特殊竞技场累计奖励"
+msgstr "Claim accumulated Special Arena rewards."
+
+msgid "进入排名界面领取排名奖励"
+msgstr "Enter the ranking screen and claim the ranking rewards."
