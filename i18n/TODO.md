@@ -15,11 +15,14 @@
 
 ## 待办
 
-### 1. 正式任务元数据词条（未开始，量大，一个任务一次提交）
+### 1. 正式任务元数据词条（已完成）
 
 `DailyTask` / `HarvestTask` / `OutpostDefenseTask` / `CashShopTask` / `ShopTask` /
 `RecruitTask` / `OutpostTask` / `ArkTask` / `RaidTask` / `ExtrasTask` / `DebugTask` 的
-`name` / `description` / `default_config` / `config_description` / `config_type` 字符串。
+`name` / `description` / `default_config` / `config_description` / `config_type` 字符串已全部翻译。
+`ArkTask` 的异常个体 Boss 与塔/模式专有名词经游戏 wiki 交叉验证（克拉肯=Kraken/クラーケン、
+镜像容器=Mirror Container/ミラーコンテナ、茵迪维利亚=Indivilia/インディビリア、
+过激派=Ultra/ウルトラ、死神=Harvester/ハーベスター）。
 
 ### 2. `ocr.po` 缺口（要客户端文案，不接受自译）
 
@@ -42,10 +45,11 @@
 
 ### 5. 未纳入词条的 UI 文本（见 i18n 盘点，按需排期）
 
-- [ ] `src/ui/UpdateCard.py`、`src/ui/DailyTab.py` 的硬编码控件文本（需 `og.app.tr` 包裹）
-- [ ] `src/patches/`：`tasks_tab` 重置按钮与 InfoBar、`start_controller` 启动提示、
+- [x] `src/ui/UpdateCard.py`、`src/ui/DailyTab.py` 的硬编码控件文本（已 `og.app.tr` 包裹）
+- [x] `src/patches/`：`tasks_tab` 重置按钮与 InfoBar、`start_controller` 启动提示、
       `basic_options` 选项文案、`notification_tab` 卡片描述
-- [ ] `src/update_config.py` 更新源文案、`src/config.py` 的 links
+- [x] `src/update_config.py` 更新源下拉文案（自动/CNB 镜像等）
+- [x] `src/config.py` 的 links：为 URL / 剪贴板内容 + 框架自译的 GitHub/FAQ/Share 按钮，无需词条
 - [ ] 日志 / 异常文案（可选，量大）
 
 ### 6. 技术债
