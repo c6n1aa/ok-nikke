@@ -419,3 +419,40 @@ msgstr "Auto-match Co-op battles on Normal difficulty."
 
 msgid "自动执行个人突袭任务"
 msgstr "Automatically run Solo Raid tasks."
+
+# DailyTask
+msgid "日常"
+msgstr "Daily"
+
+msgid "按日常任务设置进行自动化操作。"
+msgstr "Runs automation according to the daily task settings."
+
+msgid "是否执行收获（友情点、邮箱）。"
+msgstr "Whether to run Harvest (Social Points, mailbox)."
+
+msgid "是否执行前哨基地歼灭。"
+msgstr "Whether to run Outpost Wipe Out."
+
+msgid "是否执行付费商店免费礼包领取（STEP UP/每日/每周/每月）。"
+msgstr "Whether to claim free Cash Shop packs (STEP UP / Daily / Weekly / Monthly)."
+
+msgid "是否执行商店购买（普通/竞技场/废铁）。"
+msgstr "Whether to run Shop purchases (Common / Arena / Recycling)."
+
+msgid "是否执行招募（友情点/折扣普通招募）。"
+msgstr "Whether to run Recruit (Social Point / discounted ordinary recruit)."
+
+msgid "是否执行前哨基地（派遣/咨询）。"
+msgstr "Whether to run Outpost (Dispatch / Advise)."
+
+msgid "是否执行方舟（企业塔/模拟室/拦截战/竞技场）。"
+msgstr "Whether to run Ark (Tribe Tower / Simulation Room / Interception / Arena)."
+
+msgid "是否执行限时挑战活动（协同作战/个人突袭）。"
+msgstr "Whether to run limited-time challenge events (Co-op / Solo Raid)."
+
+msgid "是否执行其他杂项（PASS奖励收取）。"
+msgstr "Whether to run Misc (claim PASS rewards)."
+
+msgid "前往日常设置"
+msgstr "Open Daily Settings"
