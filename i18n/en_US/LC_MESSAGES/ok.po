@@ -196,16 +196,16 @@ msgid "歼灭"
 msgstr "Wipe Out"
 
 msgid "防御前哨基地进行收菜，可选使用珠宝追加次数。"
-msgstr "Defend the Outpost and claim rewards; optionally spend Jewels for extra attempts."
+msgstr "Defend the Outpost and claim rewards; optionally spend Gems for extra attempts."
 
 msgid "使用珠宝歼灭次数"
-msgstr "Jewel Wipe Out Attempts"
+msgstr "Gem Wipe Out Attempts"
 
 msgid "使用珠宝进行一举歼灭的次数，0-10，0表示仅使用免费次数。"
-msgstr "Number of Wipe Out attempts paid with Jewels (0-10). 0 means free attempts only."
+msgstr "Number of Wipe Out attempts paid with Gems (0-10). 0 means free attempts only."
 
 msgid "使用珠宝歼灭次数必须在 0 到 10 之间。"
-msgstr "Jewel Wipe Out attempts must be between 0 and 10."
+msgstr "Gem Wipe Out attempts must be between 0 and 10."
 
 # CashShopTask
 msgid "付费商店"
@@ -240,7 +240,7 @@ msgid "破碎核心货币购买列"
 msgstr "Broken Core Purchase List"
 
 msgid "珠宝"
-msgstr "Gem"
+msgstr "Gems"
 
 msgid "是否购买普通商店（每日免费刷新）。"
 msgstr "Whether to buy from the Common Shop (free daily refresh)."
@@ -346,7 +346,7 @@ msgid "使用10友情点进行招募"
 msgstr "Recruit with 10 Social Points."
 
 msgid "使用150钻进行每日折扣招募"
-msgstr "Use 150 Jewels for the daily discounted recruit."
+msgstr "Use 150 Gems for the daily discounted recruit."
 
 msgid "前哨基地"
 msgstr "Outpost"
