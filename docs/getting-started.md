@@ -1,43 +1,35 @@
 # 快速开始
 
-## 1. 获取源码
+面向普通用户：下载便携包、运行与常见问题。想参与开发请看[开发环境](development.md)。
 
-项目仓库位于 [github.com/c6n1aa/ok-nikke](https://github.com/c6n1aa/ok-nikke)：
+## 下载与运行
 
-```bash
-git clone https://github.com/c6n1aa/ok-nikke.git
-cd ok-nikke
-```
+1. 从 [GitHub Releases](https://github.com/c6n1aa/ok-nikke/releases) 下载最新便携包 `ok-nikke-win32-portable.zip`，解压到任意英文目录。
+2. 以管理员身份运行 `ok-nikke.exe`（入口程序会自己请求提权，弹 UAC 时点「是」）。
+3. 若解压目录里已有旧版本，建议解压到新目录再切换，避免新旧文件混在一起。
 
-## 2. 安装 Python 3.12
+## 使用要求
 
-安装 [Python 3.12.10](https://www.python.org/downloads/release/python-31210/)，然后在仓库目录中执行：
+- **必须以管理员身份启动**：游戏以管理员权限运行时，自动化程序也需要同等权限，否则截图或输入可能失效。
+- 游戏分辨率需为 16:9 且不低于 1600×900。
+- 游戏窗口需保持前台可见：输入通过 Windows 接口模拟（Pynput / PyDirect），不支持后台点击；截图优先使用 WGC。
+- 任务开关与配置项都在主界面选择；程序按日/周记录完成状态，已完成的任务不会被重复执行。
 
-```powershell
-py -3.12 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install --no-deps -r requirements.txt --upgrade
-```
+## 应用内更新
 
-通常不需要管理员权限。如果目标游戏以管理员权限运行，自动化程序也需要以相同权限启动，否则截图或输入可能无法生效。
+「关于 → 应用更新」里可以检查更新、切换更新源（自动 / GitHub / CNB 镜像）并在最近 5 个正式版之间升级或降级：
 
-## 3. 初始化应用
+- 出厂为「自动」：中文系统默认走 CNB 国内镜像，其它系统走 GitHub。
+- 「检查更新」只提示正式版：alpha/beta 等预发布不会亮红点徽标，需要请到 Release 页手动下载。
+- 版本下拉只列最近 5 个正式版（不含当前版本；选中更旧的版本按钮变「降级」）。
+- 启动约 3 秒后自动检查一次；发现新版本时会在窗口内弹出提示（InfoBar），同时「关于」页亮红点。
+- 更新时会自动拉取代码，必要时重装依赖，完成后应用自动重启；**更新过程会打开一个控制台窗口显示进度**（拉代码 / 装依赖 / 失败原因），日志同时写在包内 `logs/update.log`，失败原因也会在「关于 → 应用更新」里回显。
+- 更新源写入 `configs/update.json`，与主程序共用同一份配置。
 
-接下来完成以下工作：
+## 常见问题
 
-1. 按[应用配置](configuration.md)修改应用名称、运行目标、图标和更新仓库。
-2. 按[任务开发](tasks.md)创建并注册第一个任务。
-3. 启动 Debug 模式：
-
-```powershell
-python main_debug.py
-```
-
-4. 运行测试：
-
-```powershell
-python -m unittest tests.TestMain
-```
-
-5. 验证完成后，按[打包与发布](release.md)配置工作流并推送 tag。
+- **截图全黑或识别不到画面**：确认程序与游戏权限一致（同为非管理员或同为管理员），并关闭 HDR 或允许 AutoHDR 提示。
+- **分辨率不匹配**：确认游戏窗口为 16:9 且不低于 1600×900。
+- **检查更新失败**：确认网络可达所选更新源，或到「关于 → 应用更新」切换到另一个源。
+- **更新后打不开**：查看 `logs/update.log` 与 `logs/ok-script.log`；必要时删除 `configs/` 目录下的配置后重启（会重置任务配置），仍失败则从 Releases 重新下载便携包。
+- **从旧版（v0.1.x）升级**：旧包用的是 pyappify 启动器，新形态多了 `python/`、`git/` 与入口 exe，**无法自动升级**，请重新下载便携包。

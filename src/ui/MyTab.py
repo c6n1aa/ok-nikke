@@ -3,7 +3,7 @@ from PySide6.QtWidgets import QPushButton
 from qfluentwidgets import BodyLabel, FluentIcon, PushButton, PrimaryPushButton
 
 from ok import Config
-from ok.gui.widget.CustomTab import CustomTab
+from ok.ui.qt.widget.CustomTab import CustomTab
 from src.tasks.MyOneTimeTask import MyOneTimeTask
 
 

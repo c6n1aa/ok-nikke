@@ -7,7 +7,12 @@ description: Add, sync, repair, and compile gettext translations for ok-script P
 
 ## Overview
 
-Use this skill for gettext translation work in ok-script projects that keep catalogs under `i18n/<locale>/LC_MESSAGES/ok.po`. It complements `$ok-script-tasks`: create task behavior with the task skill, then use this skill to keep task UI strings translated and compiled.
+Use this skill for gettext translation work in ok-script projects that keep catalogs under `i18n/<locale>/LC_MESSAGES/`. It complements `$ok-script-tasks`: create task behavior with the task skill, then use this skill to keep task UI strings translated and compiled.
+
+Two domains live in that folder, both handled the same way:
+
+- `ok.po` — the application's own UI (task names, descriptions, config labels, options, help text).
+- `ocr.po` — text rendered by the game client and matched through OCR (screen/tab titles, buttons, prompts). Only add entries the project actually matches on; a wrong translation means the match never hits, so leave `msgstr` empty when the target-language wording is not verified.
 
 ## Workflow
 
@@ -24,7 +29,7 @@ Use this skill for gettext translation work in ok-script projects that keep cata
 4. Add missing `msgid` blocks to every locale.
    Preserve existing `msgstr` values unless the user asks to revise translations.
 5. Translate missing entries into every locale present in the repo.
-6. Compile every changed `ok.po` into `ok.mo`.
+6. Compile every changed catalog into `.mo`.
 7. Verify catalog syntax and check for duplicate `msgid` entries.
 
 ## Helper Script
@@ -32,10 +37,13 @@ Use this skill for gettext translation work in ok-script projects that keep cata
 Use `scripts/task_i18n_helper.py` when helpful:
 
 ```powershell
-.\.venv\Scripts\python.exe .agent\skills\ok-script-i18n\scripts\task_i18n_helper.py scan --task src\task\DailyTask.py
-.\.venv\Scripts\python.exe .agent\skills\ok-script-i18n\scripts\task_i18n_helper.py check --i18n i18n
-.\.venv\Scripts\python.exe .agent\skills\ok-script-i18n\scripts\task_i18n_helper.py compile --i18n i18n
+.\.venv\Scripts\python.exe .agents\skills\ok-script-i18n\scripts\task_i18n_helper.py scan --task src\task\DailyTask.py
+.\.venv\Scripts\python.exe .agents\skills\ok-script-i18n\scripts\task_i18n_helper.py check --i18n i18n
+.\.venv\Scripts\python.exe .agents\skills\ok-script-i18n\scripts\task_i18n_helper.py compile --i18n i18n
 ```
+
+- `compile` walks the whole `i18n` tree and compiles **every** `.po` (`ok.po` and `ocr.po`) to the matching `.mo`, refuses to run when a catalog has duplicate `msgid` entries, and adds space-stripped duplicates for English catalogs (OCR often drops spaces, and the framework looks the string up a second time without spaces).
+- `check` only validates: duplicate `msgid` entries across every catalog.
 
 The scanner is a helper, not a substitute for reading the task. It finds common literal strings but can miss values built through constants, imports, f-strings, comprehensions, or helper functions.
 
@@ -56,6 +64,7 @@ The scanner is a helper, not a substitute for reading the task. It finds common 
 - Keep config keys stable when they are persisted in JSON. Translate the catalog entry for display, not the Python key, unless the project already stores localized keys.
 - For Chinese locales, distinguish Simplified (`zh_CN`) and Traditional (`zh_TW`) when both catalogs exist.
 - For option lists, translate each option string that appears in the UI.
+- Never invent literal translations for in-game proper nouns (character names, factions, items, stages, skills, modes, in-game UI terms, etc.). Search the web for the official name used in the target language — the localized game client, the official site, or an official/community wiki — and use that. If no authoritative translation can be found, keep the original term instead of guessing.
 
 ## Integration With Task Work
 

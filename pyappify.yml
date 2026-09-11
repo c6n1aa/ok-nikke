@@ -2,7 +2,8 @@ name: "ok-nikke"
 uac: true
 icon: "icons/icon.png"
 profiles:
-  - name: "China"
+  # profile 名改动时需同步 .github/workflows/build.yml 中 setup 步骤的 -p 参数
+  - name: "Release"
     git_url: "https://github.com/c6n1aa/ok-nikke.git"
     admin: true
     main_script: "main.py"
@@ -11,10 +12,5 @@ profiles:
     pip_args: "--no-deps"
     use_pythonw: true
     show_add_defender: true
-    # PYTHONPATH: "your/default/path" # Optional, will be "" if missing
-
-  - name: "Global"
-    git_url: "https://github.com/c6n1aa/ok-nikke.git"
-    main_script: "main.py"
-    requirements: "requirements.txt"
-    pip_args: "--no-deps"
+  - name: "Release-CN"
+    git_url: "https://cnb.cool/c6n1aa/ok-nikke"

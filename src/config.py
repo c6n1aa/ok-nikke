@@ -1,66 +1,56 @@
 import os
+import sys
 
 import numpy as np
-from ok import ConfigOption
 
-version = "dev"
-#不需要修改version, Github Action打包会自动修改
+from src.patches import apply_all  # 受控补丁唯一入口
 
-key_config_option = ConfigOption('Game Hotkey Config', { #全局配置示例
-    'Echo Key': 'q',
-    'Liberation Key': 'r',
-    'Resonance Key': 'e',
-    'Tool Key': 't',
-}, description='In Game Hotkey for Skills')
+apply_all()  # 启动器/运行时/任务列表等补丁，必须在 ok.OK(config) 构造前应用
+
+VERSION_FILE = 'version.txt'
 
 
-def make_bottom_right_black(frame): #可选. 某些游戏截图时遮挡UID使用
+def _read_version():
+    """版本号来源：包根 version.txt（由 build 写入、update.py 更新）。
+
+    取不到（源码直跑）时回退 "dev"。不用 src/config.py 里的字面量做唯一来源：该文件会被
+    git checkout 覆盖，仓库里恒为 dev，更新后会回退。
     """
-    Changes a portion of the frame's pixels at the bottom right to black.
-
-    Args:
-        frame: The input frame (NumPy array) from OpenCV.
-
-    Returns:
-        The modified frame with the bottom-right corner blackened.  Returns the original frame
-        if there's an error (e.g., invalid frame).
-    """
+    candidates = []
     try:
-        height, width = frame.shape[:2]  # Get height and width
+        candidates.append(os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), VERSION_FILE))
+    except Exception:
+        pass
+    candidates.append(os.path.join(os.getcwd(), VERSION_FILE))
+    for path in candidates:
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                # lstrip BOM：CI 里用 PowerShell Set-Content -Encoding utf8 会写入 BOM，
+                # 不清理会让版本号变成 "\ufeffvX"，后续版本比较全部失真
+                text = f.read().lstrip('\ufeff').strip()
+            if text:
+                return text
+        except OSError:
+            continue
+    return 'dev'
 
-        # Calculate the size of the black rectangle
-        black_width = int(0.13 * width)
-        black_height = int(0.025 * height)
 
-        # Calculate the starting coordinates of the rectangle
-        start_x = width - black_width
-        start_y = height - black_height
+version = _read_version()
 
-        # Create a black rectangle (NumPy array of zeros)
-        black_rect = np.zeros((black_height, black_width, frame.shape[2]), dtype=frame.dtype)  # Ensure same dtype
-
-        # Replace the bottom-right portion of the frame with the black rectangle
-        frame[start_y:height, start_x:width] = black_rect
-
-        return frame
-    except Exception as e:
-        print(f"Error processing frame: {e}")
-        return frame
 
 config = {
-    'custom_tasks':True, # enable creating and editing custom tasks
+    'custom_tasks': False,  # 关闭后正式版不显示「脚本」「模板」tab, 也不加载 ok_tasks 自定义脚本
     'debug': False,  # Optional, default: False
-    'use_gui': True, # 目前只支持True
     'config_folder': 'configs', #最好不要修改
-    'global_configs': [key_config_option],
+    'global_configs': [],
     # 'screenshot_processor': make_bottom_right_black, # 在截图的时候对frame进行修改, 可选
     'gui_icon': 'icons/icon.png', #窗口图标, 最好不需要修改文件名
     'wait_until_before_delay': 0,
     'wait_until_check_delay': 0,
-    'wait_until_settle_time': 0, #调用 wait_until时候, 在第一次满足条件的时候, 会等待再次检测, 以避免某些滑动动画没到预定位置就在动画路径中被检测到
+    'wait_until_settle_time': 1, #调用 wait_until时候, 在第一次满足条件的时候, 会等待再次检测, 以避免某些滑动动画没到预定位置就在动画路径中被检测到
     'ocr': { #可选, 使用的OCR库
         'lib': 'onnxocr',
-        'auto_simplify': True, #自动繁体转简体, 需要ppocrv5等可以识别繁体的库
+        'auto_simplify': False, #自动繁体转简体, 需要ppocrv5等可以识别繁体的库
         'params': {
             'use_openvino': True,
         }
@@ -85,16 +75,19 @@ config = {
     #     'resolution': (1280, 720),
     # },
     'start_timeout': 120,  # default 60
-    'window_size': { #ok-script窗口大小
-        'width': 1200,
-        'height': 800,
-        'min_width': 600,
-        'min_height': 450,
+    'gui': {
+        'type': 'qt',
+        'window_size': { #ok-script窗口大小
+            'width': 1200,
+            'height': 800,
+            'min_width': 600,
+            'min_height': 450,
+        },
     },
     'supported_resolution': {
         'ratio': '16:9', #支持的游戏分辨率
-        'min_size': (1280, 720), #支持的最低游戏分辨率
-        'resize_to': [(2560, 1440), (1920, 1080), (1600, 900), (1280, 720)], #可选, 如果非16:9自动缩放为 resize_to
+        'min_size': (1600, 900), #支持的最低游戏分辨率
+        'resize_to': [(2560, 1440), (1920, 1080), (1600, 900)], #可选, 如果非16:9自动缩放为 resize_to
     },
     'links': { # 关于里显示的链接, 可选
             'default': {
@@ -114,7 +107,20 @@ config = {
     'version': version, #版本
     'my_app': ['src.globals', 'Globals'], #可选. 全局单例对象, 可以存放加载的模型, 使用og.my_app调用
     'onetime_tasks': [  # 用户点击触发的任务
-        ["src.tasks.MyOneTimeTask", "MyOneTimeTask"],
-        ["ok", "DiagnosisTask"],
+        ["src.tasks.DailyTask", "DailyTask"],
+        ["src.tasks.HarvestTask", "HarvestTask"],
+        ["src.tasks.OutpostDefenseTask", "OutpostDefenseTask"],
+        ["src.tasks.CashShopTask", "CashShopTask"],
+        ["src.tasks.ShopTask", "ShopTask"],
+        ["src.tasks.RecruitTask", "RecruitTask"],
+        ["src.tasks.OutpostTask", "OutpostTask"],
+        ["src.tasks.ArkTask", "ArkTask"],
+        ["src.tasks.RaidTask", "RaidTask"],
+        ["src.tasks.ExtrasTask", "ExtrasTask"]
+    ],
+    'trigger_tasks': [  # 后台任务，可随时开启/关闭
+    ],
+    'custom_tabs': [  # 自定义Tab
+        ["src.ui.DailyTab", "DailyTab"],
     ],
 }

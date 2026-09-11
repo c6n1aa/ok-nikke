@@ -1,0 +1,3 @@
+[submodule "ok_templates"]
+	path = ok_templates
+	url = git@github.com:c6n1aa/ok-nikke-coco-labeling.git

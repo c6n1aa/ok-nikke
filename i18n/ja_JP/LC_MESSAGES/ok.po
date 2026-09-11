@@ -1,0 +1,173 @@
+# ok-nikke 日语词条：msgid 为源码里的简体中文原文。
+msgid ""
+msgstr ""
+"Project-Id-Version: ok-nikke\n"
+"Report-Msgid-Bugs-To: \n"
+"Last-Translator: \n"
+"Language-Team: Japanese\n"
+"Language: ja_JP\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "配置演示任务"
+msgstr "設定デモタスク"
+
+msgid "演示各配置控件从简体中文翻译到其它语言的效果。"
+msgstr "各設定ウィジェットが簡体字中国語から他言語へ翻訳される様子を確認するデモです。"
+
+msgid "下拉框配置"
+msgstr "ドロップダウン設定"
+
+msgid "布尔配置"
+msgstr "ブール設定"
+
+msgid "整数配置"
+msgstr "整数設定"
+
+msgid "浮点数配置"
+msgstr "浮動小数点設定"
+
+msgid "字符串配置"
+msgstr "文字列設定"
+
+msgid "多行文本配置"
+msgstr "複数行テキスト設定"
+
+msgid "文件夹选择配置"
+msgstr "フォルダー選択設定"
+
+msgid "文件选择配置"
+msgstr "ファイル選択設定"
+
+msgid "列表配置"
+msgstr "リスト設定"
+
+msgid "下拉框选项配置"
+msgstr "ドロップダウン候補設定"
+
+msgid "按钮配置"
+msgstr "ボタン設定"
+
+msgid "按钮选项配置"
+msgstr "ボタンオプション設定"
+
+msgid "多选配置"
+msgstr "複数選択設定"
+
+msgid "子布尔配置"
+msgstr "サブブール設定"
+
+msgid "子字符串配置"
+msgstr "サブ文字列設定"
+
+msgid "子浮点数配置"
+msgstr "サブ浮動小数点設定"
+
+msgid "下拉框值 1"
+msgstr "ドロップダウン値 1"
+
+msgid "下拉框值 2"
+msgstr "ドロップダウン値 2"
+
+msgid "字符串值"
+msgstr "文字列値"
+
+msgid "子字符串值"
+msgstr "サブ文字列値"
+
+msgid "多行文本值"
+msgstr "複数行テキスト値"
+
+msgid "列表值 1"
+msgstr "リスト値 1"
+
+msgid "列表值 2"
+msgstr "リスト値 2"
+
+msgid "可用下拉框值 1"
+msgstr "利用可能なドロップダウン値 1"
+
+msgid "可用下拉框值 2"
+msgstr "利用可能なドロップダウン値 2"
+
+msgid "可用下拉框值 3"
+msgstr "利用可能なドロップダウン値 3"
+
+msgid "多选值 1"
+msgstr "複数選択値 1"
+
+msgid "多选值 2"
+msgstr "複数選択値 2"
+
+msgid "多选值 3"
+msgstr "複数選択値 3"
+
+msgid "选择演示文件夹"
+msgstr "デモ用フォルダーを選択"
+
+msgid "选择演示文件"
+msgstr "デモ用ファイルを選択"
+
+msgid "Python 文件 (*.py);;所有文件 (*)"
+msgstr "Python ファイル (*.py);;すべてのファイル (*)"
+
+msgid "按钮值"
+msgstr "ボタン値"
+
+msgid "显示配置值"
+msgstr "設定値を表示"
+
+msgid "显示通知"
+msgstr "通知を表示"
+
+msgid "带已翻译选项值的下拉框配置。"
+msgstr "翻訳済みの選択肢を持つドロップダウン設定。"
+
+msgid "带已翻译值的单行字符串配置。"
+msgstr "翻訳済みの値を持つ単一行の文字列設定。"
+
+msgid "带已翻译值的多行文本配置。"
+msgstr "翻訳済みの値を持つ複数行テキスト設定。"
+
+msgid "保存所选文件夹路径的文件夹选择配置。"
+msgstr "選択したフォルダーのパスを保存する設定。"
+
+msgid "带可选文件过滤器的文件选择配置。"
+msgstr "任意指定のファイルフィルター付きファイル選択設定。"
+
+msgid "仅可从已翻译可用值中选择的下拉框选项配置。"
+msgstr "翻訳済みの利用可能な値のみ選べるドロップダウン候補設定。"
+
+msgid "显示全部当前配置值的按钮配置。"
+msgstr "現在のすべての設定値を表示するボタン設定。"
+
+msgid "带多个操作按钮的按钮配置。"
+msgstr "複数のアクションボタンを持つボタン設定。"
+
+msgid "请从可用下拉框值中选择。"
+msgstr "利用可能なドロップダウン値から選択してください。"
+
+msgid "请仅选择可用的多选值。"
+msgstr "利用可能な複数選択値のみ選択してください。"
+
+msgid "请仅选择可用的下拉框选项值。"
+msgstr "利用可能なドロップダウン候補値のみ選択してください。"
+
+msgid "已显示全部配置值。"
+msgstr "設定値をすべて表示しました。"
+
+msgid "已显示按钮通知。"
+msgstr "ボタン通知を表示しました。"
+
+msgid "True"
+msgstr "真"
+
+msgid "False"
+msgstr "偽"
+
+msgid "触发器会不断调用run方法"
+msgstr "トリガータスクは run() を繰り返し呼び出します。"
+
+msgid "一般根据frame来判断是否需要运行"
+msgstr "通常は frame の内容で実行するかどうかを判断します。"

@@ -1,7 +1,11 @@
 from ok import TriggerTask
 
+from src.tasks.NikkeBaseTask import NikkeBaseTask
 
-class MyTriggerTask(TriggerTask):
+
+class MyTriggerTask(NikkeBaseTask, TriggerTask):
+    # 继承 NikkeBaseTask 以获得周期执行状态机制（is_done/mark_done/clear_done）。
+    # 同时继承 TriggerTask 保持后台触发能力；MRO: MyTriggerTask → NikkeBaseTask → TriggerTask → BaseTask。
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

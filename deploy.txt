@@ -1,10 +1,30 @@
-src
-ok
+# 同步到 CNB 镜像仓库的清单（逐行一个文件/目录，'#' 开头为注释）。
+#
+# 注意：镜像树必须与 tag 的源码树一致。应用内更新用 `git checkout -f <tag>`，
+# 它会删除「包里被跟踪、但目标树里没有」的文件 —— 漏在这份清单外的文件会在
+# 从 CNB 更新后从用户包里消失（而走 GitHub 更新则不会），造成两棵树不一致。
+# 只有确实不希望出现在镜像里的文件（如已废弃的 .update_repo_gitignore）才可省略。
+.github
+.agents
+.gitignore
+AGENTS.md
+README.md
+README_en.md
+assets
+deploy.txt
+docs
+i18n
+icons
+launcher
 main.py
 main_debug.py
-icons
+mkdocs.yml
+pyproject.toml
+requirements-docs.txt
 requirements.txt
-README.md
-i18n
-assets
+run_tests.ps1
+scripts
+src
+tests
+update.py
 pyappify.yml

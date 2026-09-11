@@ -1,8 +1,10 @@
+$pythonExe = if (Test-Path ".\.venv\Scripts\python.exe") { ".\.venv\Scripts\python.exe" } else { "python" }
+
 Get-ChildItem -Path ".\tests\*.py" | ForEach-Object {
   Write-Host "Running tests in $($_.FullName)"
   try {
       # Run the Python unittest command
-      python -m unittest $_.FullName
+      & $pythonExe -m unittest $_.FullName
 
       # Check if the previous command succeeded
       if ($LASTEXITCODE -ne 0) {

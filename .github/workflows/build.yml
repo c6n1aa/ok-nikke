@@ -2,22 +2,22 @@ name: Build
 
 on:
   push:
-    # Sequence of patterns matched against refs/tags
     tags:
       - 'v*'
+
+permissions:
+  contents: write
+
+env:
+  PYTHONIOENCODING: 'UTF-8'
+  STANDALONE_PYTHON: '3.12'  # 与 pyproject.toml 的 requires-python 对齐
 
 jobs:
   build:
 
     runs-on: windows-latest
 
-    env:
-      PYTHONIOENCODING: 'UTF-8'
-
-    strategy:
-      matrix:
-        python-version: [ 3.12 ]
-
+    # 不指定 shell：托管 runner 上 run 步骤默认就是 pwsh，步骤里只用 5.1/7 行为一致的写法。
     steps:
       - name: Configure git
         run: |
@@ -26,51 +26,164 @@ jobs:
           git config --global core.eol lf
           git config --global user.email "c6n1aa@users.noreply.github.com"
           git config --global user.name "c6n1aa"
-          echo "action_state=yellow" >> $env:GITHUB_ENV
-          echo "${{ env.action_state }}"
 
       - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.STANDALONE_PYTHON }}
+        uses: actions/setup-python@v5
         with:
-          lfs: true
+          python-version: ${{ env.STANDALONE_PYTHON }}
 
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v2
-        with:
-          python-version: ${{ matrix.python-version }}
-      - name: Set UTF-8 encoding
-        run: |
-          set PYTHONIOENCODING=utf-8
-          set PYTHONLEGACYWINDOWSSTDIO=utf-8
-          echo PYTHONIOENCODING=utf-8 >> $GITHUB_ENV
-
-      - name: Install dependencies
-        run: |
-          pip install --no-deps -r requirements.txt
-
-      - name: inline_ok_requirements #把ok-script加入源码, 从requirements.txt中删除以提高升级更新速度
-        run: |
-          python -m ok.update.inline_ok_requirements --tag ${{ github.ref_name }}
+      - name: Install dependencies (runner, for tests)
+        run: pip install --no-deps -r requirements.txt
 
       - name: Run tests
         run: |
           Get-ChildItem -Path ".\tests\*.py" | ForEach-Object {
               Write-Host "Running tests in $($_.FullName)"
               python -m unittest $_.FullName
+              if ($LASTEXITCODE -ne 0) {
+                  # 1 = 用例失败（日志有 traceback）；负数 = 解释器被原生崩溃带走（无 traceback）
+                  throw "Tests failed in $($_.FullName) (exit $LASTEXITCODE)"
+              }
           }
 
-      - name: Build with PyAppify Action
-        id: build-app
-        uses: ok-oldking/pyappify-action@master #使用pyappify打包exe
+      - name: Download standalone Python -> python/
+        run: |
+          # install_only 归档：顶层即 python/，可重定位、自带 pip
+          $headers = @{ 'User-Agent' = 'ok-nikke-build' }
+          $release = Invoke-RestMethod -Uri 'https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest' -Headers $headers
+          $pattern = "^cpython-$($env:STANDALONE_PYTHON)\.\d+\+.*-x86_64-pc-windows-msvc-install_only\.tar\.gz$"
+          $asset = $release.assets | Where-Object { $_.name -match $pattern } | Select-Object -First 1
+          if (-not $asset) { throw "python-build-standalone $($release.tag_name) 里没有匹配 $pattern 的资产" }
+          Write-Host "standalone python: $($asset.name) ($([math]::Round($asset.size / 1MB, 1)) MB)"
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile python.tar.gz
+          tar -xzf python.tar.gz
+          Remove-Item python.tar.gz
+          if (-not (Test-Path 'python/python.exe')) { throw '解压后未找到 python/python.exe' }
+          .\python\python.exe -V
+          .\python\python.exe -m pip --version
+
+      - name: Download MinGit -> git/
+        run: |
+          # 更新流程只需 cmd/git.exe（fetch/checkout，不用 lfs/bash），MinGit 足够
+          $headers = @{ 'User-Agent' = 'ok-nikke-build' }
+          $release = Invoke-RestMethod -Uri 'https://api.github.com/repos/git-for-windows/git/releases/latest' -Headers $headers
+          $asset = $release.assets | Where-Object { $_.name -match '^MinGit-\d+(\.\d+)+-64-bit\.zip$' } | Select-Object -First 1
+          if (-not $asset) { throw "git-for-windows $($release.tag_name) 里没有 MinGit 64-bit zip 资产" }
+          Write-Host "mingit: $($asset.name) ($([math]::Round($asset.size / 1MB, 1)) MB)"
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile mingit.zip
+          Expand-Archive -Path mingit.zip -DestinationPath git -Force
+          Remove-Item mingit.zip
+          if (-not (Test-Path 'git/cmd/git.exe')) { throw '解压后未找到 git/cmd/git.exe' }
+          .\git\cmd\git.exe --version
+
+      - name: Install deps into package interpreter
+        run: |
+          # 不内联 ok-script：依赖全装进包内解释器。--no-deps 必须，否则
+          # PySide6-Fluent-Widgets 会拉 PySide6 元包，多出几百 MB addons。
+          .\python\python.exe -m pip install --no-deps --no-cache-dir --disable-pip-version-check -r requirements.txt
+          # 断言 ok/pyappify 来自包内 site-packages，防止日后被重新内联而静默遮蔽
+          .\python\python.exe -c "import ok, pyappify, sys; print('ok      ', ok.__file__); print('pyappify', pyappify.__file__); assert 'site-packages' in ok.__file__, 'ok 不是来自 site-packages'; assert 'site-packages' in pyappify.__file__, 'pyappify 不是来自 site-packages'"
+
+      - name: Write version.txt and default update config
+        run: |
+          $tag = "${{ github.ref_name }}"
+          # 必须无 BOM UTF-8：version.txt 由 src/config.py 与 update.py 读取
+          $noBom = New-Object System.Text.UTF8Encoding($false)
+          [System.IO.File]::WriteAllText((Join-Path $PWD 'version.txt'), "$tag`n", $noBom)
+          New-Item -ItemType Directory -Path configs -Force | Out-Null
+          $updateJson = @{ channel = 'auto'; custom_git_url = ''; pip_index = ''; update_method = 'manual' } | ConvertTo-Json
+          [System.IO.File]::WriteAllText((Join-Path $PWD 'configs/update.json'), $updateJson, $noBom)
+          .\python\python.exe -c "import sys; sys.argv=['main.py']; from src.config import config; print('version =', config['version']); assert config['version'] == '$tag', config['version']"
+
+      - name: Build entry shim (MSVC)
+        run: |
+          # 入口 exe 自身提权（manifest）并拉起 python\pythonw.exe main.py；launcher/build.py 会校验 manifest
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (-not (Test-Path $vswhere)) { throw "找不到 vswhere.exe" }
+          $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vs) { throw "找不到带 C++ 工具的 Visual Studio 安装" }
+          Import-Module (Join-Path $vs 'Common7\Tools\Microsoft.VisualStudio.DevShell.dll')
+          Enter-VsDevShell -VsInstallPath $vs -SkipAutomaticLocation -DevCmdArguments '-arch=x64' | Out-Null
+          python launcher\build.py --out ok-nikke.exe
+
+      - name: Sync to CNB mirror
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          CNB_DEPLOY_TOKEN: ${{ secrets.CNB_DEPLOY_TOKEN }}
+        run: |
+          # 按 deploy.txt 清单把文件与同名 tag 推到国内镜像，供 CN 用户应用内更新
+          $tag = "${{ github.ref_name }}"
+          $mirrorUrl = "https://cnb:$env:CNB_DEPLOY_TOKEN@cnb.cool/c6n1aa/ok-nikke"
+          $work = Join-Path $env:RUNNER_TEMP "cnb-mirror"
+          Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue
+          git clone "$mirrorUrl" $work
+          Set-Location $work
+
+          if (-not (git rev-parse --verify HEAD 2>$null)) {
+            git checkout --orphan main
+          }
+
+          $srcRoot = $env:GITHUB_WORKSPACE
+          Get-Content (Join-Path $srcRoot "deploy.txt") |
+            Where-Object { $_.Trim() -and -not $_.Trim().StartsWith('#') } |
+            ForEach-Object {
+              $entry = $_.Trim().Trim('/')
+              $src = Join-Path $srcRoot $entry
+              if (Test-Path $src) {
+                Copy-Item $src $work -Recurse -Force
+              }
+            }
+
+          Get-ChildItem $work -Recurse -Directory -Filter "__pycache__" -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item (Join-Path $work 'launcher/build-stamp') -Recurse -Force -ErrorAction SilentlyContinue
+
+          git add -A
+          git diff --cached --quiet
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "No changes to sync to CNB mirror."
+          } else {
+            git commit -m "release $tag"
+          }
+          git tag -f "$tag"
+          git push origin HEAD
+          git push origin "$tag" -f
+
+          # CNB 上缺 tag 时，CN 用户的应用内更新会静默失败
+          $remoteTag = git ls-remote --tags "https://cnb.cool/c6n1aa/ok-nikke" "refs/tags/$tag"
+          if (-not $remoteTag) { throw "CNB 镜像上不存在 tag $tag，应用内更新会失败" }
+          Write-Host "CNB mirror has tag $tag"
+
+      - name: Package portable zip
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $stage = Join-Path $PWD 'dist/ok-nikke'
+          New-Item -ItemType Directory -Path $stage -Force | Out-Null
+          git archive --format=tar $tag -o src.tar
+          tar -xf src.tar -C $stage
+          Remove-Item src.tar
+          Move-Item python, git, ok-nikke.exe, version.txt $stage
+          New-Item -ItemType Directory -Path (Join-Path $stage 'configs') -Force | Out-Null
+          Copy-Item configs/update.json (Join-Path $stage 'configs/update.json')
+          # .gitignore 必须留在包里：update.py 首次更新会在包根 git init + seed commit，
+          # 靠它（与 .git/info/exclude）保证 configs/logs/screenshots/python/git 不被提交
+          Get-ChildItem $stage -Recurse -Directory -Filter "__pycache__" -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+          # bsdtar 按扩展名推断 zip（Compress-Archive 对 ~1GB 树很慢）
+          tar -C (Join-Path $PWD 'dist') -a -c -f (Join-Path $PWD 'dist/ok-nikke-win32-portable.zip') ok-nikke
+          Get-Item dist/ok-nikke-win32-portable.zip | Select-Object Name, @{n='SizeMB';e={[math]::Round($_.Length / 1MB, 1)}}
 
       - name: Release
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
           draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
           body: |
             ###  更新日志
               请查看提交记录。
-            ### 下载包说明
-              * [ok-nikke-win32-China-setup.exe](https://github.com/c6n1aa/ok-nikke/releases/download/${{ github.ref_name }}/ok-nikke-win32-China-setup.exe) 完整安装包.
-              * [ok-nikke-win32-Global-setup.exe](https://github.com/c6n1aa/ok-nikke/releases/download/${{ github.ref_name }}/ok-nikke-win32-Global-setup.exe) full package with dependencies.
-          files: pyappify_dist/*
+            ### 下载说明
+              * [ok-nikke-win32-portable.zip](https://github.com/c6n1aa/ok-nikke/releases/download/${{ github.ref_name }}/ok-nikke-win32-portable.zip) 完整便携包: 解压到任意目录运行 ok-nikke.exe (需管理员权限)。
+              * 无需下载 Source code, 仅供存档用。
+          files: |
+            dist/ok-nikke-win32-portable.zip
