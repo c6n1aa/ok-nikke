@@ -171,3 +171,22 @@ msgstr "觸發器會不斷呼叫 run 方法。"
 
 msgid "一般根据frame来判断是否需要运行"
 msgstr "通常根據 frame 判斷是否需要執行。"
+
+# HarvestTask
+msgid "收获"
+msgstr "收穫"
+
+msgid "收取友情点与邮箱奖励。"
+msgstr "收取友情點與信箱獎勵。"
+
+msgid "收获友情点"
+msgstr "收穫友情點"
+
+msgid "收取邮箱"
+msgstr "收取信箱"
+
+msgid "是否点击好友送礼并收取友情点。"
+msgstr "是否點擊好友送禮並收取友情點。"
+
+msgid "是否收取邮箱中的奖励。"
+msgstr "是否收取信箱中的獎勵。"

@@ -171,3 +171,22 @@ msgstr "The trigger task keeps calling run()."
 
 msgid "一般根据frame来判断是否需要运行"
 msgstr "Usually decides whether to run based on the current frame."
+
+# HarvestTask
+msgid "收获"
+msgstr "Harvest"
+
+msgid "收取友情点与邮箱奖励。"
+msgstr "Collect Social Points and mailbox rewards."
+
+msgid "收获友情点"
+msgstr "Harvest Social Points"
+
+msgid "收取邮箱"
+msgstr "Collect Mailbox"
+
+msgid "是否点击好友送礼并收取友情点。"
+msgstr "Whether to send friend gifts and collect Social Points."
+
+msgid "是否收取邮箱中的奖励。"
+msgstr "Whether to collect rewards from the mailbox."
