@@ -162,8 +162,8 @@ class DailyTab(CustomTab):
                            task, task.config, task.default_config,
                            task.config_description, task.config_type, self)
         switch = SwitchButton(parent=card)
-        switch.setOnText("启用")
-        switch.setOffText("关闭")
+        switch.setOnText(og.app.tr("启用"))
+        switch.setOffText(og.app.tr("关闭"))
         switch.setChecked(bool(self.daily_task.config.get(daily_key, False)))
         switch.checkedChanged.connect(lambda checked, k=daily_key: self._set_daily_switch(k, checked))
         card.addWidget(switch)

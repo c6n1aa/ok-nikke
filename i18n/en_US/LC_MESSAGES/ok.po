@@ -565,3 +565,13 @@ msgstr "Claim accumulated Special Arena rewards."
 
 msgid "进入排名界面领取排名奖励"
 msgstr "Enter the ranking screen and claim the ranking rewards."
+
+# DailyTab
+msgid "日常设置"
+msgstr "Daily Settings"
+
+msgid "启用"
+msgstr "Enable"
+
+msgid "关闭"
+msgstr "Disable"

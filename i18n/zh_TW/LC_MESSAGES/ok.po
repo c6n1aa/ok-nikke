@@ -565,3 +565,13 @@ msgstr "收取特殊競技場累計獎勵。"
 
 msgid "进入排名界面领取排名奖励"
 msgstr "進入排名介面領取排名獎勵。"
+
+# DailyTab
+msgid "日常设置"
+msgstr "日常設定"
+
+msgid "启用"
+msgstr "啟用"
+
+msgid "关闭"
+msgstr "關閉"

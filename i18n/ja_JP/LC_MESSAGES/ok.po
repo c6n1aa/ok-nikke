@@ -565,3 +565,13 @@ msgstr "スペシャルアリーナの累計報酬を受け取ります。"
 
 msgid "进入排名界面领取排名奖励"
 msgstr "ランキング画面でランキング報酬を受け取ります。"
+
+# DailyTab
+msgid "日常设置"
+msgstr "デイリー設定"
+
+msgid "启用"
+msgstr "有効"
+
+msgid "关闭"
+msgstr "無効"
