@@ -213,3 +213,118 @@ msgstr "付費商店"
 
 msgid "自动领取付费商店中STEP UP/每日/每周/每月的免费礼包。"
 msgstr "自動領取付費商店中STEP UP/每日/每周/每月的免費禮包。"
+
+# ShopTask
+msgid "商店"
+msgstr "商店"
+
+msgid "自动购买普通/竞技场/废铁商店商品。"
+msgstr "自動購買普通/競技場/廢鐵商店商品。"
+
+msgid "普通商店"
+msgstr "普通商店"
+
+msgid "竞技场商店"
+msgstr "競技場商店"
+
+msgid "优先购买列"
+msgstr "優先購買列"
+
+msgid "废铁商店"
+msgstr "廢鐵商店"
+
+msgid "废铁骨架优先购买列"
+msgstr "廢鐵骨架優先購買列"
+
+msgid "破碎核心货币购买列"
+msgstr "破碎核心貨幣購買列"
+
+msgid "珠宝"
+msgstr "寶石"
+
+msgid "是否购买普通商店（每日免费刷新）。"
+msgstr "是否購買普通商店（每日免費刷新）。"
+
+msgid "是否购买竞技场商店。"
+msgstr "是否購買競技場商店。"
+
+msgid "竞技场商店要购买的商品，按配置顺序购买。"
+msgstr "競技場商店要購買的商品，按配置順序購買。"
+
+msgid "是否购买废铁商店。"
+msgstr "是否購買廢鐵商店。"
+
+msgid "废铁商店要用骨头购买的商品，按配置顺序购买。"
+msgstr "廢鐵商店要用骨頭購買的商品，按配置順序購買。"
+
+msgid "废铁商店要用核心购买的商品，按配置顺序购买。"
+msgstr "廢鐵商店要用核心購買的商品，按配置順序購買。"
+
+msgid "燃烧代码"
+msgstr "燃燒代碼"
+
+msgid "风压代码"
+msgstr "風壓代碼"
+
+msgid "铁甲代码"
+msgstr "鐵甲代碼"
+
+msgid "电击代码"
+msgstr "電擊代碼"
+
+msgid "水冷代码"
+msgstr "水冷代碼"
+
+msgid "代码手册选择宝箱"
+msgstr "代碼手冊選擇寶箱"
+
+msgid "简介个性化礼包"
+msgstr "簡介個性化禮包"
+
+msgid "公司武器熔炉"
+msgstr "公司武器熔爐"
+
+msgid "优秀团队合作宝箱"
+msgstr "優秀團隊合作寶箱"
+
+msgid "保养工具箱II"
+msgstr "保養工具箱II"
+
+msgid "企业精选武装"
+msgstr "企業精選武裝"
+
+msgid "指挥官自由使用卷"
+msgstr "指揮官自由使用卷"
+
+msgid "极乐净土VIP餐券"
+msgstr "極樂淨土VIP餐券"
+
+msgid "米西利斯VIP卡"
+msgstr "米西利斯VIP卡"
+
+msgid "泰特拉VIP护理券"
+msgstr "泰特拉VIP護理券"
+
+msgid "朝圣者补给套组交换券"
+msgstr "朝聖者補給套組交換券"
+
+msgid "反常年券"
+msgstr "反常年券"
+
+msgid "信用点盒"
+msgstr "信用點盒"
+
+msgid "战斗数据辑盒"
+msgstr "戰鬥數據輯盒"
+
+msgid "芯尘盒"
+msgstr "芯塵盒"
+
+msgid "信用点"
+msgstr "信用點"
+
+msgid "成长套组：1H（活动限定）"
+msgstr "成長套組：1H（活動限定）"
+
+msgid "简介个性化礼包（活动限定）"
+msgstr "簡介個性化禮包（活動限定）"

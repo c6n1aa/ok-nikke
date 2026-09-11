@@ -213,3 +213,118 @@ msgstr "Cash Shop"
 
 msgid "自动领取付费商店中STEP UP/每日/每周/每月的免费礼包。"
 msgstr "Automatically claim free packs from the Cash Shop (STEP UP / Daily / Weekly / Monthly)."
+
+# ShopTask
+msgid "商店"
+msgstr "Shop"
+
+msgid "自动购买普通/竞技场/废铁商店商品。"
+msgstr "Automatically buy items from Common / Arena / Recycling shops."
+
+msgid "普通商店"
+msgstr "Common Shop"
+
+msgid "竞技场商店"
+msgstr "Arena Shop"
+
+msgid "优先购买列"
+msgstr "Priority Purchase List"
+
+msgid "废铁商店"
+msgstr "Recycling Shop"
+
+msgid "废铁骨架优先购买列"
+msgstr "Recycling Bone Priority List"
+
+msgid "破碎核心货币购买列"
+msgstr "Broken Core Purchase List"
+
+msgid "珠宝"
+msgstr "Gem"
+
+msgid "是否购买普通商店（每日免费刷新）。"
+msgstr "Whether to buy from the Common Shop (free daily refresh)."
+
+msgid "是否购买竞技场商店。"
+msgstr "Whether to buy from the Arena Shop."
+
+msgid "竞技场商店要购买的商品，按配置顺序购买。"
+msgstr "Items to buy from the Arena Shop, purchased in the configured order."
+
+msgid "是否购买废铁商店。"
+msgstr "Whether to buy from the Recycling Shop."
+
+msgid "废铁商店要用骨头购买的商品，按配置顺序购买。"
+msgstr "Items to buy from the Recycling Shop with Bones, purchased in the configured order."
+
+msgid "废铁商店要用核心购买的商品，按配置顺序购买。"
+msgstr "Items to buy from the Recycling Shop with Cores, purchased in the configured order."
+
+msgid "燃烧代码"
+msgstr "Fire Code"
+
+msgid "风压代码"
+msgstr "Wind Pressure Code"
+
+msgid "铁甲代码"
+msgstr "Iron Code"
+
+msgid "电击代码"
+msgstr "Electric Code"
+
+msgid "水冷代码"
+msgstr "Water Cooling Code"
+
+msgid "代码手册选择宝箱"
+msgstr "Code Manual Selection Box"
+
+msgid "简介个性化礼包"
+msgstr "Profile Customization Pack"
+
+msgid "公司武器熔炉"
+msgstr "Company Weapon Furnace"
+
+msgid "优秀团队合作宝箱"
+msgstr "Excellent Teamwork Box"
+
+msgid "保养工具箱II"
+msgstr "Maintenance Toolbox II"
+
+msgid "企业精选武装"
+msgstr "Company Select Gear"
+
+msgid "指挥官自由使用卷"
+msgstr "Commander Free-use Ticket"
+
+msgid "极乐净土VIP餐券"
+msgstr "Elysion VIP Meal Ticket"
+
+msgid "米西利斯VIP卡"
+msgstr "Missilis VIP Card"
+
+msgid "泰特拉VIP护理券"
+msgstr "Tetra VIP Care Ticket"
+
+msgid "朝圣者补给套组交换券"
+msgstr "Pilgrim Supply Set Exchange Ticket"
+
+msgid "反常年券"
+msgstr "Anomaly Annual Ticket"
+
+msgid "信用点盒"
+msgstr "Credit Point Box"
+
+msgid "战斗数据辑盒"
+msgstr "Battle Data Box"
+
+msgid "芯尘盒"
+msgstr "Core Dust Box"
+
+msgid "信用点"
+msgstr "Credit Points"
+
+msgid "成长套组：1H（活动限定）"
+msgstr "Growth Set: 1H (Event Limited)"
+
+msgid "简介个性化礼包（活动限定）"
+msgstr "Profile Customization Pack (Event Limited)"
