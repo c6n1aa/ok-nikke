@@ -61,6 +61,7 @@ Notes:
 | Outpost | Dispatch / advise / brief encounters |
 | Ark | Manufacturer towers / simulation room / interception / arena |
 | Raid | Limited-time challenges (co-op / solo raid) |
+| Extras | Claim PASS (event/task pass) rewards |
 
 ## 🔧 Troubleshooting
 

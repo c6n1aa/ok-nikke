@@ -24,7 +24,7 @@
 | `config_type` | 配置项控件类型（下拉、布尔、数值、文本、多选等） |
 | `done_keys` | 完成状态键与周期，如 `{"harvest": "day"}`；纯编排/调试任务不定义 |
 
-自动化逻辑写在 `run()` 中。新增 `config_type` 需要同步 `ConfigItemFactory` 的工厂分支。
+自动化逻辑写在 `run()` 中。新增 `config_type` 需要同步 ok-script 框架 `ok/ui/qt/tasks/ConfigItemFactory.py` 的工厂分支。
 
 ## 任务开发约定
 

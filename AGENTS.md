@@ -17,14 +17,14 @@ ok-nikke 是基于 PyPI `ok-script`（2.x）构建的《胜利女神：NIKKE》W
 - **界面识别/导航/恢复**（详见 `docs/screen-and-recovery.md`）：界面统一注册在 `src/screens.py` 的 `SCREENS`（不在任务 `__init__` 里 `register_screen`）；「点入口→确认进入」用 `transition()`；子流程开头闸门用 `ensure_screen()`；失败恢复用 `try_step` 包入口方法**一层**（内部步骤不逐个包，禁止手写重试/回大厅）。范例：`DailyTask.run` 开头就位大厅、`ArkTask` 各 `_do_*`/`_nav_*` 入口方法。
 - **完成状态**：声明 `done_keys = {key: period}`（如 `{"harvest": "day"}`），基类给 `is_completed()`/`clear_done_all()`，自动接 UI；纯编排/调试任务（`DailyTask`/`DebugTask`）不定义。
 - **模板匹配 / coco 标注**：`assets/coco_annotations.json` 是 COCO 格式——`images[].file_name` 指向图集 `images/*.png`、`annotations[].bbox` 是图集坐标（非游戏画面坐标）、`categories[].name` 是特征名，运行时由 `FeatureSet` 按当前分辨率缩放匹配。`assets/template/` 小图（铃铛、关闭按钮等）用 `find_scaled_template(...)` 缩放后匹配，禁止未缩放模板直接传 `find_one`/`find_feature`。
-- **任务 UI 数据驱动**：改用户看到的内容就改任务属性（`name`/`description`/`default_config`/`config_type` 等），不手写控件；新增 `config_type` 需同步 `ConfigItemFactory` 工厂分支。标准范例见 `src/tasks/MyOneTimeTask.py`。
+- **任务 UI 数据驱动**：改用户看到的内容就改任务属性（`name`/`description`/`default_config`/`config_type` 等），不手写控件；新增 `config_type` 需同步 ok-script 框架 `ok/ui/qt/tasks/ConfigItemFactory.py` 的工厂分支。标准范例见 `src/tasks/MyOneTimeTask.py`。
 
 ## 架构概览
 
 - `src/tasks/`：全部任务类所在，`NikkeBaseTask.py` 是基类（集成界面识别/导航/恢复、完成状态、模板缩放、弹窗清理、战斗等待等通用方法，用法见「关键机制」）；基类的实现按职责拆在 `src/tasks/base/` 下的 mixin 里，`NikkeBaseTask` 只做组合，新增/修改基类能力一律改对应 mixin，不要动 `NikkeBaseTask.py`。新增任务模板见同目录 `MyOneTimeTask`（一次性）/`MyTriggerTask`（后台触发）。任务清单注册在 `src/config.py` 的 `onetime_tasks`（`trigger_tasks` 当前为空）。
-- `src/patches/`：ok-script 猴子补丁唯一入口（`basic_options`/`start_controller`/`runtime`/`tasks_tab`），各补丁职责见 `src/patches/README.md`。
+- `src/patches/`：ok-script 猴子补丁唯一入口（`basic_options`/`notification_tab`/`runtime`/`start_controller`/`start_tab`/`tasks_tab`/`language`/`about_update`），各补丁职责见 `src/patches/README.md`。
 - `src/screens.py`：界面识别单一数据源（`SCREENS` 注册表 + `INTERRUPTS` 中断哨兵）。
-- `src/ui/`：自定义 tab（当前仅 `DailyTab`，经 `src/config.py` 的 `custom_tabs` 注册）与「关于」页更新卡片 `UpdateCard.py`（配合 `src/update_config.py`，由 `src/patches/about_update.py` 替换框架卡片）。
+- `src/ui/`：自定义 tab（`custom_tabs` 注册的仅 `DailyTab`；`MyTab.py` 为未注册模板）与「关于」页更新卡片 `UpdateCard.py`（配合 `src/update_config.py`，由 `src/patches/about_update.py` 替换框架卡片）。
 - 资产：`assets/coco_annotations.json`（COCO 标注）+ `assets/images/`（图集）+ `assets/template/`（手动裁剪小图）+ `assets/db/advise.db`（咨询答案库，由 `nikke-advise-data` 仓库构建后复制导入；本仓库不存源数据与构建脚本）。
 - `i18n/<locale>/LC_MESSAGES/`：gettext 词条，`ok.po` 翻应用 UI、`ocr.po` 翻游戏画面文字；基准语种简体中文，支持 `zh_CN`/`zh_TW`/`en_US`/`ja_JP`（与 `src/patches/language.py` 的 `supported_locales()` 一致）。改 `.po` 后必须编译 `.mo`（`ok-script-i18n` 技能的 `compile` 子命令，见「环境与命令」）。
 - 运行时产物（`configs/`/`logs/`/`screenshots/` 等）与框架本体（`ok/` 等）不入仓，以 `.gitignore` 为准；开发时使用或生产的一次性脚本/中间产物/调试文件放 `dev_tools/`（已 gitignore），XAL 标注导入在 `scripts/import_xal.py`。

@@ -25,6 +25,7 @@ ok-nikke 是基于 [ok-script](https://github.com/ok-oldking/ok-script) 的《�
 | 前哨基地 | 派遣 / 咨询 / 突发剧情 |
 | 方舟 | 企业塔 / 模拟室 / 拦截战 / 竞技场 |
 | Raid | 限时挑战（协同作战 / 个人突袭） |
+| 其他杂项 | 收取PASS（活动/任务通行证）奖励 |
 
 ## 从这里开始
 

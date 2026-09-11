@@ -42,3 +42,7 @@
 3. 包装 `ok.core.translation.update_po_file`：debug 模式「生成翻译文件」原本按框架 `Language` 枚举给全部 7 种语言各写一份 `ok.po`，这里只放行 `supported_locales()`（即下拉保留语言去掉 AUTO，当前为 `zh_CN`/`zh_TW`/`en_US`/`ja_JP`），避免 `i18n/` 里多出空目录。
 
 原因：项目只提供上述四套 gettext 词条，任务字符串本身是简体中文（基准语种）；选西/韩会得到「框架外壳西/韩语 + 项目内容中文」的割裂界面，而语言默认值 `AUTO` 跟随系统、系统为西/韩时不选也会命中。
+
+### about_update.py
+
+替换框架基于 pyappify 启动器的更新 UI 为本项目实现：`AboutTab.UpdateCard` 换成 `src.ui.UpdateCard.NikkeUpdateCard`；`get_startup_version_change` 换成基于 `version.txt`/`version.txt.prev` 的实现（首次调用即消费 `.prev` 文件）；空正文的「更新成功」卡片由替换后的 `ChangeLogView` 与包装的 `AboutTab.add_card` 一并收起；启动自检延迟由框架默认 30 秒改为 3 秒（`update_check_delay_ms`）。依赖 `src/update_config.py`。
