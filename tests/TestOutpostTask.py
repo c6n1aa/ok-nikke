@@ -610,6 +610,19 @@ class TestOutpostTaskAdviseOnce(_DebugOffTestCase):
         self.assertEqual(_SINGLE_OPTION_CLICK_X, first.kwargs["relative_x"])  # 框内相对 X 右移点框体。
         self.assertEqual(1, first.kwargs["after_sleep"])
 
+    def test_answer_clicks_persistent_single_option_gradually(self):
+        option1 = _named_box("advise_option1")
+        option2 = _named_box("advise_option2")
+        # 单框持续在场且每轮时间只推进 0.5s（与 sleep(0.5) 一致）：确认窗口须能累计达到 1s 并点击推进。
+        relative_mock, click_mock = self._answer_with(
+            [option1, None, option1, None, option1, None, option1, option2, None], [], [("提问", "好", "坏")],
+            time_side_effect=[100, 100.5, 101.0, 101.5, 102.0])
+        relative_mock.assert_not_called()  # 单框在场时不点空白，避免抖动漏检单框。
+        self.assertEqual(2, click_mock.call_count)  # 第一次为推进点击，第二次为作答点击（无 rows 走随机兜底）。
+        first = click_mock.call_args_list[0]
+        self.assertIs(first.args[0], option1)  # 持续在场累计超窗口后点单框推进。
+        self.assertEqual(_SINGLE_OPTION_CLICK_X, first.kwargs["relative_x"])  # 框内相对 X 右移点框体。
+
     def test_answer_waits_confirm_window_before_single_click(self):
         option1 = _named_box("advise_option1")
         option2 = _named_box("advise_option2")

@@ -294,7 +294,10 @@ class OutpostTask(NikkeBaseTask):  # 前哨基地任务：执行派遣公告栏�
                                after_sleep=1)  # 点角标右侧的框体推进对话（角标本体不可点）。
                 single_since = None  # 点击后重新观测。
                 continue
-            single_since = now if single is not None else None  # 单框开始计时；无框清零重新等。
+            if single is None:  # 无框清零重新等。
+                single_since = None
+            elif single_since is None:  # 单框首次出现才记起点，不重复刷新，确认窗口才能累计。
+                single_since = now
             if now > deadline:  # 对话迟迟未推进到作答时机。
                 raise WaitFailedException("等待咨询回答选项框超时")  # 抛异常由 try_step 恢复。
             if single is None:  # 无选项框时点空白推进对话。
