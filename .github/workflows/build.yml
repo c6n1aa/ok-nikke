@@ -28,6 +28,8 @@ jobs:
           git config --global user.name "c6n1aa"
 
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # release_notes.py 需要完整历史：按上一个 tag 的区间生成更新日志
 
       - name: Set up Python ${{ env.STANDALONE_PYTHON }}
         uses: actions/setup-python@v5
@@ -173,17 +175,19 @@ jobs:
           tar -C (Join-Path $PWD 'dist') -a -c -f (Join-Path $PWD 'dist/ok-nikke-win32-portable.zip') ok-nikke
           Get-Item dist/ok-nikke-win32-portable.zip | Select-Object Name, @{n='SizeMB';e={[math]::Round($_.Length / 1MB, 1)}}
 
+      - name: Generate release notes
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          # 手写覆盖优先（changelog/<tag>.md），否则按 Conventional Commits 自动生成；规则见 docs/release.md
+          python .github\scripts\release_notes.py --tag ${{ github.ref_name }} --repo ${{ github.repository }} --out release_notes.md
+          Get-Content release_notes.md
+
       - name: Release
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
-          body: |
-            ###  更新日志
-              请查看提交记录。
-            ### 下载说明
-              * [ok-nikke-win32-portable.zip](https://github.com/c6n1aa/ok-nikke/releases/download/${{ github.ref_name }}/ok-nikke-win32-portable.zip) 完整便携包: 解压到任意目录运行 ok-nikke.exe (需管理员权限)。
-              * 无需下载 Source code, 仅供存档用。
+          body_path: release_notes.md
           files: |
             dist/ok-nikke-win32-portable.zip

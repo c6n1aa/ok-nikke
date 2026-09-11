@@ -11,6 +11,7 @@ AGENTS.md
 README.md
 README_en.md
 assets
+changelog
 deploy.txt
 docs
 i18n

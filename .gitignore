@@ -70,6 +70,9 @@ venv/
 .venv/
 python/
 
+# ---- Release 正文生成产物（仅仓库根，见 .github/scripts/release_notes.py） ----
+/release_notes.md
+
 # ---- PyInstaller ----
 # 仅忽略根目录下 PyInstaller 生成的清单；launcher/launcher.manifest 是入口 exe 的 UAC 清单，
 # 必须入库（曾被 `*.manifest` 忽略导致 CI 上构建入口 exe 直接 FileNotFoundError）

@@ -23,10 +23,25 @@ ok-nikke/
 
 ## 发布相关文件
 
-- `.github/workflows/build.yml`：监听 `v*` tag，按顺序执行——装 runner 依赖 → 逐文件跑测试 → 下载 python-build-standalone 到 `python/` → 下载 MinGit 到 `git/` → 往包内解释器装 `requirements.txt`（`--no-deps`）→ 写 `version.txt` 与默认 `configs/update.json` → 用 MSVC 编入口 exe（`launcher/build.py`，链接后校验 UAC manifest）→ 同步 CNB 镜像并断言 tag 存在 → 打单个便携 zip → 创建 GitHub Release。不使用 NSIS 安装器。
+- `.github/workflows/build.yml`：监听 `v*` tag，按顺序执行——装 runner 依赖 → 逐文件跑测试 → 下载 python-build-standalone 到 `python/` → 下载 MinGit 到 `git/` → 往包内解释器装 `requirements.txt`（`--no-deps`）→ 写 `version.txt` 与默认 `configs/update.json` → 用 MSVC 编入口 exe（`launcher/build.py`，链接后校验 UAC manifest）→ 同步 CNB 镜像并断言 tag 存在 → 打单个便携 zip → 生成 Release 正文（`.github/scripts/release_notes.py`）→ 创建 GitHub Release。不使用 NSIS 安装器。
 - `deploy.txt`：同步到 CNB 国内镜像仓库的文件清单（`src`、`main.py`、`update.py`、`launcher`、`assets` 等）。镜像仓库与 GitHub 同 tag，供 CN 用户应用内更新。
 - `launcher/`：入口 shim 源码（`launcher.c` / `launcher.manifest` / `launcher.rc`）与构建脚本 `build.py`（MinGW 或 MSVC 自动探测）。改图标/提权行为后需重新发版——**入口 exe 与 `python/`、`git/` 都无法通过 git 更新**（见方案文档 §10）。
 - `update.py`：应用内更新 bootstrap（零第三方依赖），负责 fetch tag → checkout → 必要时 pip → 写版本号 → 重启应用。
+- `.github/scripts/release_notes.py`：Release 正文生成（纯标准库；手写覆盖 + Conventional Commits 自动分节，见下节）。
+- `changelog/`：可选的用户向更新日志（`changelog/<tag>.md`）——`deploy` 时只有明确要求生成才会写，随 tag 提交后优先于自动生成（见下节）。
+
+## 更新日志（Release 正文）
+
+GitHub Release 的正文不再写死：CI 在创建 Release 前用 `.github/scripts/release_notes.py` 生成 `release_notes.md`，再以 `body_path` 交给 `softprops/action-gh-release`。规则：
+
+- **手写覆盖优先**：`changelog/<tag>.md` 存在时，其正文直接作为「更新日志」内容（文件里不要再写 `### 更新日志` 标题，分组用 `####` 子标题；对应 GitHub issue 的修复可在条目末尾写 `（#12）`，GitHub 会自动变成链接），并且**必须随 tag 一起提交**，CI 才能读到。`deploy` 技能默认**不**生成它，只有发版时明确要求「生成更新日志」才会写这份用户向中文说明；手动发版也可自己写。省略即走自动生成。
+- **自动生成回退**：否则解析 `<上一个 tag>..<tag>` 的非 merge 提交并分节——`feat` 新功能、`fix` 问题修复、`perf` 性能优化、`revert`/`refactor` 等其他改动；`docs`/`chore`/`ci`/`test`/`build`/`style` 不单列（全部被过滤时兜底进「其他改动」）；标题带 `!` 或正文含 `BREAKING CHANGE` 的条目进「不兼容变更」节。上一个 tag 按仓库内的 `v*` tag 计算，首个版本写「首个版本发布。」。
+- 两种模式都会附加：预发布说明（tag 含 `-`）、`下载说明`（便携 zip 链接）与「完整变更记录」compare 链接；自动模式在区间内 `launcher/` 有改动时额外提示重新下载完整包（入口 exe 无法通过应用内 git 更新交付）。
+- 本地预览（不发版、不改远端；`release_notes.md` 已 gitignore，可放心写到仓库根）：
+
+  ```powershell
+  .\.venv\Scripts\python.exe .github\scripts\release_notes.py --tag v0.2.0 --out release_notes.md
+  ```
 
 ## 发布产物
 
@@ -56,7 +71,7 @@ ok-nikke/
 
 ## 发布新版本
 
-推荐使用仓库内置的 `deploy` 技能（`.agents/skills/deploy/`）：自动提交、创建下一个注释 tag 并推送。也可手动创建：
+推荐使用仓库内置的 `deploy` 技能（`.agents/skills/deploy/`）：提交、创建下一个注释 tag 并推送；发版时明确要求「生成更新日志」还会写 `changelog/<tag>.md`（用户向中文说明）。也可手动创建：
 
 ```bash
 git tag v0.x.0
