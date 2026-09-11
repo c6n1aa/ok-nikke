@@ -34,6 +34,11 @@ This software is open-source and free, provided for personal learning and commun
 
 1. Download the portable package `ok-nikke-win32-portable.zip` from [GitHub Releases](https://github.com/c6n1aa/ok-nikke/releases) and extract it to an English path.
 2. Run `ok-nikke.exe` as administrator.
+3. Start the game.
+4. Open the "Daily settings" view and toggle or configure the tasks to run.
+![daily_config.png](docs/images/daily_config.png)
+5. Return to the "Tasks" view and click "Daily" to start.
+![task.png](docs/images/task.png)
 
 Notes:
 
