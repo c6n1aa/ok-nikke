@@ -206,3 +206,10 @@ msgstr "Number of Wipe Out attempts paid with Jewels (0-10). 0 means free attemp
 
 msgid "使用珠宝歼灭次数必须在 0 到 10 之间。"
 msgstr "Jewel Wipe Out attempts must be between 0 and 10."
+
+# CashShopTask
+msgid "付费商店"
+msgstr "Cash Shop"
+
+msgid "自动领取付费商店中STEP UP/每日/每周/每月的免费礼包。"
+msgstr "Automatically claim free packs from the Cash Shop (STEP UP / Daily / Weekly / Monthly)."
