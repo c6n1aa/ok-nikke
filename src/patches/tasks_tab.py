@@ -1,4 +1,4 @@
-from ok import Logger
+from ok import Logger, og
 
 logger = Logger.get_logger(__name__)
 
@@ -185,7 +185,7 @@ def _patch_tasks_tab_reset_done_button():
         buttons_layout = self._operation_buttons_layout()  # 定位 Operation 行的按钮布局。
         if buttons_layout is None or self.reset_config is None:  # 找不到锚点则跳过。
             return
-        reset_done = PushButton(FluentIcon.SYNC, "重置完成状态")  # 按钮固定文字。
+        reset_done = PushButton(FluentIcon.SYNC, og.app.tr("重置完成状态"))  # 按钮固定文字。
         buttons_layout.insertWidget(buttons_layout.indexOf(self.reset_config), reset_done)  # 插到 Reset Config 前。
         reset_done.clicked.connect(self._reset_done_clicked)  # 连接重置回调。
 
@@ -211,8 +211,8 @@ def _patch_tasks_tab_reset_done_button():
     def _reset_done_clicked(self):
         self.task.clear_done_all()  # 清除任务所有完成状态并落盘。
         InfoBar.success(  # 提示用户重置成功。
-            title="已重置完成状态",
-            content=f"{self.task.name} 的完成状态已清除，可重新执行。",
+            title=og.app.tr("已重置完成状态"),
+            content=og.app.tr("{0} 的完成状态已清除，可重新执行。").format(og.app.tr(self.task.name)),
             parent=self.window(),
         )
 

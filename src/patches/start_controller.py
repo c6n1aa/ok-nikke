@@ -53,7 +53,7 @@ class NikkeStartController(start_controller_module.StartController):
         # 先做管理员判断（PC 版需要管理员权限）
         if device and not device['connected'] and device['device'] == 'windows' and not is_admin():
             communicate.starting_emulator.emit(True,
-                                               'PC版本需要管理员权限，请以管理员身份重新启动本程序!', 0)
+                                               self.tr('PC版本需要管理员权限，请以管理员身份重新启动本程序!'), 0)
             communicate.restart_admin.emit()
             return False
         if device and not device['connected']:
@@ -66,7 +66,7 @@ class NikkeStartController(start_controller_module.StartController):
                 launcher_path = self._get_launcher_path()
                 if not launcher_path:
                     communicate.starting_emulator.emit(True,
-                                                       '未配置启动器路径，请在设置->基础设置中选择启动器，或手动启动游戏!', 0)
+                                                       self.tr('未配置启动器路径，请在设置->基础设置中选择启动器，或手动启动游戏!'), 0)
                     return False
                 if not self._start_device_via_launcher(device, launcher_path):
                     return False
@@ -125,10 +125,10 @@ class NikkeStartController(start_controller_module.StartController):
     def _start_device_via_launcher(self, device, launcher_path):
         exe = self._resolve_launcher_exe(launcher_path)
         if not exe:
-            communicate.starting_emulator.emit(True, '启动器路径无效，请在设置->基础设置中重新选择!', 0)
+            communicate.starting_emulator.emit(True, self.tr('启动器路径无效，请在设置->基础设置中重新选择!'), 0)
             return False
         if not execute(exe, start_method=self.start_method):
-            communicate.starting_emulator.emit(True, '启动器启动失败，请手动启动游戏!', 0)
+            communicate.starting_emulator.emit(True, self.tr('启动器启动失败，请手动启动游戏!'), 0)
             return False
         if not self._click_launcher_button(os.path.basename(exe)):
             return False
@@ -263,11 +263,11 @@ class NikkeStartController(start_controller_module.StartController):
         if launcher_hwnd == 0:
             return True
         if launcher_hwnd is None:
-            communicate.starting_emulator.emit(True, '启动器窗口未找到，请手动启动游戏!', 0)
+            communicate.starting_emulator.emit(True, self.tr('启动器窗口未找到，请手动启动游戏!'), 0)
             return False
         # 先等待启动器加载完成并置于前台，再进行特定区域 OCR
         if not self._wait_until_launcher_stable(launcher_hwnd):
-            communicate.starting_emulator.emit(True, '启动器界面未加载完成，请手动启动游戏!', 0)
+            communicate.starting_emulator.emit(True, self.tr('启动器界面未加载完成，请手动启动游戏!'), 0)
             return False
         button_text = self._launcher_button_text()
         region = self._launcher_button_region()
@@ -291,7 +291,7 @@ class NikkeStartController(start_controller_module.StartController):
                             logger.info('launcher window not found, waiting for game window')
                         remaining = deadline - time.monotonic()
                         if remaining <= 0:
-                            communicate.starting_emulator.emit(True, '启动器已关闭但游戏未启动，请手动启动游戏!', 0)
+                            communicate.starting_emulator.emit(True, self.tr('启动器已关闭但游戏未启动，请手动启动游戏!'), 0)
                             return False
                         communicate.starting_emulator.emit(False, None, int(remaining))
                         time.sleep(self.LAUNCHER_POLL_INTERVAL)
@@ -308,7 +308,7 @@ class NikkeStartController(start_controller_module.StartController):
                     # emit(True, msg, 0) 会被 MainWindow.starting_emulator 处理：
                     # 切回启动页 + alert_error(msg, tray=True) 弹通知（含托盘），同时 return False 中断启动流程，
                     # 使 _do_start 不会调用 og.executor.start()，任务不会被执行。
-                    communicate.starting_emulator.emit(True, '启动按钮未找到，请检查是否已经登录以及网络环境', 0)
+                    communicate.starting_emulator.emit(True, self.tr('启动按钮未找到，请检查是否已经登录以及网络环境'), 0)
                     return False
                 communicate.starting_emulator.emit(False, None, int(remaining))
                 time.sleep(self.LAUNCHER_POLL_INTERVAL)
@@ -415,7 +415,7 @@ class NikkeStartController(start_controller_module.StartController):
             return True
         except Exception as e:
             logger.error(f'click launcher start button error', e)
-            communicate.starting_emulator.emit(True, f'模拟点击启动器失败: {e}', 0)
+            communicate.starting_emulator.emit(True, self.tr('模拟点击启动器失败: {0}').format(e), 0)
             return False
 
 

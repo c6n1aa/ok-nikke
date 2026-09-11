@@ -675,3 +675,59 @@ msgstr "Auto (by system language)"
 
 msgid "CNB 镜像"
 msgstr "CNB Mirror"
+
+# patches
+msgid "重置完成状态"
+msgstr "Reset Completion State"
+
+msgid "已重置完成状态"
+msgstr "Completion state reset"
+
+msgid "{0} 的完成状态已清除，可重新执行。"
+msgstr "The completion state of {0} has been cleared and it can be run again."
+
+msgid "启动器路径"
+msgstr "Launcher Path"
+
+msgid "选择 NIKKE 启动器文件"
+msgstr "Select the NIKKE Launcher File"
+
+msgid ""
+"NIKKE 启动器文件路径 \n"
+"例如：D:/NIKKE/Launcher/nikke_launcher.exe"
+msgstr ""
+"NIKKE launcher file path\n"
+"Example: D:/NIKKE/Launcher/nikke_launcher.exe"
+
+msgid "后台触发任务每轮检测之间的额外延时(毫秒)。调大可降低系统资源占用，但会让后台响应变慢。"
+msgstr "Extra delay (ms) between each trigger-task detection round. Increase it to lower system resource usage, at the cost of slower background response."
+
+msgid "任务结束或出错时弹出 Windows 系统通知"
+msgstr "Show a Windows system notification when a task finishes or errors."
+
+msgid "PC版本需要管理员权限，请以管理员身份重新启动本程序!"
+msgstr "The PC version requires administrator privileges. Please restart this program as administrator!"
+
+msgid "未配置启动器路径，请在设置->基础设置中选择启动器，或手动启动游戏!"
+msgstr "No launcher path configured. Select the launcher in Settings -> Basic Settings, or start the game manually!"
+
+msgid "启动器路径无效，请在设置->基础设置中重新选择!"
+msgstr "Invalid launcher path. Re-select it in Settings -> Basic Settings!"
+
+msgid "启动器启动失败，请手动启动游戏!"
+msgstr "Failed to start the launcher. Please start the game manually!"
+
+msgid "启动器窗口未找到，请手动启动游戏!"
+msgstr "Launcher window not found. Please start the game manually!"
+
+msgid "启动器界面未加载完成，请手动启动游戏!"
+msgstr "The launcher interface did not finish loading. Please start the game manually!"
+
+msgid "启动器已关闭但游戏未启动，请手动启动游戏!"
+msgstr "The launcher closed but the game did not start. Please start the game manually!"
+
+msgid "启动按钮未找到，请检查是否已经登录以及网络环境"
+msgstr "Start button not found. Check whether you are logged in and your network connection."
+
+msgid "模拟点击启动器失败: {0}"
+msgstr "Failed to simulate clicking the launcher: {0}"
