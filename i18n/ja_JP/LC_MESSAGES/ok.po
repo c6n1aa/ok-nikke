@@ -328,3 +328,94 @@ msgstr "成長セット：1H（イベント限定）"
 
 msgid "简介个性化礼包（活动限定）"
 msgstr "プロフィールカスタマイズパック（イベント限定）"
+
+# RecruitTask/OutpostTask/ExtrasTask/DebugTask/RaidTask
+msgid "招募"
+msgstr "募集"
+
+msgid "活动免费招募/友情点招募/普通招募"
+msgstr "イベント無料募集／友情ポイント募集／一般募集"
+
+msgid "友情点招募"
+msgstr "友情ポイント募集"
+
+msgid "折扣普通招募"
+msgstr "割引一般募集"
+
+msgid "使用10友情点进行招募"
+msgstr "友情ポイント10で募集します。"
+
+msgid "使用150钻进行每日折扣招募"
+msgstr "ジェム150で毎日の割引募集を行います。"
+
+msgid "前哨基地"
+msgstr "前哨基地"
+
+msgid "执行派遣/咨询/突发剧情任务"
+msgstr "派遣／面談／突発シナリオを実行します。"
+
+msgid "派遣"
+msgstr "派遣"
+
+msgid "咨询"
+msgstr "面談"
+
+msgid "突发剧情"
+msgstr "突発シナリオ"
+
+msgid "只咨询星标"
+msgstr "スター付きのみ面談"
+
+msgid "补齐咨询日志"
+msgstr "面談ログを埋める"
+
+msgid "每日派遣与领取"
+msgstr "毎日の派遣と受け取りを行います。"
+
+msgid "执行每日咨询"
+msgstr "毎日の面談を実行します。"
+
+msgid "清理突发剧情"
+msgstr "突発シナリオをクリアします。"
+
+msgid "只对星标的妮姬进行咨询"
+msgstr "スター付きのNIKKEのみ面談します。"
+
+msgid "角色好感度满时，仍对咨询日志图鉴未满的角色进行咨询"
+msgstr "好感度が最大でも、面談ログ図鑑が未完了のキャラクターには面談します。"
+
+msgid "其他杂项"
+msgstr "その他"
+
+msgid "收取PASS（活动/任务通行证）奖励。"
+msgstr "PASS（イベント／ミッションパス）の報酬を受け取ります。"
+
+msgid "PASS"
+msgstr "PASS"
+
+msgid "是否收取PASS（活动/任务通行证）奖励。"
+msgstr "PASS（イベント／ミッションパス）の報酬を受け取るかどうか。"
+
+msgid "调试"
+msgstr "デバッグ"
+
+msgid "实机调试：在开发工具 tab 中按需调用各调试方法。"
+msgstr "実機デバッグ：開発者ツールタブから必要に応じて各デバッグメソッドを呼び出します。"
+
+msgid "Raid"
+msgstr "レイド"
+
+msgid "执行限时挑战（协同作战/个人突袭）任务"
+msgstr "期間限定チャレンジ（ギルドレイド／ソロレイド）を実行します。"
+
+msgid "协同作战"
+msgstr "ギルドレイド"
+
+msgid "个人突袭"
+msgstr "ソロレイド"
+
+msgid "自动匹配协同作战-普通难度"
+msgstr "ギルドレイド（ノーマル）を自動マッチングします。"
+
+msgid "自动执行个人突袭任务"
+msgstr "ソロレイドを自動で実行します。"

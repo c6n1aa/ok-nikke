@@ -328,3 +328,94 @@ msgstr "成長套組：1H（活動限定）"
 
 msgid "简介个性化礼包（活动限定）"
 msgstr "簡介個性化禮包（活動限定）"
+
+# RecruitTask/OutpostTask/ExtrasTask/DebugTask/RaidTask
+msgid "招募"
+msgstr "招募"
+
+msgid "活动免费招募/友情点招募/普通招募"
+msgstr "活動免費招募/友情點招募/普通招募"
+
+msgid "友情点招募"
+msgstr "友情點招募"
+
+msgid "折扣普通招募"
+msgstr "折扣普通招募"
+
+msgid "使用10友情点进行招募"
+msgstr "使用10友情點進行招募"
+
+msgid "使用150钻进行每日折扣招募"
+msgstr "使用150鑽進行每日折扣招募"
+
+msgid "前哨基地"
+msgstr "前哨基地"
+
+msgid "执行派遣/咨询/突发剧情任务"
+msgstr "執行派遣/諮詢/突發劇情任務"
+
+msgid "派遣"
+msgstr "派遣"
+
+msgid "咨询"
+msgstr "諮詢"
+
+msgid "突发剧情"
+msgstr "突發劇情"
+
+msgid "只咨询星标"
+msgstr "只諮詢星標"
+
+msgid "补齐咨询日志"
+msgstr "補齊諮詢日誌"
+
+msgid "每日派遣与领取"
+msgstr "每日派遣與領取。"
+
+msgid "执行每日咨询"
+msgstr "執行每日諮詢。"
+
+msgid "清理突发剧情"
+msgstr "清理突發劇情。"
+
+msgid "只对星标的妮姬进行咨询"
+msgstr "只對星標的妮姬進行諮詢。"
+
+msgid "角色好感度满时，仍对咨询日志图鉴未满的角色进行咨询"
+msgstr "角色好感度滿時，仍對諮詢日誌圖鑑未滿的角色進行諮詢。"
+
+msgid "其他杂项"
+msgstr "其他雜項"
+
+msgid "收取PASS（活动/任务通行证）奖励。"
+msgstr "收取PASS（活動/任務通行證）獎勵。"
+
+msgid "PASS"
+msgstr "PASS"
+
+msgid "是否收取PASS（活动/任务通行证）奖励。"
+msgstr "是否收取PASS（活動/任務通行證）獎勵。"
+
+msgid "调试"
+msgstr "除錯"
+
+msgid "实机调试：在开发工具 tab 中按需调用各调试方法。"
+msgstr "實機除錯：在開發工具分頁中按需呼叫各除錯方法。"
+
+msgid "Raid"
+msgstr "Raid"
+
+msgid "执行限时挑战（协同作战/个人突袭）任务"
+msgstr "執行限時挑戰（協同作戰/個人突襲）任務"
+
+msgid "协同作战"
+msgstr "協同作戰"
+
+msgid "个人突袭"
+msgstr "個人突襲"
+
+msgid "自动匹配协同作战-普通难度"
+msgstr "自動匹配協同作戰-普通難度。"
+
+msgid "自动执行个人突袭任务"
+msgstr "自動執行個人突襲任務。"

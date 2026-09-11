@@ -328,3 +328,94 @@ msgstr "Growth Set: 1H (Event Limited)"
 
 msgid "简介个性化礼包（活动限定）"
 msgstr "Profile Customization Pack (Event Limited)"
+
+# RecruitTask/OutpostTask/ExtrasTask/DebugTask/RaidTask
+msgid "招募"
+msgstr "Recruit"
+
+msgid "活动免费招募/友情点招募/普通招募"
+msgstr "Event free recruit / Social Point recruit / Ordinary recruit"
+
+msgid "友情点招募"
+msgstr "Social Point Recruit"
+
+msgid "折扣普通招募"
+msgstr "Discounted Ordinary Recruit"
+
+msgid "使用10友情点进行招募"
+msgstr "Recruit with 10 Social Points."
+
+msgid "使用150钻进行每日折扣招募"
+msgstr "Use 150 Jewels for the daily discounted recruit."
+
+msgid "前哨基地"
+msgstr "Outpost"
+
+msgid "执行派遣/咨询/突发剧情任务"
+msgstr "Run Dispatch / Advise / Brief Encounter tasks."
+
+msgid "派遣"
+msgstr "Dispatch"
+
+msgid "咨询"
+msgstr "Advise"
+
+msgid "突发剧情"
+msgstr "Brief Encounter"
+
+msgid "只咨询星标"
+msgstr "Advise Starred Only"
+
+msgid "补齐咨询日志"
+msgstr "Complete Advise Log"
+
+msgid "每日派遣与领取"
+msgstr "Daily dispatch and claim."
+
+msgid "执行每日咨询"
+msgstr "Run daily Advise sessions."
+
+msgid "清理突发剧情"
+msgstr "Clear Brief Encounters."
+
+msgid "只对星标的妮姬进行咨询"
+msgstr "Only Advise starred NIKKEs."
+
+msgid "角色好感度满时，仍对咨询日志图鉴未满的角色进行咨询"
+msgstr "When affection is maxed, still Advise characters whose log collection is incomplete."
+
+msgid "其他杂项"
+msgstr "Misc"
+
+msgid "收取PASS（活动/任务通行证）奖励。"
+msgstr "Claim PASS (event/mission pass) rewards."
+
+msgid "PASS"
+msgstr "PASS"
+
+msgid "是否收取PASS（活动/任务通行证）奖励。"
+msgstr "Whether to claim PASS (event/mission pass) rewards."
+
+msgid "调试"
+msgstr "Debug"
+
+msgid "实机调试：在开发工具 tab 中按需调用各调试方法。"
+msgstr "Live debug: call debug methods from the Developer Tools tab as needed."
+
+msgid "Raid"
+msgstr "Raid"
+
+msgid "执行限时挑战（协同作战/个人突袭）任务"
+msgstr "Run limited-time challenge tasks (Union Raid / Solo Raid)."
+
+msgid "协同作战"
+msgstr "Union Raid"
+
+msgid "个人突袭"
+msgstr "Solo Raid"
+
+msgid "自动匹配协同作战-普通难度"
+msgstr "Auto-match Union Raid on Normal difficulty."
+
+msgid "自动执行个人突袭任务"
+msgstr "Automatically run Solo Raid tasks."
