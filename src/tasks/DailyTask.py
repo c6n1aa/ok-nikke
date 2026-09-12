@@ -135,8 +135,6 @@ class DailyTask(NikkeBaseTask):  # 定义清日常总编排的父任务类。
             self.run_task_by_class(ArkTask)  # 运行方舟子任务，子任务读取自己的配置。
         if self.config.get("Raid"):  # 只有开关开启时才执行讨伐。
             self.run_task_by_class(RaidTask)  # 运行讨伐子任务，子任务读取自己的配置。
-        if self.config.get("其他杂项"):  # 只有开关开启时才执行其他杂项。
-            self.run_task_by_class(ExtrasTask)  # 运行其他杂项子任务（PASS奖励收取），子任务读取自己的配置。
         # 后续新增子流程时，在此追加相同的开关判断和 run_task_by_class 调用即可。
         if self.config.get("方舟"):  # 只有开启方舟子流程才需要检查失败塔提醒。
             ark = self.get_task_by_class(ArkTask)  # 获取方舟子任务实例。
@@ -146,4 +144,6 @@ class DailyTask(NikkeBaseTask):  # 定义清日常总编排的父任务类。
                     self.log_info(message, notify=True)  # 在所有日常子任务执行完成后统一提醒。
         if not self.try_step(self._daily_end_flow, name="日常收尾", raise_on_fail=False):  # 收尾流程失败不回滚已完成的子任务，恢复重试耗尽后记录并跳过。
             self.log_warning("日常收尾流程失败，已跳过。")  # 记录收尾结果，便于排查。
+        if self.config.get("其他杂项"):  # 只有开关开启时才执行其他杂项。
+            self.run_task_by_class(ExtrasTask)  # 运行其他杂项子任务（PASS奖励收取），子任务读取自己的配置。
         self.log_info("日常完成。", notify=True)  # 记录父任务执行完成，并发送系统托盘通知提示用户。

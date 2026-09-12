@@ -46,7 +46,8 @@ class TestDailyTask(TaskTestCase):
         end_mock.assert_called_once()  # 收尾流程执行且仅执行一次。
         self.assertEqual(10, len(calls))  # 9 个子流程 + 1 次收尾。
         self.assertIn("ExtrasTask", calls)  # 其他杂项作为日常子流程被执行。
-        self.assertEqual("end_flow", calls[-1])  # 收尾流程在全部子流程之后执行。
+        self.assertEqual("end_flow", calls[-2])  # 收尾流程在全部子流程之后执行。
+        self.assertEqual("ExtrasTask", calls[-1])  # 其他杂项在收尾之后最后执行。
 
     def test_run_executes_end_flow_when_all_subtasks_disabled(self):
         fake_box = Box(0, 0, 10, 10, name="box_mission_claim")  # 领取按钮区域桩。
