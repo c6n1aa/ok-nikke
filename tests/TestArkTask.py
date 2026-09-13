@@ -784,6 +784,7 @@ class TestDailyTaskArkIntegration(_DebugOffTestCase):
         daily = DailyTask(og.executor, None)
         daily.after_init(executor=ok.task_executor, scene=ok.task_executor.scene)
         _isolate_task_config(daily, 'DailyTask')
+        daily.config["收获"] = False  # 收获流程不在 run_task_by_class 上，关闭以隔离真实抓帧。
         daily.config["方舟"] = True
         ark = self.task
         ark.failed_towers = []

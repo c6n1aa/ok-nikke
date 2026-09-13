@@ -11,7 +11,6 @@ from src.tasks.CashShopTask import CashShopTask  # 导入付费商店子任务�
 from src.tasks.RecruitTask import RecruitTask  # 导入招募子任务（友情点/折扣普通招募）。
 from src.tasks.ArkTask import ArkTask  # 导入方舟子任务（企业塔/模拟室/拦截战/竞技场）。
 from src.tasks.RaidTask import RaidTask  # 导入讨伐子任务（协同作战/个人突袭）。
-from src.tasks.ExtrasTask import ExtrasTask  # 导入其他杂项子任务（PASS奖励收取）。
 
 
 class DailyTask(NikkeBaseTask):  # 定义清日常总编排的父任务类。
@@ -39,10 +38,9 @@ class DailyTask(NikkeBaseTask):  # 定义清日常总编排的父任务类。
             "前哨基地": True,  # 前哨基地子流程的开关。
             "方舟": True,  # 方舟子流程的开关。
             "Raid": True,  # Raid子流程的开关。
-            "其他杂项": True,  # 其他杂项子流程的开关。
         })
         self.config_description.update({  # 每个配置项的帮助文本。
-            "收获": "是否执行收获（友情点、邮箱）。",
+            "收获": "是否执行收获（友情点、邮箱、PASS）。",
             "歼灭": "是否执行前哨基地歼灭。",
             "付费商店": "是否执行付费商店免费礼包领取（STEP UP/每日/每周/每月）。",
             "商店": "是否执行商店购买（普通/竞技场/废铁）。",
@@ -50,7 +48,6 @@ class DailyTask(NikkeBaseTask):  # 定义清日常总编排的父任务类。
             "前哨基地": "是否执行前哨基地（派遣/咨询）。",
             "方舟": "是否执行方舟（企业塔/模拟室/拦截战/竞技场）。",
             "Raid": "是否执行限时挑战活动（协同作战/个人突袭）。",
-            "其他杂项": "是否执行其他杂项（PASS奖励收取）。",
         })
         self.config_type.update({  # 任务列表的日常卡片展开后只显示这一个按钮行。
             self.DAILY_SETTINGS_BUTTON_KEY: {
@@ -120,7 +117,9 @@ class DailyTask(NikkeBaseTask):  # 定义清日常总编排的父任务类。
             self.log_error("未能进入游戏大厅，中止日常任务。")  # 记录失败原因。
             return  # 结束本次执行，不执行子流程。
         if self.config.get("收获"):  # 只有开关开启时才执行收获。
-            self.run_task_by_class(HarvestTask)  # 运行收获子任务，子任务读取自己的配置。
+            harvest = self.get_task_by_class(HarvestTask)  # 获取收获子任务实例。
+            if harvest is not None:  # 子任务已注册。
+                harvest.run_harvest()  # 运行收获流程；PASS 流程排在收尾之后单独运行。
         if self.config.get("歼灭"):  # 只有开关开启时才执行歼灭。
             self.run_task_by_class(OutpostDefenseTask)  # 运行歼灭子任务，子任务读取自己的配置。
         if self.config.get("付费商店"):  # 只有开关开启时才执行付费商店。
@@ -144,6 +143,8 @@ class DailyTask(NikkeBaseTask):  # 定义清日常总编排的父任务类。
                     self.log_info(message, notify=True)  # 在所有日常子任务执行完成后统一提醒。
         if not self.try_step(self._daily_end_flow, name="日常收尾", raise_on_fail=False):  # 收尾流程失败不回滚已完成的子任务，恢复重试耗尽后记录并跳过。
             self.log_warning("日常收尾流程失败，已跳过。")  # 记录收尾结果，便于排查。
-        if self.config.get("其他杂项"):  # 只有开关开启时才执行其他杂项。
-            self.run_task_by_class(ExtrasTask)  # 运行其他杂项子任务（PASS奖励收取），子任务读取自己的配置。
+        if self.config.get("收获"):  # PASS 流程在收获子任务内，只有开关开启时才执行。
+            harvest = self.get_task_by_class(HarvestTask)  # 获取收获子任务实例。
+            if harvest is not None:  # 子任务已注册。
+                harvest.run_pass()  # 运行 PASS 流程，须排在收尾之后。
         self.log_info("日常完成。", notify=True)  # 记录父任务执行完成，并发送系统托盘通知提示用户。
