@@ -1,0 +1,28 @@
+name: Bug 反馈
+description: 任务执行异常、识别错误、界面报错等问题
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题描述
+      description: 发生了什么，怎么复现
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: 应用版本
+      placeholder: 例如 v1.2.3
+    validations:
+      required: true
+
+  - type: upload
+    id: attachments
+    attributes:
+      label: 截图 / 日志
+      description: 截图、录屏，或应用目录 logs/ 下的日志文件
+    validations:
+      required: false

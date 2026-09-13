@@ -1,0 +1,12 @@
+name: 功能建议
+description: 新任务、新功能或体验改进建议
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: 需求描述
+      description: 想要什么功能，解决什么问题
+    validations:
+      required: true
