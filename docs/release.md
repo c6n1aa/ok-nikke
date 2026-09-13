@@ -25,7 +25,7 @@ ok-nikke/
 
 - `.github/workflows/build.yml`：监听 `v*` tag，按顺序执行——装 runner 依赖 → 逐文件跑测试 → 下载 python-build-standalone 到 `python/` → 下载 MinGit 到 `git/` → 往包内解释器装 `requirements.txt`（`--no-deps`）→ 写 `version.txt` 与默认 `configs/update.json` → 用 MSVC 编入口 exe（`launcher/build.py`，链接后校验 UAC manifest）→ 同步 CNB 镜像并断言 tag 存在 → 打单个便携 zip → 生成 Release 正文（`.github/scripts/release_notes.py`）→ 创建 GitHub Release。不使用 NSIS 安装器。
 - `deploy.txt`：同步到 CNB 国内镜像仓库的文件清单（`src`、`main.py`、`update.py`、`launcher`、`assets` 等）。镜像仓库与 GitHub 同 tag，供 CN 用户应用内更新。
-- `launcher/`：入口 shim 源码（`launcher.c` / `launcher.manifest` / `launcher.rc`）与构建脚本 `build.py`（MinGW 或 MSVC 自动探测）。改图标/提权行为后需重新发版——**入口 exe 与 `python/`、`git/` 都无法通过 git 更新**（见方案文档 §10）。
+- `launcher/`：入口 shim 源码（`launcher.c` / `launcher.manifest` / `launcher.rc`）与构建脚本 `build.py`（MinGW 或 MSVC 自动探测）。改图标/提权行为后需重新发版——**入口 exe 与 `python/`、`git/` 都无法通过 git 更新**。
 - `update.py`：应用内更新 bootstrap（零第三方依赖），负责 fetch tag → checkout → 必要时 pip → 写版本号 → 重启应用。
 - `.github/scripts/release_notes.py`：Release 正文生成（纯标准库；手写覆盖 + Conventional Commits 自动分节，见下节）。
 - `changelog/`：可选的用户向更新日志（`changelog/<tag>.md`）——`deploy` 时只有明确要求生成才会写，随 tag 提交后优先于自动生成（见下节）。
@@ -58,7 +58,7 @@ GitHub Release 的正文不再写死：CI 在创建 Release 前用 `.github/scri
 3. 任一步失败都以旧版本拉起应用，绝不留下起不来的包；日志见包内 `logs/update.log`。
 4. **只对正式版提示**：含 `-` 的预发布（如 `v0.2.0-beta.1`）不亮导航徽标、不进版本下拉（判定见 `src/update_config.py` 的 `is_prerelease`，与 `update.py` 的 `version_key` 同源）；需要试预发布的用户到 Release 页手动下载。版本下拉只列最近 5 个正式版（`update_config.selectable_versions` / `MAX_VERSION_OPTIONS`），排除当前版本，选中更旧的版本按钮变「降级」。
 
-**发布时务必注意（方案 C 的约定）**：框架升级必须同时 bump `pyproject.toml` 并重新 `pip-compile` 生成 `requirements.txt`，与 tag 一起提交；否则 tag 里的 lock 仍是旧版本，用户界面上显示已更新、框架却没升级。`version.txt` 与 `version.txt.prev` 不要提交、不要加进 `deploy.txt`。
+**发布时务必注意**：框架升级必须同时 bump `pyproject.toml` 并重新 `uv lock` + `uv export --format requirements-txt --no-hashes --no-dev -o requirements.txt` 生成 `requirements.txt`，与 tag 一起提交；否则 tag 里的 lock 仍是旧版本，用户界面上显示已更新、框架却没升级。`version.txt` 与 `version.txt.prev` 不要提交、不要加进 `deploy.txt`。
 
 ## 调整构建配置
 

@@ -88,8 +88,7 @@ Run from source; requires Python 3.12 (other versions untested):
 ```powershell
 git clone https://github.com/c6n1aa/ok-nikke.git
 cd ok-nikke
-py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install --no-deps -r requirements.txt --upgrade
+uv sync
 
 # Debug mode (with screenshot/annotation dev tools)
 .\.venv\Scripts\python.exe main_debug.py
@@ -98,7 +97,7 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe main.py
 ```
 
-> `--no-deps` is required: dependencies are locked in `requirements.txt` (including all transitive ones); letting pip resolve them installs the `pyside6` meta-package and addons modules.
+> Dependencies are managed by `uv`: `uv sync` builds `.venv` from `uv.lock`; `uv export --no-dev` produces the shipped lock `requirements.txt` (`exclude-dependencies` already drops the `pyside6` meta-package/addons, keeping only `pyside6-essentials`; in-app updates in `update.py` still use `pip install --no-deps`).
 
 Run tests:
 
