@@ -93,8 +93,7 @@
 ```powershell
 git clone https://github.com/c6n1aa/ok-nikke.git
 cd ok-nikke
-py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install --no-deps -r requirements.txt --upgrade
+uv sync
 
 # Debug 模式（含截图/标注等开发工具）
 .\.venv\Scripts\python.exe main_debug.py
@@ -103,7 +102,7 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe main.py
 ```
 
-> 必须用 `--no-deps`：依赖已在 `requirements.txt` 中锁定（含全部传递依赖），让 pip 解析依赖会装到 `pyside6` 元包与 addons 模块。
+> 依赖由 `uv` 管理：`uv sync` 按 `uv.lock` 建 `.venv`；`uv export --no-dev` 生成交付锁 `requirements.txt`（`exclude-dependencies` 已剔除 `pyside6` 元包/addons，只装 `pyside6-essentials`；`update.py` 的应用内更新仍用 `pip install --no-deps`）。
 
 运行测试：
 

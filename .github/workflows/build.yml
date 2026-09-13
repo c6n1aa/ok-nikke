@@ -36,8 +36,14 @@ jobs:
         with:
           python-version: ${{ env.STANDALONE_PYTHON }}
 
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
       - name: Install dependencies (runner, for tests)
-        run: pip install --no-deps -r requirements.txt
+        run: uv pip install --system --no-deps -r requirements.txt
 
       - name: Run tests
         run: |
@@ -95,7 +101,7 @@ jobs:
           $noBom = New-Object System.Text.UTF8Encoding($false)
           [System.IO.File]::WriteAllText((Join-Path $PWD 'version.txt'), "$tag`n", $noBom)
           New-Item -ItemType Directory -Path configs -Force | Out-Null
-          $updateJson = @{ channel = 'auto'; custom_git_url = ''; pip_index = ''; update_method = 'manual' } | ConvertTo-Json
+          $updateJson = @{ channel = 'auto'; custom_git_url = ''; pip_index = 'auto'; update_method = 'manual' } | ConvertTo-Json
           [System.IO.File]::WriteAllText((Join-Path $PWD 'configs/update.json'), $updateJson, $noBom)
           .\python\python.exe -c "import sys; sys.argv=['main.py']; from src.config import config; print('version =', config['version']); assert config['version'] == '$tag', config['version']"
 

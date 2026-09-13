@@ -13,6 +13,7 @@ Use the project `.venv` for Python commands so agent work uses the same dependen
 
 - Before running Python, check for a local virtual environment at the repository root.
 - Prefer invoking the interpreter directly rather than relying on activation.
+- In this repository `.venv` is created by `uv sync`; if it is missing, run `uv sync` first, then use `.\.venv\Scripts\python.exe`.
 - Use the global `python` command only when no local `.venv` interpreter exists.
 
 ## PowerShell

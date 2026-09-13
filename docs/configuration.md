@@ -52,5 +52,5 @@
 
 ## 依赖与更新源
 
-- 依赖源是 `pyproject.toml`：`pip-compile pyproject.toml -o requirements.txt`，生成后删除 `pyside6`/`pyside6-addons` 条目（只装 `pyside6-essentials`）。**框架（`ok-script`）升级时两者必须一起 bump 并与 tag 一起提交**——应用内更新只在依赖指纹变化时重装依赖，不同步就会「界面已更新、框架没升级」。
-- 便携包只有一个，更新源是运行时配置 `configs/update.json`（`channel`: `auto`/`github`/`cnb`），可在「关于 → 应用更新」切换；`auto` 按系统语言选择（中文 → CNB 镜像，其它 → GitHub）。更新实现见根目录 `update.py`，详见[打包与发布](release.md)。
+- 依赖源是 `pyproject.toml`：`uv lock` 生成 `uv.lock`，`uv export --format requirements-txt --no-hashes --no-dev -o requirements.txt` 导出交付锁；`[tool.uv] exclude-dependencies` 已剔除 `pyside6-fluent-widgets -> pyside6` 元包边（只装 `pyside6-essentials`）。**框架（`ok-script`）升级时同时 bump `pyproject.toml` 并重新 `uv lock` + `uv export`，与 tag 一起提交**——应用内更新只在依赖指纹变化时重装依赖，不同步就会「界面已更新、框架没升级」。
+- 便携包只有一个，更新源与依赖镜像源是运行时配置 `configs/update.json`（`channel`: `auto`/`github`/`cnb`；`pip_index`: `auto`/`pypi`/`tuna`），可在「关于 → 应用更新」切换；`auto` 按系统语言选择（中文 → CNB 镜像 / 清华 pip 镜像，其它 → GitHub / 官方 PyPI）。更新实现见根目录 `update.py`，详见[打包与发布](release.md)。

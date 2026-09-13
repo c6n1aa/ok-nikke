@@ -32,18 +32,19 @@ ok-nikke 是基于 PyPI `ok-script`（2.x）构建的《胜利女神：NIKKE》W
 
 ## 环境与命令
 
-- 仅 Python 3.12，一律 `.\.venv\Scripts\python.exe`，不用全局 python / `py`。
-- shell 命令/脚本用 `pwsh`（PowerShell 7），不用 Windows PowerShell 5.1（中文会乱码）；CI 无需处理。
+- 仅 Python 3.12，一律 `.\.venv\Scripts\python.exe`（由 `uv sync` 建）。不用全局 python / `py`。
+- 依赖管理用 `uv`（`.python-version` 锁 3.12、`uv.lock` 是唯一锁）；shell 命令/脚本用 `pwsh`（PowerShell 7），不用 Windows PowerShell 5.1（中文会乱码）；CI 无需处理。
 
 | 操作 | 命令 |
 |---|---|
-| 装依赖 | `.\.venv\Scripts\python.exe -m pip install --no-deps -r requirements.txt --upgrade` |
+| 装依赖 | `uv sync` |
 | 跑测试 | `.\.venv\Scripts\python.exe -m unittest tests.TestMain`（全量 `run_tests.ps1`） |
 | 编入口 exe | `.\.venv\Scripts\python.exe launcher\build.py` |
 | 编译词条 | `.\.venv\Scripts\python.exe .agents\skills\ok-script-i18n\scripts\task_i18n_helper.py compile` |
+| 重新整锁 | `uv lock` 后 `uv export --format requirements-txt --no-hashes --no-dev -o requirements.txt` |
 | 发布 | `deploy` 技能（`.agents/skills/deploy/scripts/next_tag.py`） |
 
-- 装依赖必须 `--no-deps`（只装 `pyside6-essentials`，不要 `pyside6` 元包）；依赖源是 `pyproject.toml`，`pip-compile` 后删掉生成的 `pyside6`/`pyside6-addons` 条目。
+- 依赖源是 `pyproject.toml`：`uv lock` 生成 `uv.lock`，`uv export --no-dev` 导出交付锁 `requirements.txt`；`[tool.uv] exclude-dependencies` 已声明式剔除 `pyside6-fluent-widgets -> pyside6` 元包边，只装 `pyside6-essentials`（不再手删 `pyside6`/`pyside6-addons`）。运行时（`update.py` / CI 包内解释器）仍用 `pip install --no-deps -r requirements.txt`，`--no-deps` 必须保留。
 
 ## 编码约定
 

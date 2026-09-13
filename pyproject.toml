@@ -3,18 +3,30 @@ name = "ok-nikke"
 version = "0.0.1"
 description = "ok-nikke automation app"
 requires-python = ">=3.12,<3.13"
-dependencies = []
-
-[project.optional-dependencies]
 # 依赖版本对齐 ok-script-app 模板（框架 2.0.0b7 这条线）：onnxocr / OpenCC / PySide6 / pynput
-# 等全部由 ok-script 的 extras 带出，不在这里重复声明（重复声明会覆盖框架的 pin，例如
-# 框架 pin 了 OpenCC==1.2.0，我们之前解放成 1.4.1）。唯一有意保留的偏差是排除 pywin32 312。
-qt = [
+# 等全部由 ok-script 的 extras 带出，不在这里重复声明。唯一有意保留的偏差是排除 pywin32 312，
+# 以及显式 pin PySide6-Essentials / pyside6-fluent-widgets（配合下方 [tool.uv] exclude-dependencies
+# 掐断 pyside6-fluent-widgets -> pyside6 元包 这条边，避免元包把 pyside6-addons 拉进来）。
+dependencies = [
     "ok-script[adb,default,ocr,qt]==2.0.0b7",
     "openvino",
     "opencv-python",
     "pywin32>=306,!=312",
+    "PySide6-Essentials==6.11.2",
+    "pyside6-fluent-widgets==1.11.3",
 ]
-docs = [
-    "mkdocs==1.6.1",
+
+[dependency-groups]
+# 开发期专用，uv export --no-dev 会排除，不进 requirements.txt。
+dev = [
+    "polib>=1.2.0",
+]
+
+[tool.uv]
+# 本项目仅 Windows，锁表只解析 win32；文档站依赖单独用 requirements-docs.txt，不在此锁内。
+environments = [
+    "sys_platform == 'win32'",
+]
+exclude-dependencies = [
+    { package = { name = "pyside6-fluent-widgets" }, dependencies = ["pyside6"] },
 ]
