@@ -3,11 +3,13 @@ import time  # 时间模块，处理导航等待与超时。
 
 from ok.task.exceptions import TaskDisabledException, WaitFailedException  # 任务被停止与等待失败异常。
 
+from src.screens import LOGIN_PAGE_PATTERN  # 登录页 TOUCH TO CONTINUE 正则与 login_page 判定同源（TOUCH\s+TO\s+CONTINUE，容忍 OCR 空白抖动）。
+
 
 class NavigationMixin:
     """守卫式导航 + 失败恢复 + 冷启动引导：大厅就位、入口转换、回大厅与单步恢复协议。"""
 
-    _ENTER_GAME_TEXT = re.compile("TOUCH TO CONTINUE", re.IGNORECASE)  # 进入游戏提示文字，OCR 部分匹配并忽略大小写。
+    _BACK_TEXT = re.compile("返回")  # 返回按钮文字，OCR 兜底用。
 
     def wait_for_lobby(self, time_out=120, raise_if_not_found=True):
         """等待游戏大厅出现，通过识别大厅中的方舟按钮(ark)判断是否已进入游戏大厅。
@@ -31,7 +33,8 @@ class NavigationMixin:
                              box=self.box_of_screen(0, 0.8, 0.25, 1))  # 兜底：左下角区域（按钮锚点在 y≈0.93，覆盖 ±0.02 以上偏移）。
 
     def _find_back_button(self):
-        """查找返回按钮：先按标注位置（默认 variance 容差）匹配，未命中再在屏幕左下角区域内全范围模板匹配兜底。
+        """查找返回按钮：先按标注位置（默认 variance 容差）匹配，未命中再在屏幕左下角区域内
+        模板匹配兜底，仍未命中则 OCR 左下角「返回」文字兜底。
 
         咨询详情等界面的 home/back 按钮坐标与其他界面有数像素偏差，超出默认容差导致
         特征锚点匹配失败；兜底区域限定左下角，避免误命中画面中部元素。
@@ -39,8 +42,12 @@ class NavigationMixin:
         back = self.find_one("common_back")  # 标注位置精确匹配。
         if back is not None:  # 精确命中。
             return back  # 直接返回。
-        return self.find_one("common_back",
-                             box=self.box_of_screen(0, 0.8, 0.25, 1))  # 兜底：左下角区域（按钮锚点在 y≈0.9，覆盖偏移）。
+        bottom_left = self.box_of_screen(0, 0.8, 0.25, 1)  # 左下角区域（按钮锚点在 y≈0.9，覆盖偏移）。
+        back = self.find_one("common_back", box=bottom_left)  # 兜底：区域模板匹配。
+        if back is not None:  # 模板命中。
+            return back  # 直接返回。
+        texts = self.ocr(box=bottom_left, match=self._BACK_TEXT)  # 兜底：OCR「返回」文字。
+        return texts[0] if texts else None  # 命中即返回文字框。
 
     def _exit_to_lobby(self):
         """退出当前子页面返回大厅（幂等：失败恢复已带回大厅时找不到主页按钮，只确认不点击）。
@@ -67,7 +74,7 @@ class NavigationMixin:
             return False
         if enter_box is None:  # 当前帧该区域不可用。
             return False
-        matches = self.ocr(box=enter_box, match=self._ENTER_GAME_TEXT)  # 在区域内 OCR 匹配进入游戏文字（正则部分匹配）。
+        matches = self.ocr(box=enter_box, match=LOGIN_PAGE_PATTERN)  # 在区域内 OCR 匹配进入游戏文字（与 login_page 判定同源的正则，部分匹配）。
         if not matches:  # 当前帧未识别到目标文字。
             return False
         self.click_box(matches[0], after_sleep=1)  # 点击进入游戏按钮（命中识别框中心）并等待响应。
