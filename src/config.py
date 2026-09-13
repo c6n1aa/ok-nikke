@@ -117,8 +117,7 @@ config = {
         ["src.tasks.RecruitTask", "RecruitTask"],
         ["src.tasks.OutpostTask", "OutpostTask"],
         ["src.tasks.ArkTask", "ArkTask"],
-        ["src.tasks.RaidTask", "RaidTask"],
-        ["src.tasks.ExtrasTask", "ExtrasTask"]
+        ["src.tasks.RaidTask", "RaidTask"]
     ],
     'trigger_tasks': [  # 后台任务，可随时开启/关闭
     ],

@@ -18,7 +18,7 @@
 ### 1. 正式任务元数据词条（未开始，量大，一个任务一次提交）
 
 `DailyTask` / `HarvestTask` / `OutpostDefenseTask` / `CashShopTask` / `ShopTask` /
-`RecruitTask` / `OutpostTask` / `ArkTask` / `RaidTask` / `ExtrasTask` / `DebugTask` 的
+`RecruitTask` / `OutpostTask` / `ArkTask` / `RaidTask` / `DebugTask` 的
 `name` / `description` / `default_config` / `config_description` / `config_type` 字符串。
 
 ### 2. `ocr.po` 缺口（要客户端文案，不接受自译）

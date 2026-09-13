@@ -8,6 +8,7 @@ from ok.test.TaskTestCase import TaskTestCase  # ok 任务测试基类。
 
 from src.config import config  # 全局任务配置对象（TaskTestCase 要求传入）。
 from src.tasks.DailyTask import DailyTask  # 被测任务类。
+from src.tasks.HarvestTask import HarvestTask  # 收获子任务（PASS 流程整合在它里面）。
 
 _TEST_CONFIG_DIR = os.path.join('dev_tools', 'test_configs')  # 测试专用配置目录，避免污染真实 configs/。
 
@@ -19,7 +20,7 @@ def _isolate_task_config(task, name):
     task.config['_execution_states'] = {}  # 清空执行状态，避免读到真实环境遗留记录。
 
 
-_SUB_FLOW_KEYS = ("收获", "歼灭", "前哨基地", "商店", "付费商店", "招募", "方舟", "Raid", "其他杂项")  # 日常编排的全部子流程开关。
+_SUB_FLOW_KEYS = ("收获", "歼灭", "前哨基地", "商店", "付费商店", "招募", "方舟", "Raid")  # 日常编排的全部子流程开关。
 
 
 class TestDailyTask(TaskTestCase):
@@ -33,21 +34,25 @@ class TestDailyTask(TaskTestCase):
             self.task.config[key] = False  # 让 run() 直接走到收尾流程，测试聚焦收尾编排。
 
     def test_end_flow_runs_after_all_subtasks(self):
-        calls = []  # 记录执行顺序：子流程类名与收尾标记。
+        calls = []  # 记录执行顺序：子流程类名、收获/PASS 与收尾标记。
         ark = MagicMock()  # 方舟子任务桩：避免依赖真实实例。
         ark.failed_towers_message.return_value = None  # 无战斗失败提醒。
+        harvest = MagicMock()  # 收获子任务桩：避免真实抓帧。
+        harvest.run_harvest.side_effect = lambda: calls.append("harvest")  # 记录收获流程调用。
+        harvest.run_pass.side_effect = lambda: calls.append("pass")  # 记录 PASS 流程调用。
         for key in _SUB_FLOW_KEYS:  # 打开全部子流程开关。
             self.task.config[key] = True
         with patch.object(self.task, "ensure_screen"), \
                 patch.object(self.task, "run_task_by_class", side_effect=lambda cls: calls.append(cls.__name__)), \
-                patch.object(self.task, "get_task_by_class", return_value=ark), \
+                patch.object(self.task, "get_task_by_class",
+                             side_effect=lambda cls: harvest if cls is HarvestTask else ark), \
                 patch.object(self.task, "_daily_end_flow", side_effect=lambda: calls.append("end_flow")) as end_mock:
             self.task.run()  # 执行日常编排。
         end_mock.assert_called_once()  # 收尾流程执行且仅执行一次。
-        self.assertEqual(10, len(calls))  # 9 个子流程 + 1 次收尾。
-        self.assertIn("ExtrasTask", calls)  # 其他杂项作为日常子流程被执行。
+        self.assertEqual(10, len(calls))  # 8 个子流程（收获拆为收获/PASS 两步）+ 1 次收尾。
+        self.assertEqual("harvest", calls[0])  # 收获流程最先执行。
         self.assertEqual("end_flow", calls[-2])  # 收尾流程在全部子流程之后执行。
-        self.assertEqual("ExtrasTask", calls[-1])  # 其他杂项在收尾之后最后执行。
+        self.assertEqual("pass", calls[-1])  # PASS 流程在收尾之后最后执行。
 
     def test_run_executes_end_flow_when_all_subtasks_disabled(self):
         fake_box = Box(0, 0, 10, 10, name="box_mission_claim")  # 领取按钮区域桩。

@@ -59,7 +59,7 @@ Notes:
 | Task | Description |
 | --- | --- |
 | Daily | Orchestration task that runs the subtasks below according to its settings |
-| Harvest | Collect friendship points and mailbox rewards |
+| Harvest | Collect friendship points, mailbox rewards and PASS (event/task pass) rewards |
 | Outpost Defense | Farm the outpost defense, optionally spending gems for extra runs |
 | Cash Shop | Claim free STEP UP / daily / weekly / monthly packages |
 | Shop | Buy items from the ordinary / arena / scrapyard shops |
@@ -67,7 +67,6 @@ Notes:
 | Outpost | Dispatch / advise / brief encounters |
 | Ark | Manufacturer towers / simulation room / interception / arena |
 | Raid | Limited-time challenges (co-op / solo raid) |
-| Extras | Claim PASS (event/task pass) rewards |
 
 ## 🔧 Troubleshooting
 

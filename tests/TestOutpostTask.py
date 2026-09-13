@@ -763,6 +763,7 @@ class TestOutpostDailyIntegration(_DebugOffTestCase):
         with patch.object(daily, "ensure_screen", return_value=True), \
                 patch.object(daily, "run_task_by_class") as run_mock, \
                 patch.object(daily, "_daily_end_flow"):  # 收尾流程会真实抓帧/置前窗口，必须拦截（不碰真实环境）。
+            daily.config["收获"] = False  # 收获流程不在 run_task_by_class 上，关闭以隔离真实抓帧。
             daily.config["前哨基地"] = True
             daily.run()
             self.assertIn(OutpostTask, [c.args[0] for c in run_mock.call_args_list])  # 开启时被调度。
