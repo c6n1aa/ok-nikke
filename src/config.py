@@ -59,7 +59,7 @@ config = {
         'exe': ['nikke.exe'],
         # optional, if set, will search the exe only
         # 'hwnd_class': 'UnrealWindow', #增加重名检查准确度
-        'interaction': ['Pynput', 'PyDirect'], # Genshin:某些操作可以后台, 部分游戏支持 PostMessage:可后台点击, 极少游戏支持 ForegroundPostMessage:前台使用PostMessage Pynput/PyDirect:仅支持前台使用
+        'interaction': ['Pynput', 'PyDirect', 'PostMessage'], # Genshin:某些操作可以后台, 部分游戏支持 PostMessage:可后台点击, 极少游戏支持 ForegroundPostMessage:前台使用PostMessage Pynput/PyDirect:仅支持前台使用
         'capture_method': ['WGC', 'BitBlt_RenderFull', 'BitBlt'],  # Windows版本支持的话, 优先使用WGC, 否则使用BitBlt_Full. 支持的capture有 BitBlt, WGC, BitBlt_RenderFull, DXGI
         'check_hdr': False, #当用户开启AutoHDR时候提示用户, 但不禁止使用
         'force_no_hdr': False, #True=当用户开启AutoHDR时候禁止使用
@@ -92,7 +92,7 @@ config = {
     'links': { # 关于里显示的链接, 可选
             'default': {
                 'github': 'https://github.com/c6n1aa/ok-nikke',
-                'share': 'Download from https://github.com/c6n1aa/ok-nikke',
+                'share': 'Download from https://github.com/c6n1aa/ok-nikke/releases',
                 'faq': 'https://github.com/c6n1aa/ok-nikke'
             }
         },
