@@ -39,7 +39,7 @@ CREATE_NEW_CONSOLE = 0x00000010
 DEFAULT_UPDATE_CONFIG = {
     'channel': 'auto',
     'custom_git_url': '',
-    'pip_index': '',
+    'pip_index': 'auto',
     'update_method': 'manual',
 }
 if _update is not None:
@@ -53,6 +53,17 @@ CHANNEL_OPTIONS = (
     ('cnb', 'CNB 镜像'),
 )
 CHANNEL_VALUES = tuple(value for value, _ in CHANNEL_OPTIONS)
+
+# pip 镜像源下拉项：(pip_index 值, 显示名)；auto 按系统语言选（中文走国内镜像，其它走官方 PyPI），
+# 具体 URL 解析在 update.py 的 resolve_pip_index。手改 configs/update.json 里的自定 URL（http 开头）仍透传。
+PIP_INDEX_OPTIONS = (
+    ('auto', '自动（按系统语言）'),
+    ('pypi', '官方 PyPI'),
+    ('tuna', '清华镜像'),
+    ('aliyun', '阿里云镜像'),
+    ('tencent', '腾讯云镜像'),
+)
+PIP_INDEX_VALUES = tuple(value for value, _ in PIP_INDEX_OPTIONS)
 
 LIST_TAGS_TIMEOUT = 120
 UPDATE_LAUNCH_TIMEOUT = 30
@@ -103,11 +114,20 @@ def load(root: str = None) -> dict:
                 config[key] = value.strip()
     if config.get('channel') not in CHANNEL_VALUES:
         config['channel'] = DEFAULT_UPDATE_CONFIG['channel']
+    config['pip_index'] = _normalize_pip_index(config.get('pip_index'))
     return config
 
 
+def _normalize_pip_index(value) -> str:
+    """pip_index 取值：已知镜像/自定 URL（http 开头）保留，其余（旧空串等）归一化为 auto。"""
+    text = str(value or '').strip()
+    if text in PIP_INDEX_VALUES or text.startswith('http'):
+        return text
+    return DEFAULT_UPDATE_CONFIG['pip_index']
+
+
 def save(config: dict, root: str = None) -> bool:
-    """写更新源配置：只落允许的键，非法 channel 归一化，缺目录自动创建。"""
+    """写更新源配置：只落允许的键，非法 channel / pip_index 归一化，缺目录自动创建。"""
     payload = dict(DEFAULT_UPDATE_CONFIG)
     for key in payload:
         value = config.get(key)
@@ -115,6 +135,7 @@ def save(config: dict, root: str = None) -> bool:
             payload[key] = value.strip()
     if payload['channel'] not in CHANNEL_VALUES:
         payload['channel'] = DEFAULT_UPDATE_CONFIG['channel']
+    payload['pip_index'] = _normalize_pip_index(payload.get('pip_index'))
     path = config_path(root)
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -132,12 +153,26 @@ def channel_label(channel: str) -> str:
     return CHANNEL_OPTIONS[0][1]
 
 
+def pip_index_label(value: str) -> str:
+    for candidate, label in PIP_INDEX_OPTIONS:
+        if candidate == value:
+            return label
+    return PIP_INDEX_OPTIONS[0][1]
+
+
 def resolve_git_url(config: dict) -> str:
     """把 channel + custom_git_url 解析成实际 git 地址（复用 update.py 的实现）。"""
     if _update is not None:
         return _update.resolve_git_url(config)
     if config.get('channel') == 'custom':
         return str(config.get('custom_git_url') or '')
+    return ''
+
+
+def resolve_pip_index(config: dict, language_id: int | None = None) -> str:
+    """把 pip_index 解析成实际 index URL（复用 update.py 的实现；UI 不直接用它）。"""
+    if _update is not None:
+        return _update.resolve_pip_index(config, language_id=language_id)
     return ''
 
 

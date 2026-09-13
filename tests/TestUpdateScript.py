@@ -39,7 +39,7 @@ class TestUpdateConfig(unittest.TestCase):
                 json.dump({'channel': 123, 'pip_index': None, 'custom_git_url': '  '}, f)
             config = update.load_update_config(folder)
         self.assertEqual(config['channel'], 'auto')
-        self.assertEqual(config['pip_index'], '')
+        self.assertEqual(config['pip_index'], 'auto')
         self.assertEqual(config['custom_git_url'], '')
 
     def test_valid_config_overrides_defaults(self):
@@ -50,6 +50,27 @@ class TestUpdateConfig(unittest.TestCase):
             config = update.load_update_config(folder)
         self.assertEqual(config['channel'], 'cnb')
         self.assertEqual(update.resolve_pip_index(config), 'https://pypi.tuna.tsinghua.edu.cn/simple')
+
+
+class TestResolvePipIndex(unittest.TestCase):
+
+    def test_explicit_mirrors(self):
+        self.assertEqual(update.resolve_pip_index({'pip_index': 'pypi'}), '')
+        self.assertEqual(update.resolve_pip_index({'pip_index': 'tuna'}), update.PIP_INDEX_CN)
+
+    def test_auto_follows_system_language(self):
+        self.assertEqual(update.resolve_pip_index({'pip_index': 'auto'}, language_id=0x04),
+                         update.PIP_INDEX_CN)
+        self.assertEqual(update.resolve_pip_index({'pip_index': 'auto'}, language_id=0x09), '')
+
+    def test_default_is_auto(self):
+        # 未配置 pip_index 时按 auto 处理（中文走国内镜像）
+        self.assertEqual(update.resolve_pip_index({}, language_id=0x04), update.PIP_INDEX_CN)
+        self.assertEqual(update.resolve_pip_index({}, language_id=0x09), '')
+
+    def test_custom_url_passthrough(self):
+        custom = 'https://example.com/pypi/simple'
+        self.assertEqual(update.resolve_pip_index({'pip_index': custom}), custom)
 
 
 class TestResolveGitUrl(unittest.TestCase):

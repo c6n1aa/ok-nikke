@@ -32,7 +32,7 @@ GRACEFUL_EXIT_MS = 3000
 
 
 class NikkeUpdateCard(QWidget):
-    """版本选择 + 更新源切换 + 执行更新。"""
+    """版本选择 + 应用更新源/依赖镜像源切换 + 执行更新。"""
 
     update_available_changed = Signal(bool)
     check_started = Signal()
@@ -57,6 +57,14 @@ class NikkeUpdateCard(QWidget):
         self.channel_combo.setFixedWidth(control_width())
         self.channel_combo.setCurrentIndex(update_config.CHANNEL_VALUES.index(self.config['channel']))
         self.channel_combo.currentIndexChanged.connect(self._channel_changed)
+
+        self.pip_combo = ComboBox(self)
+        self.pip_combo.addItems([label for _, label in update_config.PIP_INDEX_OPTIONS])
+        self.pip_combo.setFixedWidth(control_width())
+        pip_value = self.config['pip_index']
+        pip_index = update_config.PIP_INDEX_VALUES.index(pip_value) if pip_value in update_config.PIP_INDEX_VALUES else 0
+        self.pip_combo.setCurrentIndex(pip_index)
+        self.pip_combo.currentIndexChanged.connect(self._pip_changed)
 
         self.version_combo = ComboBox(self)
         self.version_combo.setFixedWidth(control_width())
@@ -88,8 +96,10 @@ class NikkeUpdateCard(QWidget):
 
         source_row = QHBoxLayout()
         source_row.setSpacing(DesignToken.ROW_SPACING)
-        source_row.addWidget(BodyLabel('更新源', self))
+        source_row.addWidget(BodyLabel('应用更新源', self))
         source_row.addWidget(self.channel_combo)
+        source_row.addWidget(BodyLabel('Pip 镜像源', self))
+        source_row.addWidget(self.pip_combo)
         source_row.addStretch(1)
 
         version_row = QHBoxLayout()
@@ -226,8 +236,15 @@ class NikkeUpdateCard(QWidget):
         if index < 0 or index >= len(update_config.CHANNEL_OPTIONS):
             return
         self.config['channel'] = update_config.CHANNEL_OPTIONS[index][0]
-        self._save_config(f'更新源已切换为「{update_config.channel_label(self.config["channel"])}」，'
+        self._save_config(f'应用更新源已切换为「{update_config.channel_label(self.config["channel"])}」，'
                           f'请重新检查更新')
+
+    def _pip_changed(self, index):
+        if index < 0 or index >= len(update_config.PIP_INDEX_OPTIONS):
+            return
+        self.config['pip_index'] = update_config.PIP_INDEX_OPTIONS[index][0]
+        self._save_config(f'Pip 镜像源已切换为「{update_config.pip_index_label(self.config["pip_index"])}」，'
+                          f'下次更新重装依赖时生效')
 
     def _save_config(self, status: str):
         if update_config.save(self.config):
@@ -246,6 +263,7 @@ class NikkeUpdateCard(QWidget):
         self._busy = busy
         self.check_button.setEnabled(not busy)
         self.channel_combo.setEnabled(not busy)
+        self.pip_combo.setEnabled(not busy)
         self.version_combo.setEnabled(not busy)
         if busy:
             self.update_button.setEnabled(False)

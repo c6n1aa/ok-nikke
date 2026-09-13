@@ -30,10 +30,19 @@ import time
 GITHUB_GIT_URL = 'https://github.com/c6n1aa/ok-nikke.git'
 CNB_GIT_URL = 'https://cnb.cool/c6n1aa/ok-nikke'
 
+# pip 镜像源：auto=按系统语言选（中文走 PIP_INDEX_CN，其它走官方 PyPI）；pypi=官方 PyPI（空串，不拼 -i）；
+# 其余取值（tuna/aliyun/tencent 等已知镜像 / 手改的自定 URL）见 resolve_pip_index。
+PIP_INDEX_CN = 'https://pypi.tuna.tsinghua.edu.cn/simple'
+PIP_INDEX_URLS = {
+    'tuna': PIP_INDEX_CN,
+    'aliyun': 'https://mirrors.aliyun.com/pypi/simple/',
+    'tencent': 'https://mirrors.cloud.tencent.com/pypi/simple',
+}
+
 DEFAULT_UPDATE_CONFIG = {
     'channel': 'auto',  # auto | github | cnb | custom
     'custom_git_url': '',
-    'pip_index': '',
+    'pip_index': 'auto',  # auto | pypi | tuna（见 resolve_pip_index）
     'update_method': 'manual',  # manual | auto（预留启动自检）
 }
 
@@ -209,9 +218,19 @@ def resolve_git_url(config: dict, language_id: int | None = None) -> str:
     return CNB_GIT_URL if lang == 0x04 else GITHUB_GIT_URL
 
 
-def resolve_pip_index(config: dict) -> str:
-    """pip 镜像源；空则返回空串（调用方不要拼 -i）。"""
-    return str(config.get('pip_index') or '').strip()
+def resolve_pip_index(config: dict, language_id: int | None = None) -> str:
+    """pip 镜像源取值 → 实际 index URL；空串表示官方 PyPI（调用方不要拼 -i）。
+
+    auto 按系统语言选（与 resolve_git_url 同源）：中文走国内镜像，其它走官方 PyPI。
+    未知取值视为自定 URL 原样透传，保持老配置兼容。
+    """
+    value = str(config.get('pip_index') or 'auto').strip()
+    if value == 'pypi':
+        return ''
+    if value == 'auto':
+        lang = _system_language_id() if language_id is None else language_id
+        return PIP_INDEX_CN if lang == 0x04 else ''
+    return PIP_INDEX_URLS.get(value, value)
 
 
 def _parse_requirements_lines(text: str):

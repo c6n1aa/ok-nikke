@@ -46,6 +46,29 @@ class TestUpdateConfigIO(unittest.TestCase):
             self.assertTrue(update_config.save({'channel': 'bogus'}, folder))
             self.assertEqual(update_config.load(folder)['channel'], 'auto')
 
+    def test_invalid_pip_index_is_normalized(self):
+        """旧配置的 pip_index 缺省/非法值归一化为 auto，自定 URL（http 开头）保留。"""
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, update_config.UPDATE_CONFIG_REL)
+            os.makedirs(os.path.dirname(path))
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump({'pip_index': ''}, f)
+            self.assertEqual(update_config.load(folder)['pip_index'], 'auto')
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump({'pip_index': 'not-a-mirror'}, f)
+            self.assertEqual(update_config.load(folder)['pip_index'], 'auto')
+            self.assertTrue(update_config.save({'pip_index': 'not-a-mirror'}, folder))
+            self.assertEqual(update_config.load(folder)['pip_index'], 'auto')
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump({'pip_index': 'https://mirror.example.com/simple'}, f)
+            self.assertEqual(update_config.load(folder)['pip_index'],
+                             'https://mirror.example.com/simple')
+
+    def test_pip_index_values_match_options(self):
+        self.assertEqual(set(update_config.PIP_INDEX_VALUES),
+                         {value for value, _ in update_config.PIP_INDEX_OPTIONS})
+        self.assertIn('auto', update_config.PIP_INDEX_VALUES)
+
     def test_custom_channel_is_gone_and_falls_back_to_auto(self):
         """「自定义 URL」已从「关于」页移除：下拉不再提供，历史配置里的 custom 归一化为 auto。"""
         self.assertNotIn('custom', update_config.CHANNEL_VALUES)
