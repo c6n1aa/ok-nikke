@@ -24,9 +24,10 @@
 
 ## In-App Updates
 
-Under "About → App update" you can check for updates and switch the update source (Auto / GitHub / CNB mirror):
+Under "About → App update" you can check for updates and switch the update source (Auto / GitHub / CNB mirror) and the dependency index (Auto / official PyPI / Tsinghua mirror):
 
-- The factory default is "Auto": Chinese systems use the CNB mirror, other systems use GitHub.
+- The update source defaults to "Auto": Chinese systems use the CNB mirror, other systems use GitHub.
+- The index defaults to "Auto": Chinese systems use the Tsinghua mirror, others use official PyPI.
 - Updating pulls the code, reinstalls dependencies when needed and restarts the app; **a console window shows the progress** (fetch / dependencies / failure reason), the log is `logs/update.log`, and the failure reason is also shown in "About → App update".
 
 ## Common Issues
