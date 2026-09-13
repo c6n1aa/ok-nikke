@@ -2,13 +2,18 @@ import time  # 时间模块，处理超时与等待。
 
 
 class ForegroundMixin:
-    """把游戏窗口切到前台，避免后台窗口下 pynput 点击静默失效。"""
+    """窗口置前：前台交互方式下把游戏窗口切到前台，避免后台窗口下 pynput 点击静默失效。"""
 
     def bring_game_to_front(self):
         """把游戏窗口切换到前台，避免窗口在后台时 pynput 等交互方法静默跳过点击。
 
-        返回 True 表示成功，False 表示失败（此时点击可能不会生效）。
+        当前交互方式支持后台点击（如 Genshin）时直接跳过，不抢占用户前台。
+        返回 True 表示已在前台（或无需前台），False 表示置前失败（此时点击可能不会生效）。
         """
+        from src.patches.runtime import interaction_requires_foreground  # 延迟导入，按当前交互方式判断是否需要前台。
+        if not interaction_requires_foreground():  # 可后台点击的交互方式不需要抢前台。
+            self.log_info("当前交互方式支持后台点击，跳过窗口置前。")  # 记录跳过原因。
+            return True  # 视为窗口已就绪。
         try:
             hwnd = self.executor.device_manager.hwnd_window  # 获取游戏窗口句柄对象。
             if hwnd is not None and hwnd.hwnd:  # 窗口存在才操作。

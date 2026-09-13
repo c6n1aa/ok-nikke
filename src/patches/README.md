@@ -23,7 +23,7 @@
 
 ### runtime.py
 
-禁用 OpenVINO 遥测；在 `HwndWindow.visible_monitors` 上注册焦点守卫：一次性任务运行期间游戏窗口失焦即暂停执行器（弹托盘通知），切回前台自动恢复（先经 `reset_scene` 丢弃暂停前的旧帧）。后台 `TriggerTask` 不受影响；不会主动抢占前台。包装 `TaskExecutor.destroy`：进程退出前 join 后台 `DefaultOCRInit` 线程（懒初始化 OCR、导入 openvino），否则初始化未完成时解释器终结会因 import 锁死锁导致进程永不退出（典型触发：跑得快的测试文件）。
+禁用 OpenVINO 遥测；在 `HwndWindow.visible_monitors` 上注册焦点守卫：一次性任务运行期间游戏窗口失焦即暂停执行器（弹托盘通知），切回前台自动恢复（先经 `reset_scene` 丢弃暂停前的旧帧）。仅当交互方式依赖窗口前台（`Pynput`/`PyDirect`/`ForegroundPostMessage`）时暂停，`PostMessage`/`Genshin` 可后台点击、不暂停，否则会抵消其后台运行能力。包装 `DeviceManager.set_interaction`：运行中切换交互方式后按新方式重判，若正被失焦暂停则解除（暂停态下不再取帧，没有回调能唤醒）。`interaction_requires_foreground()` 还被任务基类 `bring_game_to_front` 复用：可后台点击的交互方式下不再抢占游戏窗口前台。后台 `TriggerTask` 不受影响；不会主动抢占前台。包装 `TaskExecutor.destroy`：进程退出前 join 后台 `DefaultOCRInit` 线程（懒初始化 OCR、导入 openvino），否则初始化未完成时解释器终结会因 import 锁死锁导致进程永不退出（典型触发：跑得快的测试文件）。
 
 ### start_tab.py
 

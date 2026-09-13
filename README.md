@@ -6,9 +6,9 @@
   </h1>
 
   <p>
-    一个基于图像识别的《胜利女神：NIKKE》自动化程序，PC 客户端仅支持前台运行，基于 <a href="https://ok-script.com">ok-script</a> 开发。
+    一个基于图像识别的《胜利女神：NIKKE》自动化程序，基于 <a href="https://ok-script.com">ok-script</a> 开发。
     <br />
-    An image-recognition-based automation tool for Goddess of Victory: NIKKE; the PC client only supports foreground running, developed with <a href="https://ok-script.com">ok-script</a>.
+    An image-recognition-based automation tool for Goddess of Victory: NIKKE, developed with <a href="https://ok-script.com">ok-script</a>.
   </p>
 
   <p><i>通过 Windows 接口模拟用户进行操作，无内存读取、无文件修改</i></p>
@@ -44,6 +44,7 @@
 
 - **必须以管理员身份启动**：如果游戏以管理员权限运行，自动化程序也需要同等权限，否则截图或输入可能失效。
 - 游戏分辨率需为 16:9 且不低于 1600×900。
+- 输入方式：`Pynput`/`PyDirect` 需游戏窗口保持前台；选 `Genshin` 可后台点击（会临时移动真实光标并短暂冻结输入）。
 - 更多运行与常见问题细节见文档[快速开始](docs/getting-started.md)。
 
 ## 🗑️ 卸载应用
