@@ -23,7 +23,7 @@ The `windows` section:
 | Key | Current value | Description |
 | --- | --- | --- |
 | `exe` | `['nikke.exe']` | Game process name; the launcher starts or matches the window by it |
-| `interaction` | `['Pynput', 'PyDirect']` | Input methods and priority |
+| `interaction` | `['Pynput', 'PyDirect', 'Genshin']` | Input methods and priority; `Genshin` posts window messages and can click in the background (moves the real cursor briefly), `Pynput`/`PyDirect` need the window foreground |
 | `capture_method` | `['WGC', 'BitBlt_RenderFull', 'BitBlt']` | Capture methods and priority; WGC first to support background capture |
 | `require_bg` | `True` | Require background capture capability |
 | `check_hdr` / `force_no_hdr` | `False` | Prompt for / forbid running with AutoHDR |

@@ -2,7 +2,7 @@ from ok import Logger
 
 logger = Logger.get_logger(__name__)
 
-# 运行时行为补丁：禁用 OpenVINO 遥测 + 一次性任务运行期间游戏窗口失焦自动暂停、回前台自动恢复。
+# 运行时行为补丁：禁用 OpenVINO 遥测 + 一次性任务运行期间游戏窗口失焦自动暂停（仅前台交互方式）、回前台自动恢复。
 
 
 def _patch_openvino_telemetry():
@@ -32,6 +32,8 @@ class _FocusGuard:
 
     注册为 HwndWindow.visible_monitors 成员后，随窗口前后台状态（0.2s 轮询）回调 on_visible，
     在 HwndWindow 自身的后台线程里执行。仅作用于一次性任务；后台轮询型 TriggerTask 不抢前台也不暂停。
+    且仅当前交互方式依赖窗口前台（Pynput/PyDirect/ForegroundPostMessage）时才暂停：PostMessage/Genshin
+    走窗口消息、后台也能点击，暂停会抵消其后台运行能力。
     使用全局暂停（executor.pause/start），与用户手动全局暂停共用一个状态位，故用 _was_paused
     记录暂停前状态，恢复时只解除“由失焦引起”的那次暂停，不覆盖用户手动暂停。
     """
@@ -46,10 +48,11 @@ class _FocusGuard:
             from ok.task.task import TriggerTask
             executor = og.executor
             task = executor.current_task
-            if task is None or isinstance(task, TriggerTask):
-                # 无一次性任务在跑，或当前是后台触发任务，不干预并复位状态，避免污染下一次任务。
-                self._paused_task = None
-                self._was_paused = False
+            if task is None or isinstance(task, TriggerTask) or not interaction_requires_foreground():
+                # 无一次性任务在跑、当前是后台触发任务、或交互方式可后台点击（PostMessage/Genshin）：
+                # 不干预并复位状态，避免污染下一次任务；若暂停仍由失焦引起且任务未变
+                # （运行中把交互方式切成了可后台点击），就地解除，否则任务会一直停住。
+                self.release(task)
                 return
             if not visible:
                 # 失焦：仅当该任务尚未被失焦暂停时暂停一次。
@@ -72,6 +75,24 @@ class _FocusGuard:
                     logger.info('游戏窗口回到前台，任务恢复执行。')
         except Exception as e:
             logger.warning(f'focus guard on_visible failed: {e}')
+
+    def release(self, task):
+        """解除由失焦引起的暂停并复位状态；用户手动暂停、或任务已换时不解除执行器暂停。"""
+        paused_task, was_paused = self._paused_task, self._was_paused
+        self._paused_task = None
+        self._was_paused = False
+        if paused_task is None or was_paused or paused_task is not task:
+            return
+        try:
+            from ok import og
+            executor = og.executor
+            if not executor.paused:
+                return
+            executor.reset_scene(check_enabled=False)  # 丢弃暂停期间的旧帧，避免基于旧画面误判。
+            executor.start()
+            logger.info('失焦暂停已解除，任务继续执行。')
+        except Exception as e:
+            logger.warning(f'focus guard release failed: {e}')
 
 
 _FOCUS_GUARD = _FocusGuard()  # 全局单例守卫。
@@ -119,6 +140,61 @@ def _patch_executor_focus_guard():
     logger.info('patched TaskExecutor.next_frame to pause on game window unfocus')
 
 
+def interaction_requires_foreground(interaction=None):
+    """交互方式是否依赖游戏窗口在前台；不传则取当前生效的交互实例。
+
+    Pynput/PyDirect/ForegroundPostMessage 的 clickable() 要求 is_foreground()，窗口在后台时
+    会静默跳过点击，靠失焦暂停与窗口置前兜住；PostMessage/Genshin 走窗口消息、后台也能点击，
+    暂停或抢占前台反而让后台运行失效。取不到交互方式或类型未知时按依赖前台处理。
+    ForegroundPostMessage 是 Genshin 的子类，必须先判前台集合。
+    焦点守卫用它决定是否失焦暂停，任务基类与启动控制器用它决定是否把游戏窗口置前。
+    """
+    try:
+        if interaction is None:
+            from ok import og
+            interaction = getattr(og.device_manager, 'interaction', None)
+            if interaction is None:  # 交互实例由 do_start 异步创建，未就绪时回退到已选的交互类型。
+                interaction = getattr(og.device_manager, 'win_interaction_class', None)
+        if interaction is None:
+            return True
+        interaction_type = interaction if isinstance(interaction, type) else type(interaction)
+        from ok.device.interaction_methods import (ForegroundPostMessageInteraction, GenshinInteraction,
+                                                   PostMessageInteraction, PyDirectInteraction, PynputInteraction)
+        if issubclass(interaction_type, (PynputInteraction, PyDirectInteraction, ForegroundPostMessageInteraction)):
+            return True  # 窗口在后台时点击被静默跳过。
+        if issubclass(interaction_type, (PostMessageInteraction, GenshinInteraction)):
+            return False  # 可后台点击，不需要失焦暂停。
+        return True  # 未知交互方式按依赖前台处理。
+    except Exception as e:
+        logger.warning(f'resolve interaction mode failed: {e}')
+        return True
+
+
+def _patch_device_set_interaction():
+    # 包装 DeviceManager.set_interaction：运行中切换交互方式（如 Pynput → PostMessage）时按新方式
+    # 重判失焦暂停。切到可后台点击的方式时必须顺手解除已有暂停：暂停态下框架不再取帧，也不会再有
+    # on_visible 回调来唤醒，任务会一直停住；反之切到前台方式时窗口仍在后台，不能解除（点击会失效）。
+    # 用 win_interaction_class 判新方式：它在 set_interaction 内同步更新，交互实例由 do_start 异步重建。
+    from ok.device.DeviceManager import DeviceManager
+
+    original_set_interaction = DeviceManager.set_interaction
+
+    def set_interaction(self, interaction):
+        result = original_set_interaction(self, interaction)
+        try:
+            if not interaction_requires_foreground(getattr(self, 'win_interaction_class', None)):
+                from ok import og
+                executor = getattr(og, 'executor', None)
+                if executor is not None:
+                    _FOCUS_GUARD.release(executor.current_task)
+        except Exception as e:
+            logger.warning(f'release focus pause after interaction change failed: {e}')
+        return result
+
+    DeviceManager.set_interaction = set_interaction
+    logger.info('patched DeviceManager.set_interaction to release focus pause on interaction change')
+
+
 def _patch_executor_ocr_init_join():
     # 包装 TaskExecutor.destroy：退出前等待后台 DefaultOCRInit 线程收尾。
     # 该守护线程懒初始化 OCR（导入 openvino + 加载模型）。当进程在初始化完成前就
@@ -145,7 +221,9 @@ def _patch_executor_ocr_init_join():
 def apply():
     # 禁用 OpenVINO 遥测，避免无网络时挂死进程退出
     _patch_openvino_telemetry()
-    # 一次性任务运行期间，游戏窗口失焦则暂停执行器，回到前台自动恢复
+    # 一次性任务运行期间，游戏窗口失焦则暂停执行器（仅前台交互方式），回到前台自动恢复
     _patch_executor_focus_guard()
+    # 运行中切换交互方式时按新方式重判失焦暂停，必要时解除已有暂停
+    _patch_device_set_interaction()
     # 退出前等待 OCR 初始化线程收尾，避免解释器终结阶段的 import 锁死锁
     _patch_executor_ocr_init_join()

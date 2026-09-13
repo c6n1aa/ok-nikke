@@ -1,11 +1,11 @@
 ---
 name: deploy
-description: Commit completed repository changes, create the next annotated version tag, and push the commit and tag to the publishing remote (GitHub origin), which triggers the CI release build. Use when the user asks to deploy, release, publish a version, create or push a release tag, run `deploy` for a stable release, `deploy beta` for a beta prerelease, or `deploy alpha`/`release alpha` for an alpha prerelease.
+description: Create the next annotated version tag for validated local changes and push the commit and tag to the publishing remote (GitHub origin), which triggers the CI release build. Use when the user asks to deploy, release, publish a version, create or push a release tag, run `deploy` for a stable release, `deploy beta` for a beta prerelease, or `deploy alpha`/`release alpha` for an alpha prerelease. Do not use for routine commits, pushes, or branch merges that do not create a release tag.
 ---
 
 # Deploy
 
-Use this workflow to turn validated local changes into one commit and one annotated version tag, then push both to `origin`. If the user explicitly requests a local-only deployment, stop after creating the local tag.
+Use this workflow to turn validated local changes into one commit and one annotated version tag, then push both to `origin`. This workflow always creates a version tag: for plain commits, pushes, or branch merges without a release tag, do not use it. If the user explicitly requests a local-only deployment, stop after creating the local tag.
 
 ## Repository facts (ok-nikke)
 

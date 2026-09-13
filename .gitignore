@@ -93,6 +93,7 @@ update.bat
 test/
 test_scripts/
 dev_tools/
+_delete_/
 
 # ---- C extensions ----
 *.so

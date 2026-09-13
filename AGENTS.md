@@ -47,7 +47,8 @@ ok-nikke 是基于 PyPI `ok-script`（2.x）构建的《胜利女神：NIKKE》W
 
 ## 编码约定
 
-- 任务 UI 字符串直接写简体中文（基准语种）：源码不写英文再回译，其它语言一律在 `i18n/<locale>/LC_MESSAGES/ok.po` 里翻译；配置键（落盘/取值用）不翻译，只翻显示。
+- 任务 UI 字符串直接写简体中文（基准语种）：源码不写英文再回译，其它语言一律在 `i18n/<locale>/LC_MESSAGES/ok.po` 里翻译；配置键（落盘/取值用）不翻译，只翻显示。没有明确要求时不做i18n。
+- 新增或修改注释时，只描述事实，不要加多余的说明或解释。
 - 非必要不手写 `self.sleep`：等待优先挂在框架 API 的 `after_sleep`/`time_out` 参数上，写在产生界面变化的那个调用的挂点处。
 - 技能（`.agents/skills/`）：任务类 `ok-script-tasks`；`run()` 逻辑 `ok-script-codegen`；翻译 `ok-script-i18n`；跑 Python `use-local-venv`。
 - 提交信息用 Conventional Commits：`<type>[optional scope]: <description>`。

@@ -6,7 +6,7 @@ ok-nikke 是基于 [ok-script](https://github.com/ok-oldking/ok-script) 的《�
 
 ## 功能
 
-- **前台运行**：输入通过 Pynput / PyDirect 模拟，需保持游戏窗口前台可见；截图优先使用 WGC 后台捕获。
+- **输入方式可选**：`Pynput`/`PyDirect` 需游戏窗口前台；选 `Genshin` 可后台点击（会临时移动真实光标并短暂冻结输入）。截图优先使用 WGC 后台捕获。
 - **图像识别**：OpenCV 模板匹配（COCO 标注管理素材）结合 onnxocr（PaddleOCR v5 + OpenVINO）识别文字与按钮。
 - **分辨率自适应**：支持 16:9（最低 1600×900），素材以 2560×1440 为基准，按当前分辨率自动缩放匹配。
 - **完成状态**：按日/周记录任务完成情况，避免重复执行。

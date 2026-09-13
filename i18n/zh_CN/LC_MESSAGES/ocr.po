@@ -85,3 +85,7 @@ msgstr ""
 # MyOneTimeTask 调试方法里演示用的 OCR 目标
 msgid "方舟"
 msgstr ""
+
+# NavigationMixin：返回按钮文字兜底（左下角区域 OCR）
+msgid "返回"
+msgstr ""
