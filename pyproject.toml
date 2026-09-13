@@ -30,3 +30,11 @@ environments = [
 exclude-dependencies = [
     { package = { name = "pyside6-fluent-widgets" }, dependencies = ["pyside6"] },
 ]
+
+# 显式锁定官方 PyPI 为默认源：否则 uv lock 会把开发者机器上的全局 uv.toml 镜像
+# （如清华源）写进 uv.lock 的下载 URL，污染可复现性。交付锁 requirements.txt 无 index 行，
+# 运行时由 update.py 的 pip_index 决定源。
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple"
+default = true
