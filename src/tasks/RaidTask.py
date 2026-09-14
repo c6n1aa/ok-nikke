@@ -164,11 +164,11 @@ class RaidTask(NikkeBaseTask):  # 定义讨伐任务类，包含协同作战与�
 
     def _do_solo_raid_quick_battle(self):  # 个人突袭快速战斗分支：K→P 扫荡剩余次数并确认即时结算（由主流程 try_step 包裹）。
         self.click_box("box_solo_raid_quick_battle_feature", after_sleep=1)  # 点击快速战斗按钮
-        self.wait_feature("solo_raid_quick_battle_page", time_out=10, raise_if_not_found=True)  # S 识别快速战斗界面已出现。
-        max_btn = self.find_one("solo_raid_quick_battle_max")  # L 识别次数拉满按钮是否存在。
+        self.wait_feature("custom_quick_battle_page", time_out=10, raise_if_not_found=True)  # S 识别快速战斗界面已出现。
+        max_btn = self.find_one("custom_quick_battle_max")  # L 识别次数拉满按钮是否存在。
         if max_btn is not None:  # L -- true 分支。
             self.click_box(max_btn, after_sleep=1)  # O 点击拉满剩余次数。
-        self.click_box("box_solo_raid_quick_battle", after_sleep=1)  # Q 点击开始快速战斗（L -- false 时直接走到这里）。
+        self.click_box("box_custom_quick_battle_start", after_sleep=1)  # Q 点击开始快速战斗（L -- false 时直接走到这里）。
         result, confirm_box = self.wait_battle_finish(time_out=10)  # P 节流轮询等待快速战斗结算画面（基类方法：含结算动画稳定化与中断哨兵，超时返回 (None, None)）。
         if confirm_box is None:  # 未识别到结算画面。
             raise WaitFailedException("未识别到个人突袭快速战斗结算画面")  # 抛异常由 try_step 捕获恢复。

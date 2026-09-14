@@ -376,10 +376,10 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
         self._enter_tower(box_key)  # 点击塔卡进入该塔。
         self.wait_feature("tribe_tower_stage", raise_if_not_found=True)  # 等待进入塔关卡界面。
         self.click_box("box_tower_enter", raise_if_not_found=True, after_sleep=1)  # box_ 前缀特征为纯坐标区域无模板，直接按坐标点击进入关卡。
-        battle_box = self.get_box_by_name("box_tribe_tower_battle")  # 获取战斗按钮区域（box_ 前缀特征为纯坐标区域，无模板）。
+        battle_box = self.get_box_by_name("box_stage_detail_battle")  # 获取战斗按钮区域（box_ 前缀特征为纯坐标区域，无模板）。
         if battle_box is None or not self.is_feature_enabled(battle_box):  # 区域缺失或按钮为灰白禁用态说明次数用尽。
             self.log_info(f"{index}号塔通关次数用尽，跳过")  # 记录跳过。
-            self.wait_click_feature("tribe_tower_close", raise_if_not_found=True, after_sleep=1)  # 点击关闭按钮关闭弹出的开始战斗卡片。
+            self.wait_click_feature("stage_detail_close", raise_if_not_found=True, after_sleep=1)  # 点击关卡详情关闭按钮。
             self.wait_click_feature("common_back", raise_if_not_found=True, after_sleep=1)  # 返回无限之塔界面。
             return False  # 未进入战斗。
         if self.config.get("关闭自动爬塔"):  # 关闭自动爬塔模式。

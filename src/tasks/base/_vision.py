@@ -4,9 +4,11 @@ import cv2  # OpenCV，模板缩放匹配使用 cv2.resize / cv2.imread。
 from ok.feature.Box import Box  # 检测框对象，用于构造搜索区域与红点返回框。
 from ok.util.color import calculate_colorfulness  # 框架颜色工具：计算区域色彩丰富度。
 
+from src import event_calendar  # 活动图模板几何标定与缩放（纯图像/网络工具，不依赖框架）。
+
 
 class VisionMixin:
-    """图像工具：缩放模板匹配、通知红点检测、UI 元素色彩判态。"""
+    """图像工具：缩放模板匹配、活动列表行匹配、通知红点检测、UI 元素色彩判态。"""
 
     def find_scaled_template(self, feature_name: str, template_path: str, ref_width: int = 2560,
                              ref_height: int = 1440, **kwargs):
@@ -36,6 +38,41 @@ class VisionMixin:
                 template = cv2.resize(template, (0, 0), fx=scale, fy=scale, interpolation=interp)
             self._scaled_template_cache[cache_key] = template
         return self.find_one(feature_name, template=template, **kwargs)
+
+    def find_event_row(self, feature_name: str, banner, box=None, threshold: float = 0.8, limit: int = 1):
+        """在活动列表里匹配官方活动图，返回命中行的 Box（未命中返回 None）。
+
+        模板由官方活动图现场生成（裁剪 + 按当前分辨率缩放到行尺寸），活动更新不需要人工换模板。
+        与 find_scaled_template 的差别：模板不是磁盘上的固定裁剪图，而是按行宽比例现算的，
+        且只取活动图中不含游戏内浮层的子区域（为什么不能整图直接用，见 src/event_calendar 的模块注释）。
+
+        Args:
+            feature_name: 匹配名，仅用于日志/调试框命名（建议传活动名）。
+            banner: 官方活动图路径（str）或已读入的 BGR ndarray（可用 event_calendar.ensure_cached 取路径）。
+            box: 搜索区域，缺省固定在活动列表面板框（coco 特征 event_calendar.SEARCH_BOX）；
+                仅在确有别的区域时才传，可传 coco 框名或 Box。
+            threshold: 匹配阈值。默认 0.8：实测命中行 0.89~0.96、其它行 ≤0.61。
+            limit: 透传给 find_one（1 = 只取最优命中）。
+
+        Returns:
+            Box | None：命中行为模板区域（行内 logo 区），未命中 None。
+        """
+        if event_calendar.screen_scale(self.width, self.height) <= 0:  # 无有效分辨率（测试环境无帧等）。
+            return None  # 无法按分辨率生成模板，直接视为未命中。
+        image = cv2.imread(banner) if isinstance(banner, str) else banner  # 支持路径与 ndarray 两种入参。
+        if image is None:  # 模板图读不到（路径错/缓存损坏）：显式报错，不静默当成"活动不存在"。
+            raise FileNotFoundError(f'event banner not found: {banner}')
+        if isinstance(box, str):  # 允许传 coco 框名，与 find_red_dot 的用法保持一致。
+            box = self.get_box_by_name(box)
+        elif box is None:  # 缺省：固定在活动列表面板框内匹配（不在面板外乱匹配）。
+            box = self.get_box_by_name(event_calendar.SEARCH_BOX)
+        row_width = event_calendar.row_width(self.width, self.height)  # 当前分辨率下的行宽（像素）。
+        for scale in (1.0,) + event_calendar.FALLBACK_SCALES:  # 先基准尺度；命中即返回，不会白跑兜底档位。
+            template = event_calendar.build_row_template(image, row_width, scale)
+            found = self.find_one(feature_name, template=template, box=box, threshold=threshold, limit=limit)
+            if found is not None:  # 命中该活动所在行。
+                return found
+        return None  # 所有尺度都没超过阈值：该活动当前不在列表里。
 
     def find_red_dot(self, box, template_path=None, threshold=0.6, min_blob_area=8,
                      ref_width=2560, ref_height=1440, use_color_fallback=True) -> Box | None:

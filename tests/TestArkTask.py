@@ -267,7 +267,7 @@ class TestArkTask(_DebugOffTestCase):
 
     def test_try_tower_skips_when_battle_disabled(self):
         stage_box = Box(1097, 588, 50, 26, confidence=1, name="tribe_tower_stage")
-        battle_box = Box(1340, 1283, 80, 106, confidence=1, name="box_tribe_tower_battle")
+        battle_box = Box(1340, 1283, 80, 106, confidence=1, name="box_stage_detail_battle")
         with patch.object(self.task, "_tower_is_open", return_value=True), \
                 patch.object(self.task, "_enter_tower"), \
                 patch.object(self.task, "wait_feature", return_value=stage_box), \
@@ -279,7 +279,7 @@ class TestArkTask(_DebugOffTestCase):
             result = self.task._try_tower(1)
         self.assertFalse(result)
         click_box_mock.assert_any_call("box_tower_enter", raise_if_not_found=True, after_sleep=1)
-        click_mock.assert_any_call("tribe_tower_close", raise_if_not_found=True, after_sleep=1)
+        click_mock.assert_any_call("stage_detail_close", raise_if_not_found=True, after_sleep=1)
         click_mock.assert_any_call("common_back", raise_if_not_found=True, after_sleep=1)
 
     def test_try_tower_battle_button_missing_returns_to_tower(self):
@@ -295,11 +295,11 @@ class TestArkTask(_DebugOffTestCase):
         self.assertFalse(result)
         wait_mock.assert_any_call("tribe_tower_stage", raise_if_not_found=True)
         click_box_mock.assert_any_call("box_tower_enter", raise_if_not_found=True, after_sleep=1)
-        click_mock.assert_any_call("tribe_tower_close", raise_if_not_found=True, after_sleep=1)
+        click_mock.assert_any_call("stage_detail_close", raise_if_not_found=True, after_sleep=1)
         click_mock.assert_any_call("common_back", raise_if_not_found=True, after_sleep=1)
 
     def test_try_tower_normal_climb(self):
-        battle_box = Box(1340, 1283, 80, 106, confidence=1, name="box_tribe_tower_battle")
+        battle_box = Box(1340, 1283, 80, 106, confidence=1, name="box_stage_detail_battle")
         stage_box = Box(1097, 588, 50, 26, confidence=1, name="tribe_tower_stage")
         with patch.object(self.task, "_tower_is_open", return_value=True), \
                 patch.object(self.task, "_enter_tower"), \
@@ -314,7 +314,7 @@ class TestArkTask(_DebugOffTestCase):
 
     def test_try_tower_abandon_mode(self):
         self.task.config["关闭自动爬塔"] = True
-        battle_box = Box(1340, 1283, 80, 106, confidence=1, name="box_tribe_tower_battle")
+        battle_box = Box(1340, 1283, 80, 106, confidence=1, name="box_stage_detail_battle")
         stage_box = Box(1097, 588, 50, 26, confidence=1, name="tribe_tower_stage")
         with patch.object(self.task, "_tower_is_open", return_value=True), \
                 patch.object(self.task, "_enter_tower"), \

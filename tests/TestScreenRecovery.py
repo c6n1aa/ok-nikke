@@ -23,8 +23,8 @@ class TestScreenRecovery(TaskTestCase):
         self.task.register_screen("lobby", features=["ark"])
 
     def test_global_screens_registry_matches_migrated_specs(self):
-        # 集中式注册表收录全部 25 个界面：9 个迁移自任务 __init__、3 个竞技场界面、商店/招募/方舟排名子页面、
-        # 4 个拦截战界面、5 个前哨基地界面，外加冷启动正向锚点 login_page。
+        # 集中式注册表收录全部 28 个界面：9 个迁移自任务 __init__、3 个竞技场界面、商店/招募/方舟排名子页面、
+        # 4 个拦截战界面、5 个前哨基地界面、活动列表页/活动主页/活动关卡页，外加冷启动正向锚点 login_page。
         # 顺序即 SCREENS 注册顺序（login_page 紧随 lobby）。
         expected = {
             "lobby": {"features": ["ark", "lobby"]},
@@ -54,6 +54,9 @@ class TestScreenRecovery(TaskTestCase):
             "advise_nikke": {"features": ["advise_detail_page", "advise_gift"]},
             "conversation": {"any_features": ["conversation_cancel", "conversation_log", "conversation_skip"],
                              "feature_box": "box_conversation_icon"},
+            "event_list_page": {"keywords": [_keyword("活动页面")], "ocr_box": "box_sub_pages_title"},
+            "event_main": {"keywords": [_keyword("剧情活动"), _keyword("活动区域")], "ocr_box": "box_sub_pages_title"},
+            "event_stage_page": {"keywords": [_keyword("活动关卡")], "ocr_box": "box_sub_pages_title"},
         }
         self.assertEqual(list(expected), list(SCREENS))  # 顺序敏感：current_screen 按插入顺序首命中。
         self.assertEqual(expected, SCREENS)
