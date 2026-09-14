@@ -2,8 +2,9 @@ from ok import Logger
 
 logger = Logger.get_logger(__name__)
 
-# 通知配置仅保留「系统通知」一项，其余渠道(Discord/Telegram/企业微信/QQ等)移除。
-# NotificationManager 读取这些键都是 config.get()，缺键即视为禁用，裁剪安全。
+# 通知配置仅保留「系统通知」一项，其余渠道(Discord/Telegram/企业微信/QQ等)隐藏。
+# 隐藏走框架 config_type 的 hidden 参数（ConfigContentMixin 跳过渲染），保留配置键与默认值；
+# NotificationManager 各渠道按 config.get() 判断，默认 False 即禁用，与缺键等价。
 
 
 def _patch_notification_tab():
@@ -20,12 +21,11 @@ def _patch_notification_tab():
     def _create_notification_options():
         options = original()
         options.show_at_tab = False
-        for key in list(options.default_config):
+        if options.config_type is None:
+            options.config_type = {}
+        for key in options.default_config:
             if key not in keep_keys:
-                options.default_config.pop(key, None)
-                options.config_description.pop(key, None)
-                if options.config_type:
-                    options.config_type.pop(key, None)
+                options.config_type.setdefault(key, {})['hidden'] = True
         options.description = '任务结束或出错时弹出 Windows 系统通知'
         return options
 
