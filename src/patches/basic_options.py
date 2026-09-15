@@ -12,11 +12,10 @@ LAUNCHER_PATH_KEY = '启动器路径'
 TRIGGER_INTERVAL_KEY = 'Trigger Interval'
 TRIGGER_INTERVAL_MS = 100
 
-# 与本项目无关、需要从基础设置中移除的选项
-_BASIC_OPTIONS_REMOVE_KEYS = [
+# 与本项目无关、需要在基础设置中隐藏入口的选项（保留配置键与默认值）
+_BASIC_OPTIONS_HIDDEN_KEYS = [
     'Mute Game while in Background',
     'Auto Resize Game Window',
-    'Use DirectML',
     _global_config_module.KILL_LAUNCHER_AFTER_START,
     'Launch with DX11',
 ]
@@ -90,17 +89,14 @@ def _patch_create_basic_options():
         options = original(enable_blur=enable_blur)
         # 调高后台触发任务轮询间隔的默认值，避免过快地空转占用系统资源
         options.default_config[TRIGGER_INTERVAL_KEY] = TRIGGER_INTERVAL_MS
-        # 移除与本项目无关的设置项
-        for key in _BASIC_OPTIONS_REMOVE_KEYS:
-            options.default_config.pop(key, None)
-            options.config_description.pop(key, None)
-            if options.config_type:
-                options.config_type.pop(key, None)
+        # 隐藏与本项目无关的设置项：用框架 config_type 的 hidden 参数跳过渲染，保留配置键与默认值
+        if options.config_type is None:
+            options.config_type = {}
+        for key in _BASIC_OPTIONS_HIDDEN_KEYS:
+            options.config_type.setdefault(key, {})['hidden'] = True
         for key, value in _basic_options_extra_default.items():
             options.default_config.setdefault(key, value)
         options.config_description.update(_basic_options_extra_description)
-        if options.config_type is None:
-            options.config_type = {}
         options.config_type.update(_basic_options_extra_type)
         options.default_config = _launcher_path_first(options.default_config)
         return options

@@ -2,7 +2,6 @@
 .vscode/
 .idea/
 .codebuddy/
-.kilo/
 
 # ---- OK-script runtime artifacts (generated at run time) ----
 # ok_templates/ 已由 submodule（ok-nikke-coco-labeling）管理，不再忽略

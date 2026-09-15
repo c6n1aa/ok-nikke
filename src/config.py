@@ -53,6 +53,7 @@ config = {
         'auto_simplify': False, #自动繁体转简体, 需要ppocrv5等可以识别繁体的库
         'params': {
             'use_openvino': True,
+            'use_npu': False
         }
     },
     'windows': {  # Windows游戏请填写此设置
@@ -117,7 +118,8 @@ config = {
         ["src.tasks.RecruitTask", "RecruitTask"],
         ["src.tasks.OutpostTask", "OutpostTask"],
         ["src.tasks.ArkTask", "ArkTask"],
-        ["src.tasks.RaidTask", "RaidTask"]
+        ["src.tasks.RaidTask", "RaidTask"],
+        ["src.tasks.EventTask", "EventTask"]
     ],
     'trigger_tasks': [  # 后台任务，可随时开启/关闭
     ],

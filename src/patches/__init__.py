@@ -10,7 +10,7 @@ from src.patches import about_update, basic_options, language, notification_tab,
 def apply_all():
     basic_options.apply()   # 基础设置注入启动器路径等选项，需在 Config 加载磁盘配置前生效
     notification_tab.apply()  # 通知配置并入「软件设置」页，去掉独立的通知 tab
-    runtime.apply()         # 禁用 OpenVINO 遥测 + 任务执行期间保持游戏窗口前台
+    runtime.apply()         # 禁用 OpenVINO 遥测 + 任务执行期间失焦自动暂停、回前台恢复
     start_controller.apply()  # 替换 StartController 为启动器自动化版本
     start_tab.apply()       # 截图方式 tab：正式版隐藏「调试悬浮窗」卡片
     tasks_tab.apply()       # 任务列表：日常卡片置顶/分割线/只留跳转日常设置按钮

@@ -178,9 +178,19 @@ class ShopTask(NikkeBaseTask):  # 商店自动兑换任务，继承项目基类�
         else:  # 固定网格商品（普通/竞技场），按行列取格子中心。
             cx, cy = self._cell_center(row, col)  # 计算格子中心坐标。
         self.click(cx, cy, after_sleep=1)  # 点击格子弹出购买确认框并等待界面刷新。
-        # 确认框高度会浮动，shop_buy_max / shop_buy_confirm 限定在各自标注区域（box_shop_buy_max / box_shop_buy_confirm）内识别，避免误点/漏点。
-        self.wait_click_feature("shop_buy_max", box=self.get_box_by_name("box_shop_buy_max"), time_out=3, raise_if_not_found=False, after_sleep=0.5)  # 点最大购买，置数量为上限；无可点不抛错，3 秒内未出现即继续。
-        self.wait_click_feature(confirm_feature, box=self.get_box_by_name("box_shop_buy_confirm"), time_out=5, raise_if_not_found=True, after_sleep=0.5)  # 等待并点击确认按钮。
+        # 先独立确认「购买弹窗已出现」：以确认按钮在其标注区域内出现作为唯一判据（事件驱动，命中即返回）。
+        # 这一步只判定不点击——确认框高度会浮动，故限定在 box_shop_buy_confirm 内识别，避免误点/漏点；
+        # 弹窗未出现时与既有语义一致（抛等待失败，由 try_step 捕获恢复），暂不改调用方的失败语义。
+        confirm_box = self.wait_feature(confirm_feature, box=self.get_box_by_name("box_shop_buy_confirm"),
+                                        time_out=5, raise_if_not_found=False)  # 等待确认按钮出现 = 弹窗已渲染。
+        if confirm_box is None:  # 弹窗始终未出现（点击落空/商品被抢等）。
+            raise WaitFailedException("购买弹窗未出现")  # 保持既有失败语义，交由 try_step 恢复。
+        # 弹窗已渲染，「是否有 MAX 按钮」是单帧事实，不必再盲等：直接查一次，命中才点。
+        # 普通/竞技场弹窗无反应该特征（模板源自废铁弹窗），查不到即跳过，保持「可缺省」语义。
+        max_box = self.find_one("shop_buy_max", box=self.get_box_by_name("box_shop_buy_max"))  # 单帧查询，不轮询。
+        if max_box is not None:  # 存在 MAX 按钮才点击，置数量为上限。
+            self.click_box(max_box, after_sleep=0.5)  # 点最大购买。
+        self.click_box(confirm_box, after_sleep=0.5)  # 点击已确认存在的确认按钮完成购买。
         # 「资金不足」是亚秒级瞬态 toast；框架默认 settle 要求持续命中 1 秒以上，
         # 会像赛季横幅一样「每帧命中却不返回」直至超时，把购买误判成成功，必须 settle_time=0。
         if self.wait_until(self._hit_no_currency, time_out=2, settle_time=0):  # OCR 命中资金不足提示。

@@ -73,6 +73,7 @@ class NikkeStartController(start_controller_module.StartController):
         if not self._wait_until_device_ready(refresh_first=not initial_refresh_done):
             return False
         self._ensure_min_game_window_size()
+        self._bring_game_window_to_front()  # 依赖前台的交互方式下先置前，再交给 executor 跑任务。
         communicate.starting_emulator.emit(True, None, 0)
         return True
 
@@ -104,6 +105,29 @@ class NikkeStartController(start_controller_module.StartController):
                 f'game window resized to {target_width}x{target_height}, now {hwnd_window.width}x{hwnd_window.height}')
         except Exception as e:
             logger.error(f'ensure min game window size error', e)
+
+    def _bring_game_window_to_front(self):
+        # 启动任务前把游戏窗口切到前台，仅对依赖前台的交互方式生效（Pynput/PyDirect/ForegroundPostMessage）：
+        # 这类方式下窗口在后台时点击会被静默跳过，executor 的 can_capture 也取不到帧，任务会空转到超时；
+        # Genshin/PostMessage 走窗口消息、后台可点击，置前会抵消其后台运行能力，直接跳过。
+        # 只用框架 HwndWindow.bring_to_front（ShowWindow/BringWindowToTop/SetForegroundWindow），
+        # 不用 AttachThreadInput：它把本线程与游戏线程的输入队列绑定，与 GUI 焦点争夺叠加会死锁。
+        from src.patches.runtime import interaction_requires_foreground  # 延迟导入，按当前交互方式判断。
+        if not interaction_requires_foreground():  # 可后台点击的交互方式不需要抢前台。
+            logger.info('interaction supports background click, skip bring game window to front')
+            return False
+        try:
+            hwnd_window = getattr(og.device_manager, 'hwnd_window', None)  # 游戏窗口对象。
+            if hwnd_window is None or not getattr(hwnd_window, 'hwnd', 0):  # 窗口未挂载则跳过。
+                logger.warning('game window not attached, skip bring to front')
+                return False
+            if not hwnd_window.bring_to_front():  # ok 方案失败（如句柄已失效）。
+                logger.warning('hwnd_window.bring_to_front returned False')
+                return False
+            return True
+        except Exception as e:  # 置前失败不影响启动流程，运行期由焦点守卫兜住。
+            logger.warning(f'bring game window to front failed: {e}')
+            return False
 
     def _start_device_via_launcher(self, device, launcher_path):
         exe = self._resolve_launcher_exe(launcher_path)

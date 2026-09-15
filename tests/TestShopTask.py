@@ -100,9 +100,71 @@ class TestShopTask(TaskTestCase):
         self.assertLessEqual(confirm_timeout, 10)  # 不超过 wait_confirm 与总预算。
         title_mock.assert_called_once_with("普通商店")
 
+    def _patch_dialog_present(self, present=True, max_box=None):
+        """构造弹窗门（wait_feature）与 MAX 单帧查（find_one）的桩，以及点击桩。
+
+        返回 (wait_feature_patch, find_one_patch, click_box_patch)。三者都用
+        patch.object 生成，调用方须在 with 内以 as 绑定才能读 call_args。
+        """
+        wait_patch = patch.object(self.task, "wait_feature",
+                                  return_value=Box(0, 0, 1, 1) if present else None)
+        find_patch = patch.object(self.task, "find_one", return_value=max_box)
+        click_patch = patch.object(self.task, "click_box")
+        return wait_patch, find_patch, click_patch
+
+    def test_buy_cell_waits_for_dialog_before_acting(self):
+        # 拆分核心：先独立等待「弹窗已出现」（wait_feature 事件驱动），再查 MAX、再点确认。
+        wait_patch, find_patch, click_patch = self._patch_dialog_present()
+        with patch.object(self.task, "click"), \
+                wait_patch as wait_mock, find_patch, click_patch as click_mock, \
+                patch.object(self.task, "wait_click_feature") as wait_click_mock, \
+                patch.object(self.task, "ocr", return_value=[]), \
+                patch.object(self.task, "dismiss_all_popups"), \
+                patch.object(self.task, "next_frame"):
+            self.assertTrue(self.task._buy_cell("shop_buy_confirm", row=1, col=1))
+        # wait_feature 限定在确认区域、只判定不点击；MAX 不在其中轮询。
+        self.assertEqual("shop_buy_confirm", wait_mock.call_args.args[0])
+        self.assertEqual(self.task.get_box_by_name("box_shop_buy_confirm"),
+                         wait_mock.call_args.kwargs["box"])
+        self.assertFalse(wait_mock.call_args.kwargs["raise_if_not_found"])  # 门自身不抛错，失败分支自行处理。
+        wait_click_mock.assert_not_called()  # MAX/确认不再走 wait_click_feature 盲等。
+        # 无 MAX 时只点一次确认（存在性由单帧 find_one 判，不再盲等 3 秒）。
+        self.assertEqual(1, click_mock.call_count)
+        self.assertIs(click_mock.call_args.args[0], wait_mock.return_value)
+
+    def test_buy_cell_raises_when_dialog_never_appears(self):
+        # 弹窗始终未出现：保持既有失败语义（抛等待失败由 try_step 恢复），不误判为购买成功。
+        from ok.task.exceptions import WaitFailedException
+        wait_patch, find_patch, click_patch = self._patch_dialog_present(present=False)
+        with patch.object(self.task, "click"), wait_patch, find_patch, click_patch as click_mock, \
+                patch.object(self.task, "dismiss_all_popups") as dismiss_mock:
+            with self.assertRaises(WaitFailedException):
+                self.task._buy_cell("shop_buy_confirm", row=1, col=1)
+        click_mock.assert_not_called()  # 弹窗未出现则不点任何按钮。
+        dismiss_mock.assert_not_called()  # 也不做购买成功的收尾清理。
+
+    def test_buy_cell_clicks_max_without_waiting_when_present(self):
+        # 弹窗已渲染后，MAX 存在性由单帧 find_one 判定：命中则点击，且不再用带超时的等特征。
+        max_box = Box(10, 10, 20, 20, name="shop_buy_max")
+        wait_patch, find_patch, click_patch = self._patch_dialog_present(max_box=max_box)
+        with patch.object(self.task, "click"), \
+                wait_patch, find_patch as find_mock, click_patch as click_mock, \
+                patch.object(self.task, "wait_click_feature") as wait_click_mock, \
+                patch.object(self.task, "ocr", return_value=[]), \
+                patch.object(self.task, "dismiss_all_popups"), \
+                patch.object(self.task, "next_frame"):
+            self.assertTrue(self.task._buy_cell("shop_buy_confirm", row=1, col=1))
+        self.assertEqual("shop_buy_max", find_mock.call_args.args[0])  # 单帧查 MAX。
+        self.assertEqual(self.task.get_box_by_name("box_shop_buy_max"),
+                         find_mock.call_args.kwargs["box"])  # 限定标注区域。
+        wait_click_mock.assert_not_called()  # 关键：MAX 不再盲等 3 秒。
+        self.assertEqual(2, click_mock.call_count)  # MAX + 确认各点一次。
+        self.assertIs(click_mock.call_args_list[0].args[0], max_box)  # 先点 MAX。
+
     def test_buy_cell_detects_no_currency_toast_without_settle(self):
         # 资金不足 toast 是亚秒级瞬态信号：赛跑必须传 settle_time=0 首帧命中即返回（同赛季横幅教训）。
-        with patch.object(self.task, "click"), \
+        wait_patch, find_patch, click_patch = self._patch_dialog_present()
+        with patch.object(self.task, "click"), wait_patch, find_patch, click_patch, \
                 patch.object(self.task, "wait_click_feature") as close_mock, \
                 patch.object(self.task, "ocr", return_value=[object()]) as ocr_mock, \
                 patch.object(self.task, "wait_until", side_effect=self._eval_once) as wait_mock:
@@ -111,16 +173,16 @@ class TestShopTask(TaskTestCase):
         self.assertEqual("资金不足", _NO_CURRENCY_PATTERN.pattern)  # 实际游戏文案（模板图集核实，非「货币不足」）。
         self.assertEqual(_NO_CURRENCY_PATTERN, ocr_mock.call_args.kwargs["match"])  # 编译模式部分匹配。
         self.assertEqual("box_shop_no_currency", ocr_mock.call_args.kwargs["box"])  # OCR 区域取 coco 标注区域。
-        self.assertEqual(0, wait_mock.call_args_list[0].kwargs["settle_time"])  # 首次赛跑调用禁用 settle，防「命中却不返回」漏检。
-        close_call = close_mock.call_args_list[-1]  # 前面还有买最大/确认两次调用，取最后一次关闭调用。
+        self.assertEqual(0, wait_mock.call_args_list[0].kwargs["settle_time"])  # 资金不足赛跑禁用 settle，防「命中却不返回」漏检。
+        close_call = close_mock.call_args_list[-1]  # 仅关闭弹窗走 wait_click_feature。
         self.assertEqual("shop_buy_close", close_call.args[0])  # 关闭购买弹窗才算结束。
         self.assertEqual(self.task.get_box_by_name("box_shop_buy_close"), close_call.kwargs["box"])  # 关闭按钮限定在标注区域。
         self.assertEqual(3, close_call.kwargs["time_out"])  # 关闭按钮等待超时。
 
     def test_buy_cell_returns_true_when_no_currency_absent(self):
         # 未弹资金不足提示：清遮罩弹窗后按购买成功收尾。
-        with patch.object(self.task, "click"), \
-                patch.object(self.task, "wait_click_feature"), \
+        wait_patch, find_patch, click_patch = self._patch_dialog_present()
+        with patch.object(self.task, "click"), wait_patch, find_patch, click_patch, \
                 patch.object(self.task, "ocr", return_value=[]), \
                 patch.object(self.task, "dismiss_all_popups"), \
                 patch.object(self.task, "next_frame"):

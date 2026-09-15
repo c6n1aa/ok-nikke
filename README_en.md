@@ -49,7 +49,6 @@ Notes:
 
 ## 📝 TODO
 
-- [ ] Event story / event area
 - [ ] Overclocked simulation room
 - [ ] i18n
 - [ ] TBD
@@ -67,6 +66,7 @@ Notes:
 | Outpost | Dispatch / advise / brief encounters |
 | Ark | Manufacturer towers / simulation room / interception / arena |
 | Raid | Limited-time challenges (co-op / solo raid) |
+| Event | Generic handling of limited-time events (check-in stamp / story push + sweep / challenge) |
 
 ## 🔧 Troubleshooting
 

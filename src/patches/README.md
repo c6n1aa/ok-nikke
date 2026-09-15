@@ -11,19 +11,21 @@
 
 ### basic_options.py
 
-包装 `ok.util.GlobalConfig.create_basic_options`：移除与本项目无关的选项、调高 `Trigger Interval` 默认值，并把启动器路径配置行（「启动器路径」）注入「基础设置」顶部；文件选择框默认打开桌面目录由 `_patch_file_selector_initial_directory` 支持（`initial_directory: 'desktop'`）。不要直接改 `ok.util.GlobalConfig`。
+包装 `ok.util.GlobalConfig.create_basic_options`：把与本项目无关的选项（`Mute Game while in Background`/`Auto Resize Game Window`/`Kill Launcher After Start`/`Launch with DX11`）在 `config_type` 上标记 `hidden` 隐藏（保留配置键与默认值，框架 `ConfigContentMixin` 跳过渲染）；调高 `Trigger Interval` 默认值，并把启动器路径配置行（「启动器路径」）注入「基础设置」顶部；文件选择框默认打开桌面目录由 `_patch_file_selector_initial_directory` 支持（`initial_directory: 'desktop'`）。不要直接改 `ok.util.GlobalConfig`。
 
 ### notification_tab.py
 
-包装 `ok.util.GlobalConfig.create_notification_options`，把通知全局配置的 `show_at_tab` 改为 `False`：MainWindow 不再为通知创建底部独立 tab，`SettingTab` 会把它作为可展开卡片收进「软件设置」页；同时裁掉系统通知以外的全部渠道配置项（Discord/Telegram/企业微信/QQ 等，`NotificationManager` 对缺键按禁用处理）并改写卡片描述。
+包装 `ok.util.GlobalConfig.create_notification_options`，把通知全局配置的 `show_at_tab` 改为 `False`：MainWindow 不再为通知创建底部独立 tab，`SettingTab` 会把它作为可展开卡片收进「软件设置」页；同时把系统通知以外的全部渠道配置项（Discord/Telegram/企业微信/QQ 等）在 `config_type` 上标记 `hidden` 隐藏（保留配置键与默认值，`NotificationManager` 各渠道默认 `False` 即禁用，与缺键等价）并改写卡片描述。
 
 ### start_controller.py
 
-把 `ok.ui.qt.StartController.StartController` 替换为 `NikkeStartController`，其 `start_device` 流程：管理员检查 → 判断 `nikke.exe` 游戏主进程是否已在运行（若在运行则跳过启动器）→ 否则启动配置的启动器（`nikke_launcher.exe` 或 `.lnk`，自动解析）→ 在可配置区域内 OCR 找到并点击启动按钮 → 等待游戏窗口出现。没有直接启动回退：若未配置启动器且游戏未在运行，提示用户配置启动器或手动启动游戏。
+把 `ok.ui.qt.StartController.StartController` 替换为 `NikkeStartController`，其 `start_device` 流程：管理员检查 → 判断 `nikke.exe` 游戏主进程是否已在运行（若在运行则跳过启动器）→ 否则启动配置的启动器（`nikke_launcher.exe` 或 `.lnk`，自动解析）→ 在可配置区域内 OCR 找到并点击启动按钮 → 等待游戏窗口出现 → 调整到最小窗口尺寸 → 按交互方式把游戏窗口置前。没有直接启动回退：若未配置启动器且游戏未在运行，提示用户配置启动器或手动启动游戏。
+
+启动前的置前（`_bring_game_window_to_front`）复用 `interaction_requires_foreground()`：`Pynput`/`PyDirect`/`ForegroundPostMessage` 依赖窗口前台（后台时点击被静默跳过、executor 取不到帧），先调 `HwndWindow.bring_to_front()`；`Genshin`/`PostMessage` 后台可点击，跳过以保留后台运行能力。只用 `bring_to_front`，不用 `AttachThreadInput`（会把本线程与游戏线程的输入队列绑定，与 GUI 焦点争夺叠加会死锁）。
 
 ### runtime.py
 
-禁用 OpenVINO 遥测；在 `HwndWindow.visible_monitors` 上注册焦点守卫：一次性任务运行期间游戏窗口失焦即暂停执行器（弹托盘通知），切回前台自动恢复（先经 `reset_scene` 丢弃暂停前的旧帧）。仅当交互方式依赖窗口前台（`Pynput`/`PyDirect`/`ForegroundPostMessage`）时暂停，`PostMessage`/`Genshin` 可后台点击、不暂停，否则会抵消其后台运行能力。包装 `DeviceManager.set_interaction`：运行中切换交互方式后按新方式重判，若正被失焦暂停则解除（暂停态下不再取帧，没有回调能唤醒）。`interaction_requires_foreground()` 还被任务基类 `bring_game_to_front` 复用：可后台点击的交互方式下不再抢占游戏窗口前台。后台 `TriggerTask` 不受影响；不会主动抢占前台。包装 `TaskExecutor.destroy`：进程退出前 join 后台 `DefaultOCRInit` 线程（懒初始化 OCR、导入 openvino），否则初始化未完成时解释器终结会因 import 锁死锁导致进程永不退出（典型触发：跑得快的测试文件）。
+禁用 OpenVINO 遥测；在 `HwndWindow.visible_monitors` 上注册焦点守卫：一次性任务运行期间游戏窗口失焦即暂停执行器（弹托盘通知），切回前台自动恢复（先经 `reset_scene` 丢弃暂停前的旧帧）。仅当交互方式依赖窗口前台（`Pynput`/`PyDirect`/`ForegroundPostMessage`）时暂停，`PostMessage`/`Genshin` 可后台点击、不暂停，否则会抵消其后台运行能力。包装 `DeviceManager.set_interaction`：运行中切换交互方式后按新方式重判，若正被失焦暂停则解除（暂停态下不再取帧，没有回调能唤醒）。`interaction_requires_foreground()` 还被任务基类 `bring_game_to_front` 与启动控制器（`NikkeStartController._bring_game_window_to_front`）复用：可后台点击的交互方式下不抢占游戏窗口前台。后台 `TriggerTask` 不受影响；运行期间不会主动抢占前台。包装 `TaskExecutor.destroy`：进程退出前 join 后台 `DefaultOCRInit` 线程（懒初始化 OCR、导入 openvino），否则初始化未完成时解释器终结会因 import 锁死锁导致进程永不退出（典型触发：跑得快的测试文件）。
 
 ### start_tab.py
 
