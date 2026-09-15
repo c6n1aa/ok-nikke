@@ -146,7 +146,22 @@ class TestEventTask(_DebugOffTestCase):
                 patch.object(self.task, '_detail_page_open', return_value=False), \
                 patch.object(self.task, 'transition') as transition_mock:
             self.task._ensure_event_menu()
-        transition_mock.assert_called_once_with('event_main', click_feature='common_back', wait_confirm=10, after_sleep=1)
+        transition_mock.assert_called_once_with('event_main', click=self.task._click_back_to_menu,
+                                                wait_confirm=10, after_sleep=1)
+
+    def test_click_back_to_menu_uses_base_back_lookup(self):
+        # 活动子页返回键样式逐期变（common_back 模板在签到页实测仅 0.41），走基类三层兜底定位。
+        back = Box(26, 1342, 37, 35, confidence=1, name='common_back')
+        with patch.object(self.task, '_find_back_button', return_value=back) as find_mock, \
+                patch.object(self.task, 'click_box') as click_mock:
+            self.task._click_back_to_menu()
+        find_mock.assert_called_once()
+        click_mock.assert_called_once_with(back, after_sleep=1)
+
+    def test_click_back_to_menu_raises_without_button(self):
+        with patch.object(self.task, '_find_back_button', return_value=None), \
+                patch.object(self.task, 'click_box', side_effect=AssertionError('无按钮不应点击')):
+            self.assertRaises(WaitFailedException, self.task._click_back_to_menu)
 
     def test_ensure_event_menu_closes_detail_page_first(self):
         with patch.object(self.task, '_probe_event_main', return_value=False), \
@@ -241,6 +256,124 @@ class TestEventTask(_DebugOffTestCase):
             self.task._enter_and_probe(row)
         recover_mock.assert_called_once()
 
+    def test_enter_event_returns_true_and_waits_menu(self):
+        row = Box(10, 10, 20, 20, confidence=1, name='row')
+        with patch.object(self.task, 'click_box') as click_mock, \
+                patch.object(self.task, 'wait_until', return_value=True), \
+                patch.object(self.task, '_wait_menu_ready') as menu_ready_mock, \
+                patch.object(self.task, '_run_event_subflows', side_effect=AssertionError('_enter_event 不应执行子流程')):
+            self.assertTrue(self.task._enter_event(row))
+        click_mock.assert_called_once_with(row, after_sleep=2)  # 点击卡片进入。
+        menu_ready_mock.assert_called_once()  # 确认进入后先等菜单栏就绪。
+
+    def test_enter_event_returns_false_without_confirmation(self):
+        row = Box(10, 10, 20, 20, confidence=1, name='row')
+        with patch.object(self.task, 'click_box'), \
+                patch.object(self.task, 'wait_until', return_value=False), \
+                patch.object(self.task, '_wait_menu_ready', side_effect=AssertionError('未确认进入不应等菜单')):
+            self.assertFalse(self.task._enter_event(row))
+
+    def test_process_event_list_sets_current_event_context(self):
+        # 子流程失败恢复回大厅后重入需要当前活动上下文：处理期间 _current_event 必须指向该活动。
+        event = _fake_event('key1', '活动A', 'https://cdn/x.png')
+        row = Box(10, 10, 20, 20, confidence=1, name='row')
+        seen = {}
+
+        def probe(box):
+            seen['key'] = self.task._current_event.key  # 处理中应能取到当前活动。
+
+        with patch.object(self.task, '_pending_events', return_value=[event]), \
+                patch.object(self.task, '_reposition_list', return_value=True), \
+                patch.object(self.task, '_find_event_row', side_effect=[row, None]), \
+                patch.object(self.task, '_enter_and_probe', side_effect=probe), \
+                patch.object(self.task, '_recover_to_lobby', return_value=True):
+            self.task._process_event_list()
+        self.assertEqual('key1', seen['key'])  # 处理时上下文已设置。
+        self.assertIsNone(self.task._current_event)  # 处理结束后清除。
+
+    # ---- 失败恢复回大厅后的重入（_nav_to_event_main / _locate_event_row） ----
+
+    def test_nav_to_event_main_noop_when_already_on_menu(self):
+        with patch.object(self.task, 'is_screen', return_value=True), \
+                patch.object(self.task, 'ensure_screen', side_effect=AssertionError('已在主页不应导航')), \
+                patch.object(self.task, '_ensure_event_menu', side_effect=AssertionError('已在主页不应退回')):
+            self.task._nav_to_event_main()
+
+    def test_nav_to_event_main_returns_from_sub_page(self):
+        # 在活动子页面（关卡列表页/详情页）：逐级退回菜单页，不重新从大厅进入。
+        with patch.object(self.task, 'is_screen', return_value=False), \
+                patch.object(self.task, '_probe_event_context', return_value=True), \
+                patch.object(self.task, '_ensure_event_menu') as menu_mock, \
+                patch.object(self.task, 'ensure_screen', side_effect=AssertionError('子页面不应回大厅')):
+            self.task._nav_to_event_main()
+        menu_mock.assert_called_once()
+
+    def test_nav_to_event_main_reenters_from_lobby(self):
+        # 失败恢复回大厅后：用当前活动上下文经 大厅→列表→banner 定位重新进入活动主页。
+        event = _fake_event('key1', '活动A', 'https://cdn/x.png')
+        row = Box(10, 10, 20, 20, confidence=1, name='row')
+        self.task._current_event = event
+        with patch.object(self.task, 'is_screen', return_value=False), \
+                patch.object(self.task, '_probe_event_context', return_value=False), \
+                patch.object(self.task, 'ensure_screen') as lobby_mock, \
+                patch.object(self.task, '_enter_event_list') as list_mock, \
+                patch.object(self.task, '_locate_event_row', return_value=row) as locate_mock, \
+                patch.object(self.task, '_enter_event', return_value=True) as enter_mock, \
+                patch.object(self.task, '_run_event_subflows', side_effect=AssertionError('重入不应触发子流程')):
+            self.task._nav_to_event_main()
+        lobby_mock.assert_called_once_with('lobby')
+        list_mock.assert_called_once()
+        locate_mock.assert_called_once_with(event)
+        enter_mock.assert_called_once_with(row)  # 只进活动，不递归探测子流程。
+
+    def test_nav_to_event_main_raises_without_context(self):
+        self.task._current_event = None
+        with patch.object(self.task, 'is_screen', return_value=False), \
+                patch.object(self.task, '_probe_event_context', return_value=False), \
+                patch.object(self.task, 'ensure_screen', side_effect=AssertionError('无上下文不应回大厅')):
+            self.assertRaises(WaitFailedException, self.task._nav_to_event_main)
+
+    def test_nav_to_event_main_raises_when_row_not_located(self):
+        event = _fake_event('key1', '活动A', 'https://cdn/x.png')
+        self.task._current_event = event
+        with patch.object(self.task, 'is_screen', return_value=False), \
+                patch.object(self.task, '_probe_event_context', return_value=False), \
+                patch.object(self.task, 'ensure_screen'), \
+                patch.object(self.task, '_enter_event_list'), \
+                patch.object(self.task, '_locate_event_row', return_value=None), \
+                patch.object(self.task, '_enter_event', side_effect=AssertionError('未定位不应进入')):
+            self.assertRaises(WaitFailedException, self.task._nav_to_event_main)
+
+    def test_nav_to_event_main_raises_when_enter_not_confirmed(self):
+        event = _fake_event('key1', '活动A', 'https://cdn/x.png')
+        self.task._current_event = event
+        with patch.object(self.task, 'is_screen', return_value=False), \
+                patch.object(self.task, '_probe_event_context', return_value=False), \
+                patch.object(self.task, 'ensure_screen'), \
+                patch.object(self.task, '_enter_event_list'), \
+                patch.object(self.task, '_locate_event_row', return_value=Box(1, 1, 2, 2, confidence=1, name='row')), \
+                patch.object(self.task, '_enter_event', return_value=False):
+            self.assertRaises(WaitFailedException, self.task._nav_to_event_main)
+
+    def test_locate_event_row_scrolls_until_found(self):
+        event = _fake_event('key1', '活动A', 'https://cdn/x.png')
+        row = Box(10, 10, 20, 20, confidence=1, name='row')
+        with patch.object(self.task, '_scroll_list_to_top') as top_mock, \
+                patch.object(self.task, '_scroll_list_down', return_value=True) as down_mock, \
+                patch.object(self.task, '_find_event_row', side_effect=[None, row]) as find_mock:
+            found = self.task._locate_event_row(event)
+        self.assertEqual(row, found)
+        top_mock.assert_called_once()  # 先归一到顶部再逐位下滚。
+        self.assertEqual(1, down_mock.call_count)  # 第一个位置未命中，下滚一位才命中。
+        self.assertEqual(2, find_mock.call_count)
+
+    def test_locate_event_row_returns_none_when_bottom(self):
+        event = _fake_event('key1', '活动A', 'https://cdn/x.png')
+        with patch.object(self.task, '_scroll_list_to_top'), \
+                patch.object(self.task, '_scroll_list_down', return_value=False), \
+                patch.object(self.task, '_find_event_row', return_value=None):
+            self.assertIsNone(self.task._locate_event_row(event))  # 到底仍未命中返回 None。
+
     def test_run_event_subflows_small_event_scenario(self):
         # 小活动场景：签到/商店探测不到（None 不报错不阻塞），剧情/挑战/任务正常执行。
         def probe(label):
@@ -297,6 +430,311 @@ class TestEventTask(_DebugOffTestCase):
         with patch.object(self.task, '_probe_entry', return_value=False), \
                 patch.object(self.task, 'try_step', side_effect=AssertionError('探测不到不应执行')):
             self.task._do_checkin()
+
+    # ---- 签到印章流程（仅大活动；面板判据走 OCR 文字，同登录奖励） ----
+
+    def _checkin_claim_box(self):
+        return Box(1150, 1250, 260, 60, confidence=1, name='全部领取')
+
+    def test_find_checkin_claim_all_scans_panel_region(self):
+        hit = self._checkin_claim_box()
+        with patch.object(self.task, 'box_of_screen', return_value=Box(0, 0, 10, 10, confidence=1, name='area')) as area_mock, \
+                patch.object(self.task, 'ocr', return_value=[hit]) as ocr_mock:
+            found = self.task._find_checkin_claim_all()
+        self.assertEqual(hit, found)
+        ocr_mock.assert_called_once()
+        from src.tasks.EventTask import _CHECKIN_CLAIM_TEXT
+        self.assertEqual([_CHECKIN_CLAIM_TEXT], ocr_mock.call_args.kwargs['match'])  # 用固定文案判据。
+
+    def test_find_checkin_claim_all_returns_none_without_hit(self):
+        with patch.object(self.task, 'box_of_screen', return_value=Box(0, 0, 10, 10, confidence=1, name='area')), \
+                patch.object(self.task, 'ocr', return_value=[]):
+            self.assertIsNone(self.task._find_checkin_claim_all())
+
+    def test_checkin_button_box_pads_text_box(self):
+        from src.tasks.EventTask import _CHECKIN_CLAIM_PAD
+        text = Box(1000, 1200, 200, 50, confidence=1, name='全部领取')
+        padded = self.task._checkin_button_box(text)
+        self.assertLess(padded.x, text.x)  # 水平外扩到按钮底色。
+        self.assertLess(padded.y, text.y)  # 垂直外扩。
+        self.assertGreater(padded.width, text.width)
+        self.assertGreater(padded.height, text.height)
+        self.assertAlmostEqual(text.width * _CHECKIN_CLAIM_PAD[0], text.x - padded.x)  # 外扩量为比例值。
+
+    def test_flow_checkin_claims_then_returns_to_menu(self):
+        # 正常路径：进签到 → 等界面就绪 → 全部领取（彩色可用）→ 清遮罩 → 点返回回菜单页。
+        entry = Box(60, 10, 30, 10, confidence=1, name='签到印章')
+        claim = self._checkin_claim_box()
+        with patch.object(self.task, '_nav_to_event_main') as nav_mock, \
+                patch.object(self.task, '_entry_box', return_value=entry), \
+                patch.object(self.task, 'click_box') as click_mock, \
+                patch.object(self.task, 'wait_until', return_value=True), \
+                patch.object(self.task, '_find_checkin_claim_all', return_value=claim), \
+                patch.object(self.task, 'is_feature_enabled', return_value=True) as enabled_mock, \
+                patch.object(self.task, 'close_overlay') as overlay_mock, \
+                patch.object(self.task, '_ensure_event_menu') as back_mock:
+            self.task._flow_checkin()
+        nav_mock.assert_called_once()  # 进入前就位活动主页。
+        click_mock.assert_any_call(entry, after_sleep=2)  # 点签到入口。
+        click_mock.assert_any_call(claim, after_sleep=1)  # 点全部领取。
+        enabled_mock.assert_called_once()  # 判一次按钮底色。
+        overlay_mock.assert_called_once()  # 领后清奖励遮罩。
+        back_mock.assert_called_once()  # 点返回键回菜单页（整页界面，非模态窗）。
+
+    def test_flow_checkin_skips_claim_when_button_disabled(self):
+        # 按钮灰白（今日已领完）：不点击领取，仍点返回回菜单页。
+        entry = Box(60, 10, 30, 10, confidence=1, name='签到印章')
+        claim = self._checkin_claim_box()
+        with patch.object(self.task, '_nav_to_event_main'), \
+                patch.object(self.task, '_entry_box', return_value=entry), \
+                patch.object(self.task, 'click_box') as click_mock, \
+                patch.object(self.task, 'wait_until', return_value=True), \
+                patch.object(self.task, '_find_checkin_claim_all', return_value=claim), \
+                patch.object(self.task, 'is_feature_enabled', return_value=False), \
+                patch.object(self.task, 'close_overlay', side_effect=AssertionError('无可领不应清遮罩')), \
+                patch.object(self.task, '_ensure_event_menu') as back_mock:
+            self.task._flow_checkin()
+        self.assertNotIn(claim, [call.args[0] for call in click_mock.call_args_list])  # 灰白不点领取。
+        back_mock.assert_called_once()  # 仍要点返回。
+
+    def test_flow_checkin_interface_timeout_still_returns(self):
+        # 界面未在到达窗口内打开（SD 小人没走到/当期无签到）：告警后仍点返回回菜单页，不抛异常。
+        from src.tasks.EventTask import _SD_ARRIVE_TIMEOUT
+        entry = Box(60, 10, 30, 10, confidence=1, name='签到印章')
+        with patch.object(self.task, '_nav_to_event_main'), \
+                patch.object(self.task, '_entry_box', return_value=entry), \
+                patch.object(self.task, 'click_box'), \
+                patch.object(self.task, 'wait_until', return_value=False) as wait_mock, \
+                patch.object(self.task, 'log_warning') as warn_mock, \
+                patch.object(self.task, 'is_feature_enabled', side_effect=AssertionError('界面未开不应判态')), \
+                patch.object(self.task, 'close_overlay', side_effect=AssertionError('界面未开不应清遮罩')), \
+                patch.object(self.task, '_ensure_event_menu') as back_mock:
+            self.task._flow_checkin()
+        self.assertEqual(_SD_ARRIVE_TIMEOUT, wait_mock.call_args.kwargs['time_out'])  # 用到达等待窗口。
+        warn_mock.assert_called_once()
+        back_mock.assert_called_once()  # 兜底回菜单页。
+
+    def test_flow_checkin_missing_entry_raises(self):
+        with patch.object(self.task, '_nav_to_event_main'), \
+                patch.object(self.task, '_entry_box', return_value=None), \
+                patch.object(self.task, 'click_box', side_effect=AssertionError('入口缺失不应点击')):
+            self.assertRaises(WaitFailedException, self.task._flow_checkin)
+
+    # ---- 挑战流程（大小活动都有，同一套 UI；进入方式差异靠「只点一次 + 轮询等页面」吸收） ----
+
+    def _challenge_entry(self):
+        return Box(60, 10, 30, 10, confidence=1, name='挑战')
+
+    def _challenge_stage(self, y=985, x=1600):
+        return Box(x, y, 25, 42, confidence=1, name='event_challenge_stage')
+
+    def _challenge_quick_box(self):
+        return Box(1343, 1223, 34, 30, confidence=1, name='box_stage_detail_quick_battle')
+
+    def _challenge_battle_box(self):
+        return Box(1344, 1344, 37, 33, confidence=1, name='box_stage_detail_battle')
+
+    def test_flow_challenge_enters_and_returns_to_menu_when_no_stage(self):
+        # 进入路径：就位主页 → 定位挑战入口 → 只点一次 → 轮询等挑战页 → 无可用关卡则直接回菜单页。
+        entry = self._challenge_entry()
+        with patch.object(self.task, '_nav_to_event_main') as nav_mock, \
+                patch.object(self.task, '_entry_box', return_value=entry) as entry_mock, \
+                patch.object(self.task, 'click_box') as click_mock, \
+                patch.object(self.task, 'wait_until', return_value=True) as wait_mock, \
+                patch.object(self.task, 'is_screen', return_value=True), \
+                patch.object(self.task, '_find_available_challenge_stage', return_value=None), \
+                patch.object(self.task, '_ensure_event_menu') as back_mock:
+            self.task._flow_challenge()
+        nav_mock.assert_called_once()  # 进入前就位活动主页。
+        entry_mock.assert_called_once_with('挑战')  # 定位挑战入口。
+        click_mock.assert_called_once_with(entry, after_sleep=2)  # 只点一次（不补点，避免小人走路途中重触发）。
+        from src.tasks.EventTask import _SD_ARRIVE_TIMEOUT
+        self.assertEqual(_SD_ARRIVE_TIMEOUT, wait_mock.call_args.kwargs['time_out'])  # 用共享到达等待窗口。
+        back_mock.assert_called_once()  # 收尾点返回回菜单页。
+
+    def test_flow_challenge_raises_when_page_not_reached(self):
+        # 挑战页未在到达窗口内出现（小人未到达/当期无挑战）：抛异常由 try_step 恢复。
+        entry = self._challenge_entry()
+        with patch.object(self.task, '_nav_to_event_main'), \
+                patch.object(self.task, '_entry_box', return_value=entry), \
+                patch.object(self.task, 'click_box'), \
+                patch.object(self.task, 'wait_until', return_value=False), \
+                patch.object(self.task, '_ensure_event_menu', side_effect=AssertionError('未进入不应收尾')):
+            self.assertRaises(WaitFailedException, self.task._flow_challenge)
+
+    def test_flow_challenge_missing_entry_raises(self):
+        with patch.object(self.task, '_nav_to_event_main'), \
+                patch.object(self.task, '_entry_box', return_value=None), \
+                patch.object(self.task, 'click_box', side_effect=AssertionError('入口缺失不应点击')):
+            self.assertRaises(WaitFailedException, self.task._flow_challenge)
+
+    def test_flow_challenge_quick_battle_available_runs_quick_then_returns(self):
+        # 快速战斗可用：点关卡标记 → 详情页 → 走快速战斗链 → 结算后仍详情页则关页 → 回菜单。
+        entry, stage = self._challenge_entry(), self._challenge_stage()
+        quick = self._challenge_quick_box()
+        with patch.object(self.task, '_nav_to_event_main'), \
+                patch.object(self.task, '_entry_box', return_value=entry), \
+                patch.object(self.task, 'click_box') as click_mock, \
+                patch.object(self.task, 'wait_until', return_value=True), \
+                patch.object(self.task, 'is_screen', return_value=True), \
+                patch.object(self.task, '_find_available_challenge_stage', return_value=stage), \
+                patch.object(self.task, 'wait_feature', return_value=True), \
+                patch.object(self.task, '_optional_box', return_value=quick), \
+                patch.object(self.task, 'is_feature_enabled', return_value=True), \
+                patch.object(self.task, '_run_quick_battle') as quick_mock, \
+                patch.object(self.task, '_detail_page_open', return_value=True), \
+                patch.object(self.task, '_close_stage_detail') as close_mock, \
+                patch.object(self.task, '_ensure_event_menu') as back_mock:
+            self.task._flow_challenge()
+        click_mock.assert_any_call(stage, after_sleep=2)  # 点关卡标记进详情页。
+        quick_mock.assert_called_once()  # 快速战斗可用走快速战斗链。
+        self.assertEqual(quick, quick_mock.call_args.args[0])  # 传入快速战斗区域。
+        close_mock.assert_called_once_with(to_screen='event_challenge_page')  # 结算落回详情页则关页回挑战页。
+        back_mock.assert_called_once()  # 收尾回菜单。
+
+    def test_flow_challenge_normal_battle_when_quick_disabled(self):
+        # 快速战斗灰白 → 普通战斗可用：进战斗界面等结束、点确认，结算回详情页后关页回菜单。
+        entry, stage = self._challenge_entry(), self._challenge_stage()
+        quick, battle = self._challenge_quick_box(), self._challenge_battle_box()
+        confirm = Box(100, 100, 20, 10, confidence=1, name='confirm')
+        with patch.object(self.task, '_nav_to_event_main'), \
+                patch.object(self.task, '_entry_box', return_value=entry), \
+                patch.object(self.task, 'click_box') as click_mock, \
+                patch.object(self.task, 'wait_until', return_value=True), \
+                patch.object(self.task, 'is_screen', return_value=True), \
+                patch.object(self.task, '_find_available_challenge_stage', return_value=stage), \
+                patch.object(self.task, 'wait_feature', return_value=True), \
+                patch.object(self.task, '_optional_box', side_effect=lambda name: {'box_stage_detail_quick_battle': quick,
+                                                                                    'box_stage_detail_battle': battle}.get(name)), \
+                patch.object(self.task, 'is_feature_enabled', side_effect=lambda box: box is battle), \
+                patch.object(self.task, '_run_quick_battle', side_effect=AssertionError('快速灰白不应走快速战斗')), \
+                patch.object(self.task, '_skip_story_if_present') as skip_mock, \
+                patch.object(self.task, 'wait_battle_finish', return_value=('success', confirm)) as battle_wait, \
+                patch.object(self.task, '_detail_page_open', return_value=True), \
+                patch.object(self.task, '_close_stage_detail') as close_mock, \
+                patch.object(self.task, '_ensure_event_menu') as back_mock:
+            self.task._flow_challenge()
+        click_mock.assert_any_call(battle, after_sleep=2)  # 点「战斗」进战斗界面。
+        skip_mock.assert_called_once()  # 进战斗可能先播剧情，尝试跳过。
+        battle_wait.assert_called_once()  # 等战斗结束。
+        click_mock.assert_any_call(confirm, after_sleep=10)  # 点结算返回键。
+        close_mock.assert_called_once_with(to_screen='event_challenge_page')
+        back_mock.assert_called_once()
+
+    def test_flow_challenge_both_disabled_closes_detail_and_returns(self):
+        # 快速战斗与普通战斗都不可用 = 今日已挑战无次数：关详情页回挑战页，再点返回回菜单。
+        entry, stage = self._challenge_entry(), self._challenge_stage()
+        quick, battle = self._challenge_quick_box(), self._challenge_battle_box()
+        with patch.object(self.task, '_nav_to_event_main'), \
+                patch.object(self.task, '_entry_box', return_value=entry), \
+                patch.object(self.task, 'click_box') as click_mock, \
+                patch.object(self.task, 'wait_until', return_value=True), \
+                patch.object(self.task, 'is_screen', return_value=True), \
+                patch.object(self.task, '_find_available_challenge_stage', return_value=stage), \
+                patch.object(self.task, 'wait_feature', return_value=True), \
+                patch.object(self.task, '_optional_box', side_effect=lambda name: {'box_stage_detail_quick_battle': quick,
+                                                                                    'box_stage_detail_battle': battle}.get(name)), \
+                patch.object(self.task, 'is_feature_enabled', return_value=False), \
+                patch.object(self.task, '_run_quick_battle', side_effect=AssertionError('都灰白不应走战斗')), \
+                patch.object(self.task, 'wait_battle_finish', side_effect=AssertionError('都灰白不应进战斗')), \
+                patch.object(self.task, '_detail_page_open', return_value=True), \
+                patch.object(self.task, '_close_stage_detail') as close_mock, \
+                patch.object(self.task, '_ensure_event_menu') as back_mock:
+            self.task._flow_challenge()
+        click_mock.assert_any_call(stage, after_sleep=2)  # 仍点了关卡标记进详情页。
+        close_mock.assert_called_once_with(to_screen='event_challenge_page')  # 关详情页回挑战页。
+        back_mock.assert_called_once()  # 回菜单。
+
+    def test_flow_challenge_stage_click_lands_not_on_detail(self):
+        # 点关卡标记后未进详情页（异常落点）：告警 + 兜底回菜单，不做任何战斗。
+        entry, stage = self._challenge_entry(), self._challenge_stage()
+        with patch.object(self.task, '_nav_to_event_main'), \
+                patch.object(self.task, '_entry_box', return_value=entry), \
+                patch.object(self.task, 'click_box'), \
+                patch.object(self.task, 'wait_until', return_value=True), \
+                patch.object(self.task, 'is_screen', return_value=True), \
+                patch.object(self.task, '_find_available_challenge_stage', return_value=stage), \
+                patch.object(self.task, 'wait_feature', return_value=False), \
+                patch.object(self.task, 'log_warning') as warn_mock, \
+                patch.object(self.task, '_run_quick_battle', side_effect=AssertionError('未进详情页不应战斗')), \
+                patch.object(self.task, '_detail_page_open', side_effect=AssertionError('未进详情页不应判详情页')), \
+                patch.object(self.task, '_ensure_event_menu') as back_mock:
+            self.task._flow_challenge()
+        warn_mock.assert_called_once()
+        back_mock.assert_called_once()  # 兜底回菜单页。
+
+    def test_find_available_challenge_stage_picks_bottom_most_enabled(self):
+        # 自下而上找第一个可用：最低的关卡灰白，取次低的可用关卡。
+        low = self._challenge_stage(y=985)
+        high = self._challenge_stage(y=700)
+        list_box = Box(1580, 509, 66, 788, confidence=1, name='box_event_challenge_stage_list')
+        with patch.object(self.task, '_optional_box', return_value=list_box), \
+                patch.object(self.task, 'find_feature', return_value=[high, low]), \
+                patch.object(self.task, 'is_feature_enabled', side_effect=lambda box: box is high):
+            found = self.task._find_available_challenge_stage()
+        self.assertEqual(high, found)  # 最低的灰白被跳过，取次低可用。
+
+    def test_find_available_challenge_stage_none_when_all_disabled(self):
+        stages = [self._challenge_stage(y=985), self._challenge_stage(y=700)]
+        list_box = Box(1580, 509, 66, 788, confidence=1, name='box_event_challenge_stage_list')
+        with patch.object(self.task, '_optional_box', return_value=list_box), \
+                patch.object(self.task, 'find_feature', return_value=stages), \
+                patch.object(self.task, 'is_feature_enabled', return_value=False):
+            self.assertIsNone(self.task._find_available_challenge_stage())
+
+    def test_find_available_challenge_stage_none_when_region_missing(self):
+        with patch.object(self.task, '_optional_box', return_value=None), \
+                patch.object(self.task, 'find_feature', side_effect=AssertionError('区域缺失不应匹配')):
+            self.assertIsNone(self.task._find_available_challenge_stage())
+
+    def test_find_available_challenge_stage_none_when_feature_missing(self):
+        list_box = Box(1580, 509, 66, 788, confidence=1, name='box_event_challenge_stage_list')
+        with patch.object(self.task, '_optional_box', return_value=list_box), \
+                patch.object(self.task, 'find_feature', side_effect=ValueError('missing')):
+            self.assertIsNone(self.task._find_available_challenge_stage())
+
+    def test_run_quick_battle_pulls_max_and_confirms(self):
+        # 快速战斗链：点按钮 → 等次数弹窗 → 拉满 → 开始 → 等结算 → 点结算确认。
+        from src.tasks.EventTask import _SWEEP_PAGE_FEATURE, _SWEEP_START_BOX
+        quick = self._challenge_quick_box()
+        max_btn = Box(1424, 991, 75, 44, confidence=1, name='custom_quick_battle_max')
+        confirm = Box(100, 100, 20, 10, confidence=1, name='confirm')
+        with patch.object(self.task, 'click_box') as click_mock, \
+                patch.object(self.task, 'wait_feature') as wait_mock, \
+                patch.object(self.task, 'find_one', return_value=max_btn), \
+                patch.object(self.task, 'wait_battle_finish', return_value=('success', confirm)):
+            result = self.task._run_quick_battle(quick, label='挑战')
+        self.assertEqual('success', result)
+        click_mock.assert_any_call(quick, after_sleep=1)  # 点快速战斗。
+        click_mock.assert_any_call(max_btn, after_sleep=1)  # 拉满次数。
+        click_mock.assert_any_call(_SWEEP_START_BOX, after_sleep=1)  # 点开始。
+        click_mock.assert_any_call(confirm, after_sleep=2)  # 点结算确认。
+        self.assertEqual(_SWEEP_PAGE_FEATURE, wait_mock.call_args.args[0])  # 等次数弹窗就位。
+
+    def test_run_quick_battle_timeout_raises(self):
+        quick = self._challenge_quick_box()
+        with patch.object(self.task, 'click_box'), \
+                patch.object(self.task, 'wait_feature'), \
+                patch.object(self.task, 'find_one', return_value=None), \
+                patch.object(self.task, 'wait_battle_finish', return_value=(None, None)):
+            self.assertRaises(WaitFailedException, self.task._run_quick_battle, quick)
+
+    def test_close_stage_detail_asserts_target_screen(self):
+        # _close_stage_detail 可指定回退目标页（挑战回挑战页，剧情/扫荡默认回关卡页）。
+        with patch.object(self.task, 'wait_click_feature') as click_mock, \
+                patch.object(self.task, 'assert_screen') as assert_mock:
+            self.task._close_stage_detail(to_screen='event_challenge_page')
+        click_mock.assert_called_once_with('stage_detail_close', raise_if_not_found=True, after_sleep=1)
+        assert_mock.assert_called_once_with('event_challenge_page', time_out=15)
+
+    def test_probe_event_context_includes_challenge_page(self):
+        # 挑战页也算「在活动内」：失败恢复回大厅后的重入据此走 _ensure_event_menu 而非绕道大厅。
+        def fake_is_screen(name):
+            return name == 'event_challenge_page'
+        with patch.object(self.task, 'is_screen', side_effect=fake_is_screen), \
+                patch.object(self.task, '_probe_event_main', return_value=False), \
+                patch.object(self.task, '_detail_page_open', return_value=False):
+            self.assertTrue(self.task._probe_event_context())
 
     def test_probe_entry_uses_menu_band_and_keywords(self):
         menu = Box(0, 0, 100, 50, confidence=1, name='menu')
@@ -651,20 +1089,20 @@ class TestEventTask(_DebugOffTestCase):
     def test_flow_story_pushes_target_then_returns_to_event_main(self):
         target = self._story_row('1-05')
         entry = Box(60, 10, 30, 10, confidence=1, name='STORY II')
-        with patch.object(self.task, 'ensure_screen') as gate_mock, \
+        with patch.object(self.task, '_nav_to_event_main') as nav_mock, \
                 patch.object(self.task, '_entry_box', return_value=entry), \
                 patch.object(self.task, 'transition') as transition_mock, \
                 patch.object(self.task, '_progress_target', return_value=target), \
                 patch.object(self.task, '_push_stages') as push_mock:
             self.task._flow_story()
-        gate_mock.assert_called_once_with('event_main', wait_enter=3)  # 子流程闸门。
+        nav_mock.assert_called_once()  # 子流程闸门：就位活动主页（恢复回大厅后由此重入）。
         self.assertEqual(['event_stage_page', 'event_main'],
                          [call.args[0] for call in transition_mock.call_args_list])  # 进关卡页 → 收尾回活动菜单页。
         self.assertEqual(entry, transition_mock.call_args_list[0].kwargs['box'])  # 用剧情入口命中框点击。
         push_mock.assert_called_once_with(target)  # 推图目标透传。
 
     def test_flow_story_without_target_only_returns_to_event_main(self):
-        with patch.object(self.task, 'ensure_screen'), \
+        with patch.object(self.task, '_nav_to_event_main'), \
                 patch.object(self.task, '_entry_box', return_value=Box(60, 10, 30, 10, confidence=1, name='STORY II')), \
                 patch.object(self.task, 'transition') as transition_mock, \
                 patch.object(self.task, '_progress_target', return_value=None), \
@@ -712,7 +1150,7 @@ class TestEventTask(_DebugOffTestCase):
         scan_mock.assert_called_once()  # 区域缺失也走兜底（兜底内部自行返回空）。
 
     def test_flow_story_missing_entry_raises(self):
-        with patch.object(self.task, 'ensure_screen'), \
+        with patch.object(self.task, '_nav_to_event_main'), \
                 patch.object(self.task, '_entry_box', return_value=None), \
                 patch.object(self.task, 'transition', side_effect=AssertionError('入口缺失不应进入关卡页')):
             self.assertRaises(WaitFailedException, self.task._flow_story)
@@ -908,7 +1346,7 @@ class TestEventTask(_DebugOffTestCase):
     def test_flow_story_pushes_then_sweeps(self):
         calls = []
         self.task.config['扫荡'] = True
-        with patch.object(self.task, 'ensure_screen'), \
+        with patch.object(self.task, '_nav_to_event_main'), \
                 patch.object(self.task, '_entry_box', return_value=Box(10, 10, 20, 20, confidence=1, name='STORY II')), \
                 patch.object(self.task, 'transition'), \
                 patch.object(self.task, '_progress_target', return_value=self._story_row()), \
@@ -921,7 +1359,7 @@ class TestEventTask(_DebugOffTestCase):
         self.task.config['剧情'] = False
         self.task.config['扫荡'] = True
         self.task.config['扫荡关卡'] = '1-09'
-        with patch.object(self.task, 'ensure_screen'), \
+        with patch.object(self.task, '_nav_to_event_main'), \
                 patch.object(self.task, '_entry_box', return_value=Box(10, 10, 20, 20, confidence=1, name='STORY II')), \
                 patch.object(self.task, 'transition') as transition_mock, \
                 patch.object(self.task, '_scan_stage_rows', side_effect=AssertionError('剧情关闭不应扫描推图')), \

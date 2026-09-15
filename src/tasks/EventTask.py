@@ -60,6 +60,21 @@ _SWEEP_MAX_FEATURE = "custom_quick_battle_max"  # 次数选择弹窗的「拉满
 _SWEEP_START_BOX = "box_custom_quick_battle_start"  # 次数选择弹窗的「开始」按钮区域（与个人突袭快速战斗共用）。
 _SWEEP_CLOSE_FEATURE = "stage_detail_close"  # 关卡详情页右上关闭按钮特征（判详情页就位 / 收尾关闭共用）。
 
+# 挑战（大小活动都有，同一套 UI）：进入后自下而上找第一个可用关卡标记，点开详情页走快速/普通战斗。
+# 判据全用 coco 特征（关卡标记 + 列表区），可用性（非灰白）用 is_feature_enabled 判态。
+_CHALLENGE_LIST_BOX = "box_event_challenge_stage_list"  # 挑战关卡列表区域（关卡标记的搜索/定位范围）。
+_CHALLENGE_STAGE_FEATURE = "event_challenge_stage"  # 单个挑战关卡标记（可点击 + 判态；自下而上取第一个可用）。
+
+# 大活动子页面到达等待（秒）：点击底部菜单入口后，SD 小人先走到地点、子界面才打开（签到/挑战共用同一物理量）。
+# 小活动点击入口即切页，轮询首帧就命中，故本窗口只影响大活动「小人走过去」的耗时；一处校准两处受益。
+_SD_ARRIVE_TIMEOUT = 12  # 点到子界面出现的等待上限（秒）：轮询命中即提前返回，仅小人未到达时才等满。
+
+# 签到印章（仅大活动）：入口点击后 SD 小人需走到签到地点，奖励界面才出现（到达等待见 _SD_ARRIVE_TIMEOUT）。
+# 领取判据只认「全部领取」文字（OCR）——签到面板美术逐期变，模板类判据必失效（同登录奖励的思路）。
+_CHECKIN_CLAIM_TEXT = re.compile("全部领取", re.IGNORECASE)  # 「全部领取」按钮文字（跨皮肤唯一稳定判据，OCR 部分匹配）。
+_CHECKIN_CLAIM_BOX = (1 / 3, 0.6, 2 / 3, 1.0)  # 签到面板「全部领取」按钮的 OCR 搜索区域（相对坐标 x1,y1,x2,y2；实机校准）。
+_CHECKIN_CLAIM_PAD = (0.2, 0.36)  # 文字框外扩比例（宽, 高）：外扩取到按钮底色才能判可领与否（同登录奖励，比例外扩适配各分辨率）。
+
 # 活动主页功能入口探测表：label -> 关键词正则列表（列表顺序即探测顺序）。
 # OCR 在 _MENU_BAND_BOXES 各区域内逐区匹配；预留 feature 位：实机若发现某入口只有图标无文字，
 # 再改成 {label: (feature, [keywords])} 形式补 coco 特征匹配（handoff §1）。
@@ -109,6 +124,7 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
         super().__init__(*args, **kwargs)  # 必须先调用父类初始化。
         self.name = "活动"  # 任务显示名称。
         self.description = "自动处理限时活动（剧情/扫荡/挑战/任务/商店/签到印章）。"  # 任务说明。
+        self._current_event = None  # 当前处理的活动（日历条目）；失败恢复回大厅后重入时用它 banner 定位。
         self.default_config.update({  # 子流程专属设置，独立持久化到 configs/。
             "签到": True,  # 是否收取活动签到印章奖励（仅大活动）。
             "剧情": True,  # 是否推进活动剧情。
@@ -176,15 +192,24 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
     def _probe_event_main(self):  # 探测当前是否处于活动主页。
         return self.is_screen("event_main")  # 单帧判定（进入后的动画容忍由 _enter_and_probe 的轮询负责）。
 
-    def _probe_event_context(self):  # 探测当前是否已在活动内（活动主页 / 关卡页 / 关卡详情页）。
-        return self._probe_event_main() or self.is_screen("event_stage_page") or self._detail_page_open()  # 任一命中即视为在活动内。
+    def _probe_event_context(self):  # 探测当前是否已在活动内（活动主页 / 关卡页 / 挑战页 / 关卡详情页）。
+        return (self._probe_event_main() or self.is_screen("event_stage_page")  # 主页 / 剧情关卡页。
+                or self.is_screen("event_challenge_page") or self._detail_page_open())  # 挑战页 / 详情页（任一命中即视为在活动内）。
 
-    def _ensure_event_menu(self):  # 把活动子页面退回活动菜单页（已在菜单页则不动），供接管分支使用。
+    def _ensure_event_menu(self):  # 把活动子页面退回活动菜单页（已在菜单页则不动），供接管分支与重入使用。
         if self._probe_event_main():  # 已在活动菜单页（主页）。
             return  # 无需导航。
         if self._detail_page_open():  # 关卡详情页。
             self._close_stage_detail()  # 先关到关卡列表页。
-        self.transition("event_main", click_feature="common_back", wait_confirm=10, after_sleep=1)  # 关卡列表页 → 活动菜单页。
+        # 返回键样式逐期/逐子页不同（签到等活动子页的 common_back 模板实测仅 0.41，模板匹配会失败），
+        # 故走基类 _find_back_button（模板精确 → 左下角区域兜底 → OCR「返回」三层）。
+        self.transition("event_main", click=self._click_back_to_menu, wait_confirm=10, after_sleep=1)  # 子页面 → 活动菜单页。
+
+    def _click_back_to_menu(self):  # 点击活动子页面的返回按钮回菜单页（基类三层兜底定位，功能同 click_box(common_back)）。
+        back = self._find_back_button()  # 模板精确 → 左下角区域模板 → OCR「返回」。
+        if back is None:  # 三层都未命中（页面非活动子页或按钮被遮挡）。
+            raise WaitFailedException("未找到活动子页面返回按钮")  # 抛异常由 try_step/transition 处理。
+        self.click_box(back, after_sleep=1)  # 点击返回键。
 
     def _takeover_event(self):  # 接管流程：已在活动内时先回到菜单页，再逐入口探测执行已开启子流程。
         self._ensure_event_menu()  # 子页面先退回菜单页（菜单带不在子页面上）。
@@ -209,7 +234,9 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
                 row = self._find_event_row(event)  # banner 匹配定位该活动所在行。
                 if row is None:  # 当前滚动位置没有该活动。
                     continue  # 下一个活动。
+                self._current_event = event  # 记录当前活动，供子流程失败恢复回大厅后重入时 banner 定位。
                 self._enter_and_probe(row)  # 点击进入并确认是活动，命中则执行子流程。
+                self._current_event = None  # 处理结束清除上下文，避免下次重入定位到错误活动。
                 processed.add(event.key)  # 记录已处理。
                 unmatched.discard(event.key)  # 已定位到卡片，不再算未匹配。
                 if not self._recover_to_lobby():  # 活动页返回键直接回大厅，此处确认已回大厅。
@@ -303,7 +330,7 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
             return None  # 视为该活动当前不可定位。
         return self.find_event_row(event.name, path)  # 在 box_event_banner_area 内匹配该活动行。
 
-    def _enter_and_probe(self, row_box):  # 点击卡片进入：轮询等 event_main 确认是活动；超时判非活动条目并退回大厅。
+    def _enter_event(self, row_box):  # 点击卡片进入活动主页并等菜单就绪；返回是否确认为活动（超时判非活动条目）。
         self.click_box(row_box, after_sleep=2)  # 点击卡片（点击源由调用方定位）。
         # 入场动画容忍 + 遮罩清理：特殊活动页面可能有入场动画或「点击任意处/跳过」遮罩，
         # 轮询期间每轮顺手清理遮罩（dismiss_all_popups 无遮罩立即返回），超时前不得判「非活动」。
@@ -312,13 +339,45 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
             time_out=12,  # 动画容忍窗口 8~12s。
             pre_action=lambda: self.dismiss_all_popups(wait_for_popup=False, time_out=2),  # 期间清理入场遮罩。
         )
-        if entered:  # 已确认进入活动主页。
-            self.log_info("已进入活动主页，等待菜单栏就绪")  # 记录进入确认与后续等待。
-            self._wait_menu_ready()  # 等菜单栏渲染并停稳再探测（标题先于菜单出现，过早探测会误判子流程全跳过）。
+        if not entered:  # 超时未确认到活动主页 = 抽卡/登录奖励等非活动条目。
+            self.log_info("未进入活动（抽卡/登录奖励等非活动条目）")  # 记录未确认原因。
+            return False  # 由调用方决定退回大厅或抛异常。
+        self.log_info("已进入活动主页，等待菜单栏就绪")  # 记录进入确认与后续等待。
+        self._wait_menu_ready()  # 等菜单栏渲染并停稳再探测（标题先于菜单出现，过早探测会误判子流程全跳过）。
+        return True  # 已确认为活动主页。
+
+    def _enter_and_probe(self, row_box):  # 进入活动并执行子流程（列表处理路径）；非活动条目退回大厅。
+        if self._enter_event(row_box):  # 确认为活动主页（含菜单就绪等待）。
             self._run_event_subflows()  # 进入后按 _ENTRIES 探测各功能入口并执行。
-        else:  # 超时未确认到活动主页 = 抽卡/登录奖励等非活动条目。
-            self.log_info("未进入活动（抽卡/登录奖励等非活动条目），跳过")  # 记录退回原因。
+        else:  # 抽卡/登录奖励等非活动条目。
             self._recover_to_lobby()  # 退回大厅（活动页返回键直接回大厅，此处用恢复协议兜底）。
+
+    def _locate_event_row(self, event):  # 在活动列表页内自上而下滚动定位指定活动的卡片行，返回行 Box；未找到返回 None。
+        self._scroll_list_to_top()  # 归一到顶部再逐位下滚（进入列表页时可能停在任意滚动位置）。
+        for _ in range(_MAX_CARDS):  # 带上限防死循环。
+            row = self._find_event_row(event)  # banner 匹配定位该活动所在行。
+            if row is not None:  # 当前滚动位置命中该活动。
+                return row  # 返回可点击的行 Box。
+            if not self._scroll_list_down(1):  # 下滚一位；到底返回 False。
+                break  # 到底仍未命中。
+        return None  # 遍历上限内未找到。
+
+    def _nav_to_event_main(self):  # 幂等导航到活动主页（子流程闸门 + 失败恢复回大厅后的重入）。
+        if self.is_screen("event_main"):  # 已在活动主页。
+            return  # 无需导航（单帧命中即返回）。
+        if self._probe_event_context():  # 在活动子页面（关卡列表页/关卡详情页）。
+            self._ensure_event_menu()  # 逐级退回活动菜单页。
+            return  # 已就位。
+        event = self._current_event  # 失败恢复回大厅后的重入：需当前活动上下文才能 banner 定位。
+        if event is None:  # 无上下文（非列表处理路径）时无法定位。
+            raise WaitFailedException("不在活动内且无当前活动上下文，无法导航到活动主页")  # 抛异常由 try_step 恢复。
+        self.ensure_screen("lobby")  # 就位游戏大厅（幂等闸门）。
+        self._enter_event_list()  # 大厅 -> 活动列表页。
+        row = self._locate_event_row(event)  # 在列表页内滚动定位当前活动卡片。
+        if row is None:  # 保底包过期/活动已下架：无法重新定位。
+            raise WaitFailedException(f"未能定位活动 {event.key} 的卡片，无法重入活动主页")  # 抛异常由 try_step 恢复。
+        if not self._enter_event(row):  # 点击卡片进入活动主页（含菜单就绪等待）。
+            raise WaitFailedException(f"重入活动 {event.key} 未确认进入活动主页")  # 抛异常由 try_step 恢复。
 
     # ---- 功能子流程 ----
 
@@ -434,9 +493,44 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
         if not self.try_step(self._flow_shop, name="商店", raise_on_fail=False):  # 商店整体流程用恢复协议包裹。
             self.log_warning("商店子流程多次失败，跳过")  # 记录失败原因。
 
-    def _flow_checkin(self):  # 签到印章流程（自足重入）：从活动主页进入签到印章并领取。实机未标定前占位。
-        self.log_info("签到印章流程占位：TODO 实机标定进入/领取判据")  # 记录占位。
-        # TODO: 实机截图后填判据（印章页进入断言 → 领取 → 关闭）。
+    def _flow_checkin(self):  # 签到印章流程（自足重入）：进签到界面 → 等 SD 小人到达 → 全部领取 → 点返回回活动菜单页。
+        # 仅大活动有签到入口（_do_checkin 已按「签到印章」关键词探测）；签到是独立整页界面（非模态窗），
+        # 各期美术不同，进入/可领判据一律走 OCR 文字（同登录奖励），不依赖模板。
+        self._nav_to_event_main()  # 就位活动主页（正常已就位；恢复回大厅后由此重入）。
+        entry = self._entry_box("签到")  # 签到印章入口命中框。
+        if entry is None:  # 入口缺失（菜单未渲染或页面结构变化）。
+            raise WaitFailedException("未找到签到印章入口")  # 抛异常由 try_step 恢复。
+        self.click_box(entry, after_sleep=2)  # 点击签到入口，大活动 SD 小人开始走向签到地点。
+        # 点击后需等小人走到地点，签到奖励界面才打开（期间无按钮可判，只能轮询文字）。
+        if self.wait_until(lambda: self._find_checkin_claim_all() is not None,  # 轮询等「全部领取」出现 = 界面已就绪。
+                           time_out=_SD_ARRIVE_TIMEOUT, settle_time=0):  # 到达等待窗口（界面出现即返回）。
+            claim = self._find_checkin_claim_all()  # 「全部领取」按钮文字框。
+            if self.is_feature_enabled(self._checkin_button_box(claim)):  # 外扩取到按钮底色判态：彩色 = 仍有可领奖励。
+                self.click_box(claim, after_sleep=1)  # 点击全部领取。
+                self.log_info("已点击签到印章「全部领取」")  # 记录动作。
+                # 领取后弹出奖励遮罩（盖住界面），复用登录奖励同一套遮罩清理。
+                self.close_overlay(keywords=(self._MASK_CLAIM_PATTERN, self._MASK_ANYWHERE_PATTERN,
+                                            self._CLICK_TO_PROCEED_PATTERN), time_out=5)  # 遮罩非必现，超时未出现不报错。
+            else:  # 按钮灰白 = 无可领奖励（今日已领完）。
+                self.log_info("签到奖励无可领取（按钮灰白，可能今日已领取）")  # 记录状态。
+        else:  # 界面未在窗口内打开（小人未到达/当期无签到）。
+            self.log_warning("签到奖励界面未在预期时间内打开（SD 小人未到达/当期无签到），跳过领取")  # 记录跳过原因。
+        # 签到是独立整页界面（非模态窗）：点返回键回活动菜单页（已在菜单页则 no-op）。
+        # 注意：不要用 dismiss_all_popups —— 签到界面「全部领取」与登录奖励面板判据同字，
+        # 会被 _close_daily_login_popup 误认成登录奖励面板重复点击（其消歧只认 mission_page）。
+        self._ensure_event_menu()  # 返回活动菜单页，供后续子流程接续。
+
+    def _find_checkin_claim_all(self):  # 在签到面板区域 OCR 识别「全部领取」按钮文字，返回匹配框或 None。
+        boxes = self.ocr(box=self.box_of_screen(*_CHECKIN_CLAIM_BOX),  # 面板按钮所在的特定区域。
+                         match=[_CHECKIN_CLAIM_TEXT])  # 正则部分匹配（兼容拆框/噪声）。
+        return boxes[0] if boxes else None  # 文字长在按钮上，命中即按钮存在。
+
+    def _checkin_button_box(self, text_box):  # 「全部领取」文字框按比例外扩到按钮底色区域（供色彩判态）。
+        pad_w = text_box.width * _CHECKIN_CLAIM_PAD[0]  # 水平外扩量。
+        pad_h = text_box.height * _CHECKIN_CLAIM_PAD[1]  # 垂直外扩量。
+        return Box(text_box.x - pad_w, text_box.y - pad_h,  # 左上各外扩一份。
+                   text_box.width + pad_w * 2, text_box.height + pad_h * 2,  # 尺寸两端各加一份。
+                   name="checkin_claim_button")  # 命名便于日志/调试识别。
 
     # ---- 剧情关卡页 OCR 与解析（方案 §5：全屏/裁剪 → 行锚点切片三级降级） ----
 
@@ -685,9 +779,9 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
         self.log_debug(f"逐屏查找未定位到关卡 {stage_id}")  # 记录未命中。
         return None  # 未找到。
 
-    def _close_stage_detail(self):  # 关闭关卡详情页回活动关卡列表（不可扫荡等收尾路径）。
+    def _close_stage_detail(self, to_screen="event_stage_page"):  # 关闭关卡详情页回退到指定列表页（剧情/扫荡回关卡页，挑战回挑战页）。
         self.wait_click_feature(_SWEEP_CLOSE_FEATURE, raise_if_not_found=True, after_sleep=1)  # 点详情页右上关闭按钮。
-        self.assert_screen("event_stage_page", time_out=15)  # 确认回到活动关卡列表界面。
+        self.assert_screen(to_screen, time_out=15)  # 确认回到目标列表界面（默认活动关卡列表）。
 
     def _sweep_stage(self, stage_id):  # 扫荡：点配置关卡行 → 详情页「快速战斗」（次数拉满）→ 结算回列表，循环到不可用（耗尽）。
         for round_index in range(1, _SWEEP_MAX_ROUNDS + 1):  # 带上限防死循环（次数拉满后正常一轮即耗尽）。
@@ -713,29 +807,51 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
                 self.log_info(f"{stage_id}「快速战斗」为灰白禁用态（与剧情共用门票，可能已被推图耗尽；或该关不可重复挑战），扫荡结束")  # 记录结束原因。
                 self._close_stage_detail()  # 关闭详情页回列表。
                 return  # 结束扫荡。
-            self.click_box(quick_box, after_sleep=1)  # 点「快速战斗」，弹出次数选择弹窗（与个人突袭同款 UI）。
-            self.wait_feature(_SWEEP_PAGE_FEATURE, time_out=10, raise_if_not_found=True)  # 等次数选择弹窗就位（缺失抛异常由 try_step 恢复）。
-            max_btn = self.find_one(_SWEEP_MAX_FEATURE)  # 次数「拉满」按钮（弹窗可能已默认最大值）。
-            if max_btn is not None:  # 识别到拉满按钮。
-                self.click_box(max_btn, after_sleep=1)  # 点拉满剩余次数（默认取最大）。
-                self.log_info("次数弹窗：已点「拉满」，按最大次数开始")  # 记录拉满命中，便于核对每次消耗。
-            else:  # 未识别到拉满按钮。
-                self.log_info("次数弹窗：未识别到「拉满」按钮，按弹窗默认次数开始")  # 记录兜底路径（可能每次只消耗 1 次）。
-            self.click_box(_SWEEP_START_BOX, after_sleep=1)  # 点开始：扫荡直接跳结算画面，不进战斗界面。
-            result, confirm_box = self.wait_battle_finish(time_out=_SWEEP_BATTLE_TIMEOUT)  # 节流等待快速战斗结算画面（只检测不点击）。
-            if confirm_box is None:  # 未识别到结算画面。
-                raise WaitFailedException("未识别到活动扫荡结算画面")  # 抛异常由 try_step 恢复。
-            self.log_info(f"扫荡 {stage_id} 第 {round_index} 轮结束（{result}）")  # 记录结算结果。
-            self.click_box(confirm_box, after_sleep=2)  # 点结算确认关闭结果画面。
+            self._run_quick_battle(quick_box, label=f"扫荡 {stage_id} 第 {round_index} 轮")  # 快速战斗链（拉满 → 开始 → 等结算 → 点确认）。
             if self._detail_page_open():  # 结算关闭后落回关卡详情页（扫荡页面的默认落点）。
                 self._close_stage_detail()  # 先关详情页退回活动关卡列表，下一轮重新定位关卡行。
             self.assert_screen("event_stage_page", time_out=15)  # 确认已回到活动关卡列表界面。
         self.log_warning(f"扫荡达到轮次上限 {_SWEEP_MAX_ROUNDS} 轮，结束")  # 上限兜底（异常状态）。
 
+    def _run_quick_battle(self, quick_box, label="快速战斗"):  # 详情页「快速战斗」链：点按钮 → 次数弹窗拉满 → 开始 → 等结算 → 点结算确认。返回结算结果。
+        self.click_box(quick_box, after_sleep=1)  # 点「快速战斗」，弹出次数选择弹窗（与个人突袭同款 UI）。
+        self.wait_feature(_SWEEP_PAGE_FEATURE, time_out=10, raise_if_not_found=True)  # 等次数选择弹窗就位（缺失抛异常由 try_step 恢复）。
+        max_btn = self.find_one(_SWEEP_MAX_FEATURE)  # 次数「拉满」按钮（弹窗可能已默认最大值）。
+        if max_btn is not None:  # 识别到拉满按钮。
+            self.click_box(max_btn, after_sleep=1)  # 点拉满剩余次数（默认取最大）。
+            self.log_info(f"{label}次数弹窗：已点「拉满」，按最大次数开始")  # 记录拉满命中，便于核对每次消耗。
+        else:  # 未识别到拉满按钮。
+            self.log_info(f"{label}次数弹窗：未识别到「拉满」按钮，按弹窗默认次数开始")  # 记录兜底路径（可能每次只消耗 1 次）。
+        self.click_box(_SWEEP_START_BOX, after_sleep=1)  # 点开始：快速战斗直接跳结算画面，不进战斗界面。
+        result, confirm_box = self.wait_battle_finish(time_out=_SWEEP_BATTLE_TIMEOUT)  # 节流等待快速战斗结算画面（只检测不点击）。
+        if confirm_box is None:  # 未识别到结算画面。
+            raise WaitFailedException("未识别到快速战斗结算画面")  # 抛异常由 try_step 恢复。
+        self.log_info(f"{label}快速战斗结束（{result}）")  # 记录结算结果。
+        self.click_box(confirm_box, after_sleep=2)  # 点结算确认关闭结果画面。
+        return result  # 返回结算结果供调用方记录。
+
+    def _find_available_challenge_stage(self):  # 挑战页自下而上找第一个可用（非灰白）关卡标记，返回其 Box；无可用返回 None。
+        list_box = self._optional_box(_CHALLENGE_LIST_BOX)  # 挑战关卡列表区域（定位范围；特征缺失返回 None）。
+        if list_box is None:  # 列表区未标注。
+            self.log_warning(f"缺少区域特征 {_CHALLENGE_LIST_BOX}，无法定位挑战关卡")  # 记录缺失，便于排查。
+            return None  # 无法定位。
+        try:  # 关卡标记特征可能尚未标注进 coco。
+            stages = self.find_feature(_CHALLENGE_STAGE_FEATURE, box=list_box, limit=0)  # 列表区内全部关卡标记（limit=0 返回全部命中）。
+        except ValueError:  # 特征缺失。
+            self.log_warning(f"缺少特征 {_CHALLENGE_STAGE_FEATURE}，无法定位挑战关卡")  # 记录缺失，便于排查。
+            return None  # 无法定位。
+        self.log_debug(f"挑战关卡标记命中 {len(stages)} 个：{[(s.x, s.y) for s in stages]}")  # 命中明细便于实机校准。
+        for stage in sorted(stages, key=lambda item: item.y, reverse=True):  # 自下而上（y 由大到小）逐个判态。
+            if self.is_feature_enabled(stage):  # 非灰白 = 可用关卡。
+                self.log_info(f"挑战选中可用关卡标记 {stage}")  # 记录选中目标。
+                return stage  # 返回第一个可用的（自下而上最近）。
+        self.log_info("挑战列表全部关卡标记均为灰白禁用态（今日次数已用完）")  # 记录无可打原因。
+        return None  # 无可用关卡。
+
     def _flow_story(self):  # 剧情流程（自足重入）：进关卡页 → 推图（剧情开关）→ 扫荡（扫荡开关）→ 返回活动菜单页。
-        # 闸门：本流程从活动主页出发；「失败恢复回大厅后的自动重入（大厅→列表→banner→活动主页）」
-        # 尚未实现，未在活动主页时由 try_step 重试耗尽后跳过本子流程。
-        self.ensure_screen("event_main", wait_enter=3)  # 确认处于活动主页（已在则单帧命中直接返回）。
+        # 闸门：本流程从活动主页出发；失败恢复回大厅后由 _nav_to_event_main 用当前活动上下文
+        # （大厅→列表→banner→活动主页）重新进入，不递归触发子流程（只进活动，不探测入口）。
+        self._nav_to_event_main()  # 就位活动主页（正常已就位；恢复回大厅后由此重入）。
         mode = self.config.get("剧情模式", _STORY_MODES[0])  # 剧情关卡难度（配置项已隐藏，实现前保持默认）。
         if mode != _STORY_MODES[0]:  # 非默认值（历史配置残留或手改）：难度选择未实现。
             self.log_info(f"剧情模式 {mode} 暂未支持，按页面当前难度继续")  # TODO 实机标定 box_event_stage_mode 的选中态与点击。
@@ -751,10 +867,49 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
                 self._push_stages(target)  # 点行进入连续战斗链，结束落回关卡页。
         if self.config.get("扫荡"):  # 扫荡开关：对配置的可重复关卡快速战斗。
             self._sweep_stage(self.config.get("扫荡关卡", _SWEEP_STAGE_DEFAULT))  # 点行 → 详情页快速战斗（次数拉满）→ 扫到不可用。
-        self.transition("event_main", click_feature="common_back", wait_confirm=10, after_sleep=1)  # 点返回回活动菜单页，供后续子流程接续。
+        self.transition("event_main", click=self._click_back_to_menu, wait_confirm=10, after_sleep=1)  # 点返回回活动菜单页，供后续子流程接续。
 
-    def _flow_challenge(self):  # 挑战流程（自足重入）：进入挑战并战斗/扫荡。实机未标定前占位。
-        self.log_info("挑战流程占位：TODO 实机标定挑战关卡页判据")  # 记录占位。
+    def _flow_challenge(self):  # 挑战流程（自足重入）：进挑战页 → 战斗/扫荡 → 返回活动菜单页。
+        # 大小活动都有「挑战」，且为同一套 UI（已确认）。
+        # 进入方式差异（大活动点击后 SD 小人先走到地点再切页、小活动点击即切页）不分支：
+        # 统一「只点一次入口 → 轮询等挑战页出现」，小活动首帧命中、大活动等到小人到达（_SD_ARRIVE_TIMEOUT）。
+        # 注意：不用 transition（其 retry_click 会在小人走路途中原地补点入口，行为不确定，同 _flow_checkin）。
+        self._nav_to_event_main()  # 就位活动主页（正常已就位；恢复回大厅后由此重入）。
+        entry = self._entry_box("挑战")  # 挑战入口命中框（大小活动入口文字都是「挑战」，_entry_box 已统一）。
+        if entry is None:  # 入口缺失（菜单未渲染或页面结构变化）。
+            raise WaitFailedException("未找到挑战入口")  # 抛异常由 try_step 恢复。
+        self.click_box(entry, after_sleep=2)  # 只点一次入口：小活动立即切页，大活动 SD 小人开始走向挑战地点。
+        if not self.wait_until(lambda: self.is_screen("event_challenge_page"),  # 轮询等挑战页就绪（到达窗口）。
+                               time_out=_SD_ARRIVE_TIMEOUT, settle_time=0):  # 命中即返回。
+            raise WaitFailedException("挑战界面未在预期时间内出现（SD 小人未到达/当期无挑战）")  # 抛异常由 try_step 恢复。
+        stage = self._find_available_challenge_stage()  # 自下而上找第一个可用（非灰白）关卡标记。
+        if stage is None:  # 无可用关卡（今日次数已用完/列表未标注）：无需进详情页，直接返回菜单页。
+            self._ensure_event_menu()  # 点返回键回活动菜单页。
+            return  # 结束挑战流程。
+        self.click_box(stage, after_sleep=2)  # 点关卡标记进入关卡详情页。
+        if not self.wait_feature(_SWEEP_CLOSE_FEATURE, time_out=_STAGE_ENTER_TIMEOUT, raise_if_not_found=False):  # 等详情页就位（右上关闭按钮特征）。
+            self.log_warning("点开挑战关卡后未进入详情页，结束挑战")  # 记录异常落点（正常应进详情页）。
+            self._ensure_event_menu()  # 兜底回菜单页。
+            return  # 结束挑战流程。
+        quick_box = self._optional_box(_SWEEP_QUICK_BOX)  # 详情页「快速战斗」区域。
+        if quick_box is not None and self.is_feature_enabled(quick_box):  # 快速战斗可用：走快速战斗链。
+            self._run_quick_battle(quick_box, label="挑战")  # 点快速战斗 → 次数拉满 → 开始 → 等结算 → 点确认。
+        else:  # 快速战斗不可用（或区域缺失）：改判普通战斗「战斗」按钮。
+            battle_box = self._optional_box(_STAGE_DETAIL_BATTLE_BOX)  # 详情页「战斗」区域。
+            if battle_box is not None and self.is_feature_enabled(battle_box):  # 普通战斗可用：进战斗界面等结束。
+                self.click_box(battle_box, after_sleep=2)  # 点「战斗」进入战斗界面（可能先播剧情）。
+                self._skip_story_if_present()  # 进战斗可能先播剧情：识别并点跳过。
+                result, confirm_box = self.wait_battle_finish(time_out=_STORY_BATTLE_TIMEOUT)  # 节流等待战斗结束（只检测不点击）。
+                if result is None:  # 等待战斗结束超时。
+                    raise WaitFailedException("等待挑战关卡战斗结束超时")  # 抛异常由 try_step 恢复。
+                self.log_info(f"挑战战斗结束（{result}）")  # 记录结算结果。
+                self.click_box(confirm_box, after_sleep=_BATTLE_AFTER_SLEEP)  # 点结算返回键（回详情页或挑战页）。
+            else:  # 快速战斗与普通战斗都不可用 = 当天已挑战过、没有次数。
+                self.log_info("挑战快速战斗与普通战斗均不可用（今日已挑战/次数已用完），结束挑战")  # 记录结束原因。
+        # 收尾：结算后可能落回详情页，则先关详情页；再点返回键回活动菜单页（挑战页/详情页返回键逐期不同，走三层兜底）。
+        if self._detail_page_open():  # 仍在关卡详情页（快速/普通战斗后常见落点）。
+            self._close_stage_detail(to_screen="event_challenge_page")  # 关详情页回挑战页。
+        self._ensure_event_menu()  # 点返回键回活动菜单页（已在菜单页则 no-op）。
 
     def _flow_mission(self):  # 任务流程（自足重入）：领取活动任务奖励。实机未标定前占位。
         self.log_info("任务流程占位：TODO 实机标定任务页判据")  # 记录占位。
