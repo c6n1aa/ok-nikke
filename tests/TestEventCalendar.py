@@ -676,12 +676,21 @@ class TestExpiringEventNotifier(unittest.TestCase):
         finally:
             og.main_window = None
 
+    def test_globals_forwards_window_hook_to_notifier(self):
+        # 框架回调 og.my_app.on_show_main_window（Globals 类），必须转发到 notifier，
+        # 否则刷新先于主窗口完成时 pending 提示永远补发不出去（正式版与 debug 都会命中）。
+        app = app_globals.Globals(exit_event=threading.Event())
+        with patch.object(app.notifier, 'on_show_main_window') as forwarded:
+            app.on_show_main_window('window')
+        forwarded.assert_called_once_with('window')
+
     def test_pending_emitted_on_window_hook(self):
         og = app_globals.og
         og.main_window = None  # 刷新先于主窗口完成。
         try:
             notifier = app_globals.ExpiringEventNotifier(exit_event=threading.Event())
-            with patch('ok.ui.qt.Communicate.communicate') as communicate:
+            with patch('ok.ui.qt.Communicate.communicate') as communicate, \
+                    patch.object(og, 'handler', create=True) as handler:
                 notifier.notify_expiring(
                     [self._event('EVENT_BANNER_SOON', name='接口原文', end_time=int(time.time()) + 3600)],
                     now=time.time())
@@ -689,12 +698,37 @@ class TestExpiringEventNotifier(unittest.TestCase):
                 self.assertIsNotNone(notifier._pending)
                 og.main_window = 'window'  # 模拟 show_main_window 挂载完成。
                 notifier.on_show_main_window('window')  # 框架钩子。
+                communicate.notification.emit.assert_not_called()  # 延迟 2s，不立即发。
+                handler.post.assert_called_once()
+                task = handler.post.call_args.args[0]
+                self.assertAlmostEqual(app_globals.EXPIRE_NOTIFY_DELAY_MS / 1000.0,
+                                       handler.post.call_args.kwargs['delay'])
+                task()  # 模拟 2s 后主线程执行投递的任务。
                 communicate.notification.emit.assert_called_once_with(
                     '活动「SOON」即将结束（24小时内）', 'ok-nikke', False, False, None, None, None)
             self.assertIsNone(notifier._pending)  # 补发后清空。
             with patch('ok.ui.qt.Communicate.communicate') as communicate:
                 notifier.on_show_main_window('window')  # 再触发也无 pending 可发。
                 communicate.notification.emit.assert_not_called()
+        finally:
+            og.main_window = None
+
+    def test_pending_emitted_immediately_without_handler(self):
+        # 无 og.handler（headless/测试兜底）时退化为立即补发，不让提示卡在暂存里。
+        og = app_globals.og
+        og.main_window = None
+        try:
+            notifier = app_globals.ExpiringEventNotifier(exit_event=threading.Event())
+            with patch('ok.ui.qt.Communicate.communicate') as communicate, \
+                    patch.object(og, 'handler', None):
+                notifier.notify_expiring(
+                    [self._event('EVENT_BANNER_SOON', name='接口原文', end_time=int(time.time()) + 3600)],
+                    now=time.time())
+                self.assertIsNotNone(notifier._pending)
+                og.main_window = 'window'
+                notifier.on_show_main_window('window')
+                communicate.notification.emit.assert_called_once_with(
+                    '活动「SOON」即将结束（24小时内）', 'ok-nikke', False, False, None, None, None)
         finally:
             og.main_window = None
 
