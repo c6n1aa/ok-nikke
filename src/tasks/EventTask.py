@@ -123,7 +123,7 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
     def __init__(self, *args, **kwargs):  # 初始化任务元数据与配置。
         super().__init__(*args, **kwargs)  # 必须先调用父类初始化。
         self.name = "活动"  # 任务显示名称。
-        self.description = "自动处理限时活动（剧情/扫荡/挑战/任务/商店/签到印章）。"  # 任务说明。
+        self.description = "自动处理限时活动，活动首次开放时需手动进入并配队（剧情(BETA)/扫荡/挑战/任务/商店/签到印章）。"  # 任务说明。
         self._current_event = None  # 当前处理的活动（日历条目）；失败恢复回大厅后重入时用它 banner 定位。
         self.default_config.update({  # 子流程专属设置，独立持久化到 configs/。
             "签到": True,  # 是否收取活动签到印章奖励（仅大活动）。
@@ -136,9 +136,9 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
             "剧情模式": _STORY_MODES[0],  # 剧情关卡难度（难度选择未实现，先隐藏入口，见 config_type）。
         })
         self.config_description.update({  # 每个配置项的帮助文本。
-            "签到": "收取活动签到印章奖励（仅大活动有此入口）。",
-            "剧情": "推进活动剧情关卡（普通难度，通关后自动处理下一关）。",
-            "扫荡": "对可重复通关的关卡执行快速战斗扫荡（次数拉满，扫到耗尽为止）。扫荡与剧情共用门票，流程固定先推图后扫荡。",
+            "签到": "收取活动签到印章奖励。",
+            "剧情": "自动推进活动剧情关卡（BETA）。",
+            "扫荡": "对可重复通关的关卡执行快速战斗扫荡。扫荡与剧情共用门票，流程固定先推图后扫荡。",
             "扫荡关卡": "扫荡目标关卡（1-11/1-09/1-07 为大多数活动都存在的可重复关卡）。",
             "挑战": "执行活动挑战关卡。",
             "任务": "领取活动任务奖励。",
@@ -152,6 +152,9 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
             "剧情模式": {  # 剧情关卡难度下拉单选。
                 "type": "drop_down",  # 下拉选项类型。
                 "options": list(_STORY_MODES),  # NORMAL / HARD（沿用游戏内标签）。
+                "hidden": True,  # 隐藏入口：框架 ConfigCard.__is_hidden_config 跳过顶层渲染。
+            },
+            "商店": {  # 商店子流程 v1 未实现：先隐藏入口（同剧情模式，不挂 sub_configs）。
                 "hidden": True,  # 隐藏入口：框架 ConfigCard.__is_hidden_config 跳过顶层渲染。
             },
             "扫荡": {  # 布尔开关，启用时才展开关卡选择。
@@ -507,9 +510,16 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
         if entry is None:  # 入口缺失（菜单未渲染或页面结构变化）。
             raise WaitFailedException("未找到签到印章入口")  # 抛异常由 try_step 恢复。
         self.click_box(entry, after_sleep=2)  # 点击签到入口，大活动 SD 小人开始走向签到地点。
-        # 点击后需等小人走到地点，签到奖励界面才打开（期间无按钮可判，只能轮询文字）。
-        if self.wait_until(lambda: self._find_checkin_claim_all() is not None,  # 轮询等「全部领取」出现 = 界面已就绪。
-                           time_out=_SD_ARRIVE_TIMEOUT, settle_time=0):  # 到达等待窗口（界面出现即返回）。
+        # 签到页无专有界面判据 → 反向判：点击后活动菜单页（event_main）消失即已切到签到页（小人已走到）；
+        # 仍在菜单页 = 未走到签到地点、切页失败，告警后直接回菜单页跳过领取。
+        if not self.wait_until(lambda: not self.is_screen("event_main"),  # 轮询等菜单页消失 = 已切到签到页。
+                               time_out=_SD_ARRIVE_TIMEOUT, settle_time=0):  # 到达等待窗口（切页即返回）。
+            self.log_warning("签到页未在预期时间内切换（仍在活动菜单页），跳过领取")  # 记录跳过原因。
+            self._ensure_event_menu()  # 兜底回菜单页。
+            return  # 结束签到流程。
+        # 已切到签到页：等「全部领取」出现后判态领取（奖励界面与切页近乎同步，仍轮询容忍盖章动画）。
+        if self.wait_until(lambda: self._find_checkin_claim_all() is not None,  # 轮询等「全部领取」出现 = 奖励界面就绪。
+                           time_out=_SD_ARRIVE_TIMEOUT, settle_time=1.5):  # 命中后再稳定 1.5s，吸收盖章动画里按钮仍位移的过渡期。
             claim = self._find_checkin_claim_all()  # 「全部领取」按钮文字框。
             if self.is_feature_enabled(self._checkin_button_box(claim)):  # 外扩取到按钮底色判态：彩色 = 仍有可领奖励。
                 self.click_box(claim, after_sleep=1)  # 点击全部领取。
@@ -519,8 +529,8 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
                                             self._CLICK_TO_PROCEED_PATTERN), time_out=5)  # 遮罩非必现，超时未出现不报错。
             else:  # 按钮灰白 = 无可领奖励（今日已领完）。
                 self.log_info("签到奖励无可领取（按钮灰白，可能今日已领取）")  # 记录状态。
-        else:  # 界面未在窗口内打开（小人未到达/当期无签到）。
-            self.log_warning("签到奖励界面未在预期时间内打开（SD 小人未到达/当期无签到），跳过领取")  # 记录跳过原因。
+        else:  # 已切页但未识别到「全部领取」。
+            self.log_warning("签到奖励界面未在预期时间内出现（已切页但未识别到「全部领取」），跳过领取")  # 记录跳过原因。
         # 签到是独立整页界面（非模态窗）：点返回键回活动菜单页（已在菜单页则 no-op）。
         # 注意：不要用 dismiss_all_popups —— 签到界面「全部领取」与登录奖励面板判据同字，
         # 会被 _close_daily_login_popup 误认成登录奖励面板重复点击（其消歧只认 mission_page）。
@@ -890,17 +900,16 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
 
     def _flow_challenge(self):  # 挑战流程（自足重入）：进挑战页 → 战斗/扫荡 → 返回活动菜单页。
         # 大小活动都有「挑战」，且为同一套 UI（已确认）。
-        # 进入方式差异（大活动点击后 SD 小人先走到地点再切页、小活动点击即切页）不分支：
-        # 统一「只点一次入口 → 轮询等挑战页出现」，小活动首帧命中、大活动等到小人到达（_SD_ARRIVE_TIMEOUT）。
-        # 注意：不用 transition（其 retry_click 会在小人走路途中原地补点入口，行为不确定，同 _flow_checkin）。
+        # 进入方式差异（大活动点击后 SD 小人先走到地点再切页、小活动点击即切页）统一走 transition
+        # 守卫式进入：其 retry_click 补点实测不中断小人行为（仍继续走到挑战地点再切页），故可安全复用，
+        # 不再手写「只点一次 + 轮询等挑战页」。
         self._nav_to_event_main()  # 就位活动主页（正常已就位；恢复回大厅后由此重入）。
         entry = self._entry_box("挑战")  # 挑战入口命中框（大小活动入口文字都是「挑战」，_entry_box 已统一）。
         if entry is None:  # 入口缺失（菜单未渲染或页面结构变化）。
             raise WaitFailedException("未找到挑战入口")  # 抛异常由 try_step 恢复。
-        self.click_box(entry, after_sleep=2)  # 只点一次入口：小活动立即切页，大活动 SD 小人开始走向挑战地点。
-        if not self.wait_until(lambda: self.is_screen("event_challenge_page"),  # 轮询等挑战页就绪（到达窗口）。
-                               time_out=_SD_ARRIVE_TIMEOUT, settle_time=0):  # 命中即返回。
-            raise WaitFailedException("挑战界面未在预期时间内出现（SD 小人未到达/当期无挑战）")  # 抛异常由 try_step 恢复。
+        # wait_confirm 覆盖小人到达窗口（_SD_ARRIVE_TIMEOUT），time_out 留出补点预算。
+        self.transition("event_challenge_page", box=entry, wait_confirm=_SD_ARRIVE_TIMEOUT,
+                        time_out=_SD_ARRIVE_TIMEOUT * 2, after_sleep=2)  # 点击入口并确认进入挑战页。
         self._wait_challenge_nodes()  # 等节点渲染完成再选关（吸收过场动画）。
         stage = self._find_available_challenge_stage()  # 自下而上找第一个可用（非灰白）关卡标记。
         if stage is None:  # 无可用关卡（今日次数已用完/列表未标注）：无需进详情页，直接返回菜单页。

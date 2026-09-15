@@ -74,6 +74,7 @@ class TestEventTask(_DebugOffTestCase):
             self.assertIn(key, self.task.config_description)
         self.assertEqual('drop_down', self.task.config_type['剧情模式']['type'])
         self.assertTrue(self.task.config_type['剧情模式']['hidden'])  # 难度选择未实现：入口隐藏。
+        self.assertTrue(self.task.config_type['商店']['hidden'])  # 商店 v1 未实现：入口隐藏。
         self.assertNotIn('剧情', self.task.config_type)  # 难度未实现：不做开关联动（联动会把隐藏项渲染出来）。
         self.assertEqual(['NORMAL', 'HARD'], list(self.task.config_type['剧情模式']['options']))
         self.assertEqual(['1-11', '1-09', '1-07'], list(self.task.config_type['扫荡关卡']['options']))
@@ -462,19 +463,26 @@ class TestEventTask(_DebugOffTestCase):
         self.assertAlmostEqual(text.width * _CHECKIN_CLAIM_PAD[0], text.x - padded.x)  # 外扩量为比例值。
 
     def test_flow_checkin_claims_then_returns_to_menu(self):
-        # 正常路径：进签到 → 等界面就绪 → 全部领取（彩色可用）→ 清遮罩 → 点返回回菜单页。
+        # 正常路径：进签到 → 反向判切页（菜单页消失）→ 等「全部领取」→ 全部领取（彩色可用）→ 清遮罩 → 回菜单页。
         entry = Box(60, 10, 30, 10, confidence=1, name='签到印章')
         claim = self._checkin_claim_box()
+
+        def run_condition(condition, time_out=None, settle_time=0, **kwargs):
+            return condition()  # 单测驱动：逐次实算条件（第一次菜单页消失、第二次全部领取出现）。
+
         with patch.object(self.task, '_nav_to_event_main') as nav_mock, \
                 patch.object(self.task, '_entry_box', return_value=entry), \
                 patch.object(self.task, 'click_box') as click_mock, \
-                patch.object(self.task, 'wait_until', return_value=True), \
+                patch.object(self.task, 'wait_until', side_effect=run_condition) as wait_mock, \
+                patch.object(self.task, 'is_screen', return_value=False) as screen_mock, \
                 patch.object(self.task, '_find_checkin_claim_all', return_value=claim), \
                 patch.object(self.task, 'is_feature_enabled', return_value=True) as enabled_mock, \
                 patch.object(self.task, 'close_overlay') as overlay_mock, \
                 patch.object(self.task, '_ensure_event_menu') as back_mock:
             self.task._flow_checkin()
         nav_mock.assert_called_once()  # 进入前就位活动主页。
+        self.assertEqual(2, wait_mock.call_count)  # 两次等待：切页 + 全部领取。
+        screen_mock.assert_called_once_with('event_main')  # 反向判：菜单页消失即切页。
         click_mock.assert_any_call(entry, after_sleep=2)  # 点签到入口。
         click_mock.assert_any_call(claim, after_sleep=1)  # 点全部领取。
         enabled_mock.assert_called_once()  # 判一次按钮底色。
@@ -497,8 +505,8 @@ class TestEventTask(_DebugOffTestCase):
         self.assertNotIn(claim, [call.args[0] for call in click_mock.call_args_list])  # 灰白不点领取。
         back_mock.assert_called_once()  # 仍要点返回。
 
-    def test_flow_checkin_interface_timeout_still_returns(self):
-        # 界面未在到达窗口内打开（SD 小人没走到/当期无签到）：告警后仍点返回回菜单页，不抛异常。
+    def test_flow_checkin_menu_still_present_returns(self):
+        # 反向判切页失败：菜单页仍在（小人未走到签到地点/切页失败）→ 告警后直接回菜单页跳过领取，不抛异常。
         from src.tasks.EventTask import _SD_ARRIVE_TIMEOUT
         entry = Box(60, 10, 30, 10, confidence=1, name='签到印章')
         with patch.object(self.task, '_nav_to_event_main'), \
@@ -506,12 +514,35 @@ class TestEventTask(_DebugOffTestCase):
                 patch.object(self.task, 'click_box'), \
                 patch.object(self.task, 'wait_until', return_value=False) as wait_mock, \
                 patch.object(self.task, 'log_warning') as warn_mock, \
-                patch.object(self.task, 'is_feature_enabled', side_effect=AssertionError('界面未开不应判态')), \
-                patch.object(self.task, 'close_overlay', side_effect=AssertionError('界面未开不应清遮罩')), \
+                patch.object(self.task, 'is_feature_enabled', side_effect=AssertionError('未切页不应判态')), \
+                patch.object(self.task, 'close_overlay', side_effect=AssertionError('未切页不应清遮罩')), \
                 patch.object(self.task, '_ensure_event_menu') as back_mock:
             self.task._flow_checkin()
         self.assertEqual(_SD_ARRIVE_TIMEOUT, wait_mock.call_args.kwargs['time_out'])  # 用到达等待窗口。
         warn_mock.assert_called_once()
+        back_mock.assert_called_once()  # 兜底回菜单页。
+
+    def test_flow_checkin_page_switched_but_claim_not_found(self):
+        # 已切到签到页（菜单页消失）但未识别到「全部领取」：告警后仍回菜单页，不抛异常。
+        entry = Box(60, 10, 30, 10, confidence=1, name='签到印章')
+
+        def run_condition(condition, time_out=None, settle_time=0, **kwargs):
+            return condition()  # 单测驱动：第一次菜单页消失（True）、第二次全部领取未出现（False）。
+
+        with patch.object(self.task, '_nav_to_event_main'), \
+                patch.object(self.task, '_entry_box', return_value=entry), \
+                patch.object(self.task, 'click_box'), \
+                patch.object(self.task, 'wait_until', side_effect=run_condition) as wait_mock, \
+                patch.object(self.task, 'is_screen', return_value=False) as screen_mock, \
+                patch.object(self.task, '_find_checkin_claim_all', return_value=None), \
+                patch.object(self.task, 'log_warning') as warn_mock, \
+                patch.object(self.task, 'is_feature_enabled', side_effect=AssertionError('无全部领取不应判态')), \
+                patch.object(self.task, 'close_overlay', side_effect=AssertionError('无全部领取不应清遮罩')), \
+                patch.object(self.task, '_ensure_event_menu') as back_mock:
+            self.task._flow_checkin()
+        self.assertEqual(2, wait_mock.call_count)  # 两次等待都跑完。
+        screen_mock.assert_called_once_with('event_main')  # 第一次反向判切页命中。
+        warn_mock.assert_called_once()  # 第二次等不到全部领取告警。
         back_mock.assert_called_once()  # 兜底回菜单页。
 
     def test_flow_checkin_missing_entry_raises(self):
@@ -520,7 +551,7 @@ class TestEventTask(_DebugOffTestCase):
                 patch.object(self.task, 'click_box', side_effect=AssertionError('入口缺失不应点击')):
             self.assertRaises(WaitFailedException, self.task._flow_checkin)
 
-    # ---- 挑战流程（大小活动都有，同一套 UI；进入方式差异靠「只点一次 + 轮询等页面」吸收） ----
+    # ---- 挑战流程（大小活动都有，同一套 UI；进入方式统一走 transition 守卫式进入） ----
 
     def _challenge_entry(self):
         return Box(60, 10, 30, 10, confidence=1, name='挑战')
@@ -535,31 +566,29 @@ class TestEventTask(_DebugOffTestCase):
         return Box(1344, 1344, 37, 33, confidence=1, name='box_stage_detail_battle')
 
     def test_flow_challenge_enters_and_returns_to_menu_when_no_stage(self):
-        # 进入路径：就位主页 → 定位挑战入口 → 只点一次 → 轮询等挑战页 → 无可用关卡则直接回菜单页。
+        # 进入路径：就位主页 → 定位挑战入口 → transition 守卫式进入挑战页 → 无可用关卡则直接回菜单页。
+        from src.tasks.EventTask import _SD_ARRIVE_TIMEOUT
         entry = self._challenge_entry()
         with patch.object(self.task, '_nav_to_event_main') as nav_mock, \
                 patch.object(self.task, '_entry_box', return_value=entry) as entry_mock, \
-                patch.object(self.task, 'click_box') as click_mock, \
-                patch.object(self.task, 'wait_until', return_value=True) as wait_mock, \
-                patch.object(self.task, 'is_screen', return_value=True), \
+                patch.object(self.task, 'transition') as transition_mock, \
                 patch.object(self.task, '_wait_challenge_nodes'), \
                 patch.object(self.task, '_find_available_challenge_stage', return_value=None), \
                 patch.object(self.task, '_ensure_event_menu') as back_mock:
             self.task._flow_challenge()
         nav_mock.assert_called_once()  # 进入前就位活动主页。
         entry_mock.assert_called_once_with('挑战')  # 定位挑战入口。
-        click_mock.assert_called_once_with(entry, after_sleep=2)  # 只点一次（不补点，避免小人走路途中重触发）。
-        from src.tasks.EventTask import _SD_ARRIVE_TIMEOUT
-        self.assertEqual(_SD_ARRIVE_TIMEOUT, wait_mock.call_args.kwargs['time_out'])  # 用共享到达等待窗口。
+        transition_mock.assert_called_once_with('event_challenge_page', box=entry,  # 守卫式进入（补点不中断小人行为）。
+                                                wait_confirm=_SD_ARRIVE_TIMEOUT,
+                                                time_out=_SD_ARRIVE_TIMEOUT * 2, after_sleep=2)
         back_mock.assert_called_once()  # 收尾点返回回菜单页。
 
     def test_flow_challenge_raises_when_page_not_reached(self):
-        # 挑战页未在到达窗口内出现（小人未到达/当期无挑战）：抛异常由 try_step 恢复。
+        # transition 确认挑战页失败（补点耗尽）：抛异常由 try_step 恢复。
         entry = self._challenge_entry()
         with patch.object(self.task, '_nav_to_event_main'), \
                 patch.object(self.task, '_entry_box', return_value=entry), \
-                patch.object(self.task, 'click_box'), \
-                patch.object(self.task, 'wait_until', return_value=False), \
+                patch.object(self.task, 'transition', side_effect=WaitFailedException('进入挑战页失败')), \
                 patch.object(self.task, '_ensure_event_menu', side_effect=AssertionError('未进入不应收尾')):
             self.assertRaises(WaitFailedException, self.task._flow_challenge)
 
@@ -576,8 +605,7 @@ class TestEventTask(_DebugOffTestCase):
         with patch.object(self.task, '_nav_to_event_main'), \
                 patch.object(self.task, '_entry_box', return_value=entry), \
                 patch.object(self.task, 'click_box') as click_mock, \
-                patch.object(self.task, 'wait_until', return_value=True), \
-                patch.object(self.task, 'is_screen', return_value=True), \
+                patch.object(self.task, 'transition'), \
                 patch.object(self.task, '_wait_challenge_nodes'), \
                 patch.object(self.task, '_find_available_challenge_stage', return_value=stage), \
                 patch.object(self.task, 'wait_feature', return_value=True), \
@@ -602,8 +630,7 @@ class TestEventTask(_DebugOffTestCase):
         with patch.object(self.task, '_nav_to_event_main'), \
                 patch.object(self.task, '_entry_box', return_value=entry), \
                 patch.object(self.task, 'click_box') as click_mock, \
-                patch.object(self.task, 'wait_until', return_value=True), \
-                patch.object(self.task, 'is_screen', return_value=True), \
+                patch.object(self.task, 'transition'), \
                 patch.object(self.task, '_wait_challenge_nodes'), \
                 patch.object(self.task, '_find_available_challenge_stage', return_value=stage), \
                 patch.object(self.task, 'wait_feature', return_value=True), \
@@ -631,8 +658,7 @@ class TestEventTask(_DebugOffTestCase):
         with patch.object(self.task, '_nav_to_event_main'), \
                 patch.object(self.task, '_entry_box', return_value=entry), \
                 patch.object(self.task, 'click_box') as click_mock, \
-                patch.object(self.task, 'wait_until', return_value=True), \
-                patch.object(self.task, 'is_screen', return_value=True), \
+                patch.object(self.task, 'transition'), \
                 patch.object(self.task, '_wait_challenge_nodes'), \
                 patch.object(self.task, '_find_available_challenge_stage', return_value=stage), \
                 patch.object(self.task, 'wait_feature', return_value=True), \
@@ -655,8 +681,7 @@ class TestEventTask(_DebugOffTestCase):
         with patch.object(self.task, '_nav_to_event_main'), \
                 patch.object(self.task, '_entry_box', return_value=entry), \
                 patch.object(self.task, 'click_box'), \
-                patch.object(self.task, 'wait_until', return_value=True), \
-                patch.object(self.task, 'is_screen', return_value=True), \
+                patch.object(self.task, 'transition'), \
                 patch.object(self.task, '_wait_challenge_nodes'), \
                 patch.object(self.task, '_find_available_challenge_stage', return_value=stage), \
                 patch.object(self.task, 'wait_feature', return_value=False), \
