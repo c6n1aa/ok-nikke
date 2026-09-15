@@ -241,9 +241,13 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
                 unmatched.discard(event.key)  # 已定位到卡片，不再算未匹配。
                 if not self._recover_to_lobby():  # 活动页返回键直接回大厅，此处确认已回大厅。
                     raise WaitFailedException("活动处理结束未回到大厅")  # 抛异常由 try_step 恢复。
+                if not unmatched:  # 剩余待处理活动都已定位处理，没有第二张卡要扫，无需再进列表点 event_icon。
+                    break  # 退出内层；外层随后依据 unmatched 为空提前结束。
                 if not self._reposition_list(step):  # 返回大厅后重进列表并滚回本位置，继续扫描同位置剩余活动。
                     self.log_info("列表已滚动到底，退出遍历")  # 记录到底。
                     break  # 退出内层扫描。
+            if not unmatched:  # 全部待处理活动均已定位处理，无需再往下滚动找卡片。
+                break  # 提前结束遍历。
         for key in unmatched:  # 全部位置扫完仍未匹配到卡片：活动未上架/已下架，或保底包已过期。
             self.log_warning(f"活动 {key} 在列表页未匹配到卡片（未上架/已下架，或保底包已过期）")  # 记录便于排查。
         self._exit_to_lobby()  # 收尾返回大厅（run 里还会再幂等确认一次）。
@@ -254,6 +258,8 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
         return step == 0 or self._scroll_list_down(step)  # 顶部位置无需下滚；下滚到底返回 False。
 
     def _enter_event_list(self):  # 大厅 -> 活动列表页（大厅右侧「活动」图标入口）。
+        if self.is_screen("event_list_page"):  # 已在列表页（跨屏扫描连调 _reposition_list 时）则跳过：event_icon 是大厅图标，列表页上不存在，再点必超时。
+            return  # 幂等：不重复点入口。
         self.transition("event_list_page", click_feature=_EVENT_ICON, wait_confirm=10, after_sleep=5)  # 点击入口并确认进入列表页。
 
     def _optional_box(self, box_name):  # 解析 coco 区域框，特征缺失返回 None（可选区域判态统一走它）。
@@ -331,7 +337,7 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
         return self.find_event_row(event.display_name, path)  # 在 box_event_banner_area 内匹配该活动行。
 
     def _enter_event(self, row_box):  # 点击卡片进入活动主页并等菜单就绪；返回是否确认为活动（超时判非活动条目）。
-        self.click_box(row_box, after_sleep=2)  # 点击卡片（点击源由调用方定位）。
+        self.click_box(row_box, after_sleep=10)  # 点击卡片（10 秒覆盖过场动画与菜单稳定）。
         # 入场动画容忍 + 遮罩清理：特殊活动页面可能有入场动画或「点击任意处/跳过」遮罩，
         # 轮询期间每轮顺手清理遮罩（dismiss_all_popups 无遮罩立即返回），超时前不得判「非活动」。
         entered = self.wait_until(  # 轮询判定已进入活动主页（每轮取新帧）。
@@ -836,7 +842,7 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
             self.log_warning(f"缺少区域特征 {_CHALLENGE_LIST_BOX}，无法定位挑战关卡")  # 记录缺失，便于排查。
             return None  # 无法定位。
         try:  # 关卡标记特征可能尚未标注进 coco。
-            stages = self.find_feature(_CHALLENGE_STAGE_FEATURE, box=list_box, limit=0)  # 列表区内全部关卡标记（limit=0 返回全部命中）。
+            stages = self.find_feature(_CHALLENGE_STAGE_FEATURE, box=list_box, limit=0, use_gray_scale=True)  # 灰度匹配全部关卡标记（颜色无关），可用性再走 is_feature_enabled。
         except ValueError:  # 特征缺失。
             self.log_warning(f"缺少特征 {_CHALLENGE_STAGE_FEATURE}，无法定位挑战关卡")  # 记录缺失，便于排查。
             return None  # 无法定位。
@@ -847,6 +853,19 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
                 return stage  # 返回第一个可用的（自下而上最近）。
         self.log_info("挑战列表全部关卡标记均为灰白禁用态（今日次数已用完）")  # 记录无可打原因。
         return None  # 无可用关卡。
+
+    def _wait_challenge_nodes(self, time_out=_SD_ARRIVE_TIMEOUT):  # 挑战页过场动画：等关卡节点渲染出来（标题先于节点出现）。
+        list_box = self._optional_box(_CHALLENGE_LIST_BOX)  # 挑战关卡列表区域（搜索范围）。
+        if list_box is None:  # 区域未标注。
+            return  # 交 _find_available_challenge_stage 记日志兜底。
+        try:  # 关卡标记特征可能尚未标注进 coco。
+            ready = self.wait_until(lambda: bool(self.find_feature(_CHALLENGE_STAGE_FEATURE, box=list_box, limit=0,
+                                                                    use_gray_scale=True)),
+                                    time_out=time_out, settle_time=0)  # 轮询等节点渲染（灰度匹配）。
+        except ValueError:  # 特征缺失。
+            ready = False
+        if not ready:  # 节点未在窗口内渲染完成。
+            self.log_warning("挑战关卡节点未在预期窗口内渲染完成")  # 记录后由 finder 兜底。
 
     def _flow_story(self):  # 剧情流程（自足重入）：进关卡页 → 推图（剧情开关）→ 扫荡（扫荡开关）→ 返回活动菜单页。
         # 闸门：本流程从活动主页出发；失败恢复回大厅后由 _nav_to_event_main 用当前活动上下文
@@ -882,6 +901,7 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
         if not self.wait_until(lambda: self.is_screen("event_challenge_page"),  # 轮询等挑战页就绪（到达窗口）。
                                time_out=_SD_ARRIVE_TIMEOUT, settle_time=0):  # 命中即返回。
             raise WaitFailedException("挑战界面未在预期时间内出现（SD 小人未到达/当期无挑战）")  # 抛异常由 try_step 恢复。
+        self._wait_challenge_nodes()  # 等节点渲染完成再选关（吸收过场动画）。
         stage = self._find_available_challenge_stage()  # 自下而上找第一个可用（非灰白）关卡标记。
         if stage is None:  # 无可用关卡（今日次数已用完/列表未标注）：无需进详情页，直接返回菜单页。
             self._ensure_event_menu()  # 点返回键回活动菜单页。

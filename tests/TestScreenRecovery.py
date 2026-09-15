@@ -57,8 +57,7 @@ class TestScreenRecovery(TaskTestCase):
             "event_list_page": {"keywords": [_keyword("活动页面")], "ocr_box": "box_sub_pages_title"},
             "event_main": {"keywords": [_keyword("剧情活动"), _keyword("活动区域")], "ocr_box": "box_sub_pages_title"},
             "event_stage_page": {"keywords": [_keyword("活动关卡")], "ocr_box": "box_sub_pages_title"},
-            "event_challenge_page": {"features": ["event_challenge_page"],
-                                     "keywords": [_keyword("挑战")], "ocr_box": "box_sub_pages_title"},
+            "event_challenge_page": {"keywords": [_keyword("挑战")], "ocr_box": "box_sub_pages_title"},
         }
         self.assertEqual(list(expected), list(SCREENS))  # 顺序敏感：current_screen 按插入顺序首命中。
         self.assertEqual(expected, SCREENS)

@@ -243,7 +243,7 @@ class TestEventTask(_DebugOffTestCase):
                 patch.object(self.task, '_wait_menu_ready') as menu_ready_mock, \
                 patch.object(self.task, '_run_event_subflows') as subflows_mock:
             self.task._enter_and_probe(row)
-        click_mock.assert_called_once_with(row, after_sleep=2)
+        click_mock.assert_called_once_with(row, after_sleep=10)  # 10s 覆盖过场动画 + 菜单稳定。
         menu_ready_mock.assert_called_once()  # 进入确认后先等菜单栏就绪再探测入口。
         subflows_mock.assert_called_once()
 
@@ -263,7 +263,7 @@ class TestEventTask(_DebugOffTestCase):
                 patch.object(self.task, '_wait_menu_ready') as menu_ready_mock, \
                 patch.object(self.task, '_run_event_subflows', side_effect=AssertionError('_enter_event 不应执行子流程')):
             self.assertTrue(self.task._enter_event(row))
-        click_mock.assert_called_once_with(row, after_sleep=2)  # 点击卡片进入。
+        click_mock.assert_called_once_with(row, after_sleep=10)  # 点击卡片进入。
         menu_ready_mock.assert_called_once()  # 确认进入后先等菜单栏就绪。
 
     def test_enter_event_returns_false_without_confirmation(self):
@@ -542,6 +542,7 @@ class TestEventTask(_DebugOffTestCase):
                 patch.object(self.task, 'click_box') as click_mock, \
                 patch.object(self.task, 'wait_until', return_value=True) as wait_mock, \
                 patch.object(self.task, 'is_screen', return_value=True), \
+                patch.object(self.task, '_wait_challenge_nodes'), \
                 patch.object(self.task, '_find_available_challenge_stage', return_value=None), \
                 patch.object(self.task, '_ensure_event_menu') as back_mock:
             self.task._flow_challenge()
@@ -577,6 +578,7 @@ class TestEventTask(_DebugOffTestCase):
                 patch.object(self.task, 'click_box') as click_mock, \
                 patch.object(self.task, 'wait_until', return_value=True), \
                 patch.object(self.task, 'is_screen', return_value=True), \
+                patch.object(self.task, '_wait_challenge_nodes'), \
                 patch.object(self.task, '_find_available_challenge_stage', return_value=stage), \
                 patch.object(self.task, 'wait_feature', return_value=True), \
                 patch.object(self.task, '_optional_box', return_value=quick), \
@@ -602,6 +604,7 @@ class TestEventTask(_DebugOffTestCase):
                 patch.object(self.task, 'click_box') as click_mock, \
                 patch.object(self.task, 'wait_until', return_value=True), \
                 patch.object(self.task, 'is_screen', return_value=True), \
+                patch.object(self.task, '_wait_challenge_nodes'), \
                 patch.object(self.task, '_find_available_challenge_stage', return_value=stage), \
                 patch.object(self.task, 'wait_feature', return_value=True), \
                 patch.object(self.task, '_optional_box', side_effect=lambda name: {'box_stage_detail_quick_battle': quick,
@@ -630,6 +633,7 @@ class TestEventTask(_DebugOffTestCase):
                 patch.object(self.task, 'click_box') as click_mock, \
                 patch.object(self.task, 'wait_until', return_value=True), \
                 patch.object(self.task, 'is_screen', return_value=True), \
+                patch.object(self.task, '_wait_challenge_nodes'), \
                 patch.object(self.task, '_find_available_challenge_stage', return_value=stage), \
                 patch.object(self.task, 'wait_feature', return_value=True), \
                 patch.object(self.task, '_optional_box', side_effect=lambda name: {'box_stage_detail_quick_battle': quick,
@@ -653,6 +657,7 @@ class TestEventTask(_DebugOffTestCase):
                 patch.object(self.task, 'click_box'), \
                 patch.object(self.task, 'wait_until', return_value=True), \
                 patch.object(self.task, 'is_screen', return_value=True), \
+                patch.object(self.task, '_wait_challenge_nodes'), \
                 patch.object(self.task, '_find_available_challenge_stage', return_value=stage), \
                 patch.object(self.task, 'wait_feature', return_value=False), \
                 patch.object(self.task, 'log_warning') as warn_mock, \
@@ -669,10 +674,11 @@ class TestEventTask(_DebugOffTestCase):
         high = self._challenge_stage(y=700)
         list_box = Box(1580, 509, 66, 788, confidence=1, name='box_event_challenge_stage_list')
         with patch.object(self.task, '_optional_box', return_value=list_box), \
-                patch.object(self.task, 'find_feature', return_value=[high, low]), \
+                patch.object(self.task, 'find_feature', return_value=[high, low]) as feature_mock, \
                 patch.object(self.task, 'is_feature_enabled', side_effect=lambda box: box is high):
             found = self.task._find_available_challenge_stage()
         self.assertEqual(high, found)  # 最低的灰白被跳过，取次低可用。
+        feature_mock.assert_called_once_with('event_challenge_stage', box=list_box, limit=0, use_gray_scale=True)  # 灰度定位、色彩判态分离。
 
     def test_find_available_challenge_stage_none_when_all_disabled(self):
         stages = [self._challenge_stage(y=985), self._challenge_stage(y=700)]
@@ -692,6 +698,45 @@ class TestEventTask(_DebugOffTestCase):
         with patch.object(self.task, '_optional_box', return_value=list_box), \
                 patch.object(self.task, 'find_feature', side_effect=ValueError('missing')):
             self.assertIsNone(self.task._find_available_challenge_stage())
+
+    def test_wait_challenge_nodes_polls_until_rendered(self):
+        # 过场动画吸收：等关卡节点渲染出来才继续（清单区域 + 特征名 + 到达窗口都传给轮询）。
+        list_box = Box(1580, 509, 66, 788, confidence=1, name='box_event_challenge_stage_list')
+        node = self._challenge_stage()
+
+        def run_condition(condition, time_out=None, settle_time=0, **kwargs):
+            return condition()  # 单测驱动：执行一次条件判断。
+
+        with patch.object(self.task, '_optional_box', return_value=list_box), \
+                patch.object(self.task, 'find_feature', return_value=[node]) as feature_mock, \
+                patch.object(self.task, 'wait_until', side_effect=run_condition) as wait_mock, \
+                patch.object(self.task, 'log_warning') as warn_mock:
+            self.task._wait_challenge_nodes()
+        from src.tasks.EventTask import _CHALLENGE_STAGE_FEATURE, _SD_ARRIVE_TIMEOUT
+        feature_mock.assert_called_once_with(_CHALLENGE_STAGE_FEATURE, box=list_box, limit=0, use_gray_scale=True)  # 灰度找挑战关卡标记。
+        self.assertEqual(_SD_ARRIVE_TIMEOUT, wait_mock.call_args.kwargs['time_out'])  # 用共享到达窗口。
+        warn_mock.assert_not_called()  # 已渲染不再告警。
+
+    def test_wait_challenge_nodes_skips_without_region(self):
+        with patch.object(self.task, '_optional_box', return_value=None), \
+                patch.object(self.task, 'wait_until', side_effect=AssertionError('区域缺失不应等待')), \
+                patch.object(self.task, 'log_warning') as warn_mock:
+            self.task._wait_challenge_nodes()
+        warn_mock.assert_not_called()  # 区域缺失不告警，由 _find_available_challenge_stage 记日志。
+
+    def test_wait_challenge_nodes_logs_when_feature_missing(self):
+        list_box = Box(1580, 509, 66, 788, confidence=1, name='box_event_challenge_stage_list')
+
+        def run_condition(condition, time_out=None, settle_time=0, **kwargs):
+            self.assertRaises(ValueError, condition)  # 特征缺失时条件抛 ValueError，不向外扩散。
+            return False
+
+        with patch.object(self.task, '_optional_box', return_value=list_box), \
+                patch.object(self.task, 'find_feature', side_effect=ValueError('missing')), \
+                patch.object(self.task, 'wait_until', side_effect=run_condition), \
+                patch.object(self.task, 'log_warning') as warn_mock:
+            self.task._wait_challenge_nodes()
+        warn_mock.assert_called_once()  # 特征缺失记一次告警。
 
     def test_run_quick_battle_pulls_max_and_confirms(self):
         # 快速战斗链：点按钮 → 等次数弹窗 → 拉满 → 开始 → 等结算 → 点结算确认。

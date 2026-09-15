@@ -244,7 +244,7 @@ class NavigationMixin:
         except Exception as e:  # 无可用帧时忽略。
             self.log_warning(f"recover next_frame failed: {e}")  # 记录帧刷新失败。
         try:
-            self.dismiss_all_popups(clear_condition=lambda: self.is_screen("lobby"), time_out=10)  # 先统一清理可能遮挡后续操作的弹窗，容错：没有弹窗也继续恢复。
+            self.dismiss_all_popups(wait_for_popup=False, time_out=10)  # 先统一清理可能遮挡后续操作的弹窗；回大厅交给随后的 home 点击，此处不做「等大厅」。
         except TaskDisabledException:  # 任务已被用户停止，必须让中断异常继续向上传播。
             raise  # 重新抛出，交由执行器结束任务，避免恢复流程变成停不下来的僵尸任务。
         except Exception as e:  # 清理弹窗异常不中断恢复。

@@ -10,7 +10,7 @@ ok-nikke 是基于 PyPI `ok-script`（2.x）构建的《胜利女神：NIKKE》W
 - **禁止新增 `.qss`、硬编码颜色、控件级 `setStyleSheet`**；布局复用 `ok.ui.qt.common.design_system` 令牌。
 - **`assets/images/*.png` 是模板图集，不是游戏截图**，不要读画面/OCR/理解 UI。
 - 不覆写 `click_box`；战斗结束等结果用 `wait_battle_finish`，不用 `wait_feature`/`wait_ocr` 忙轮询。
-- **测试不碰真实环境**：`wait_for_lobby`（真实置前窗口）、`dismiss_all_popups`（真实抓帧+OCR）等必经方法必须 `patch.object` 拦截并断言参数。
+- **禁止测试触碰真实环境**：`wait_for_lobby`（真实置前窗口）、`dismiss_all_popups`（真实抓帧+OCR）等必经方法必须 `patch.object` 拦截并断言参数。
 
 ## 关键机制
 

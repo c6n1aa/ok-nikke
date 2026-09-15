@@ -84,10 +84,8 @@ SCREENS = {
     # 列表区与难度区分别是 box_event_stage_list / box_event_stage_mode。
     "event_stage_page": {"keywords": [_keyword("活动关卡")], "ocr_box": "box_sub_pages_title"},
     # 活动挑战页：大小活动为同一套 UI（已确认），左上标题「挑战关卡」。
-    # 关键词「挑战」+ coco 特征 event_challenge_page 双重确认（features 与 keywords 取「与」语义）；
-    # 特征若在某期/某分辨率误判，可退回仅关键词判定。
-    "event_challenge_page": {"features": ["event_challenge_page"],
-                             "keywords": [_keyword("挑战")], "ocr_box": "box_sub_pages_title"},
+    # 仅用关键词「挑战」判定（不依赖 coco 特征）。
+    "event_challenge_page": {"keywords": [_keyword("挑战")], "ocr_box": "box_sub_pages_title"},
 }
 
 # 长等待中断哨兵：断线/维护/登录过期等致命中断弹窗的特征清单。
