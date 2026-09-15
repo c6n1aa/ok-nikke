@@ -12,6 +12,7 @@ logger = Logger.get_logger(__name__)
 
 REFRESH_TTL_SECONDS = 600  # 距上次成功拉取不足该秒数则跳过（频繁重启不重复请求）。
 EXPIRE_TITLE = 'ok-nikke'  # InfoBar 提示标题。
+EXPIRE_NOTIFY_DELAY_MS = 2000  # 启动补发提示的延迟：让主窗口先稳定显示，避免盖在加载/置顶动画上。
 
 
 def _is_test_runner():
@@ -66,11 +67,18 @@ class ExpiringEventNotifier(QObject):
         self._pending = message
 
     def on_show_main_window(self, main_window):
-        """主窗口挂载钩子（框架在 show_main_window 里调用）：pending 提示立即补发。"""
+        """主窗口挂载钩子（框架在 show_main_window 里调用）：pending 提示延迟后补发。
+
+        延后 EXPIRE_NOTIFY_DELAY_MS 再发，避免提示盖在窗口刚显示的置顶/加载动画上；
+        通过 og.handler（全局 Handler）投递到 Qt 主线程，延迟期间应用退出则丢弃。
+        """
         pending, self._pending = self._pending, None
         if pending is None or self._exit_event.is_set():
             return
-        self._emit_info(pending)
+        if getattr(og, 'handler', None) is None:
+            self._emit_info(pending)  # 无 handler（headless/测试）退化为立即补发。
+            return
+        og.handler.post(lambda: self._emit_info(pending), delay=EXPIRE_NOTIFY_DELAY_MS / 1000.0)
 
 
 def _refresh_event_calendar(exit_event, notifier=None):
@@ -128,5 +136,9 @@ class Globals(QObject):
         super().__init__()
         self.notifier = ExpiringEventNotifier(exit_event)
         # 后台刷新线程完成后经 notifier 提示；若刷新先于主窗口完成，
-        # 框架会回调 on_show_main_window（og.my_app 钩子）补发 pending 提示。
+        # 框架会回调 og.my_app.on_show_main_window（即本类）补发 pending 提示。
         _start_event_refresh(exit_event)
+
+    def on_show_main_window(self, main_window):
+        """框架 show_main_window 钩的是 og.my_app（Globals）本身，转给 notifier 补发 pending 提示。"""
+        self.notifier.on_show_main_window(main_window)
