@@ -45,6 +45,8 @@ EVENT_CATEGORY = "version_event"  # 剧情活动所在分类。
 EVENT_TYPE = "StoryEvent"  # 剧情大活动的 type（登录活动是 LoginEvent）。
 STATUS_CATEGORIES = ("version_event", "raid", "arena")  # 状态信息收录：版本活动 / 协同作战+单人突袭 / 竞技场。
 SNAPSHOT_NAME = "calendar.json"  # 状态快照文件名。
+EXPIRE_NOTIFY_SECONDS = 12 * 3600  # 「即将结束」判定的提前量：结束时间在未来 12 小时内。
+BANNER_KEY_PREFIX = "EVENT_BANNER_"  # 展示名从 banner 键推导时去掉的前缀。
 ATTEMPTS = 3  # 网络请求默认尝试次数（含首次）。
 RETRY_DELAY = 0.8  # 重试间隔（秒）。
 BUNDLED_DIR = os.path.join("assets", "event_banner")  # 随包保底图目录。
@@ -57,12 +59,17 @@ class CalendarEvent:
     """日历里的一条活动。"""
 
     key: str  # banner 资源键。
-    name: str  # 活动名（接口原文，不参与匹配）。
+    name: str  # 接口原文活动名（落盘保留原样；接口 name 可能指向错误的活动，展示用 display_name）。
     category: str  # 来源分类（version_event；保底包补齐的为 bundled）。
     event_type: str  # 接口 type 字段，决定 CDN 子路径。
     start_time: int  # 开始时间（unix 秒，0 = 接口未给出）。
     end_time: int  # 结束时间（unix 秒，0 = 接口未给出）。
     url: str  # 活动图 CDN 地址。
+
+    @property
+    def display_name(self):
+        """展示名：banner 键去掉 EVENT_BANNER_ 前缀（不采用接口 name，见 parse_events）。"""
+        return strip_banner_prefix(self.key)
 
 
 @dataclass(frozen=True)
@@ -199,8 +206,19 @@ def fetch_calendar(timeout=10.0, attempts=1):
     raise last_error
 
 
+def strip_banner_prefix(key):
+    """banner 键的展示名：去掉 EVENT_BANNER_ 前缀（大小写无关，无前缀则原样返回）。"""
+    text = str(key or '')
+    return text[len(BANNER_KEY_PREFIX):] if text.upper().startswith(BANNER_KEY_PREFIX) else text
+
+
 def parse_events(calendar):
-    """取出 version_event 且 type=StoryEvent 的活动，按 banner 键去重保序。"""
+    """取出 version_event 且 type=StoryEvent 的活动，按 banner 键去重保序。
+
+    name 保留接口原文（落盘不被加工）；展示名请用 event.display_name（banner 键去前缀），
+    因为接口 name 可能指向错误的活动（实测 GREATVILLAINUNION 的 name 是开服活动
+    "No Caller ID" 且长期未修正）。
+    """
     events = []
     seen = set()
     node = ((calendar or {}).get("data") or {}).get(EVENT_CATEGORY)
@@ -284,6 +302,18 @@ def prune_expired_events(events, now=None):
     if now is None:
         now = time.time()
     return [event for event in events if not event.end_time or event.end_time > now]
+
+
+def expiring_events(events, within_seconds=EXPIRE_NOTIFY_SECONDS, now=None):
+    """结束时间在未来 within_seconds 内且尚未过期的活动（end_time=0 视为时间未知，跳过）。
+
+    now 供测试注入（unix 秒），缺省取真实时间；返回值保持传入顺序。
+    """
+    if now is None:
+        now = time.time()
+    deadline = now + max(0, within_seconds)
+    return [event for event in events
+            if event.end_time and event.end_time > now and event.end_time <= deadline]
 
 
 def _remove_quiet(path):
@@ -445,7 +475,7 @@ def refresh(timeout=5.0, download_timeout=10.0, attempts=ATTEMPTS,
         if ensure_cached(event, cache_dir=cache_dir, bundled_dir=bundled_dir,
                          timeout=download_timeout, attempts=attempts):
             ready.append(event)
-    for key in bundled_keys(bundled_dir):  # 保底包独有的活动：无接口元数据，名字用键顶替。
+    for key in bundled_keys(bundled_dir):  # 保底包独有的活动：无接口元数据，名字用键顶替（展示名走 display_name）。
         if key not in known:
             ready.append(CalendarEvent(key=key, name=key, category='bundled', event_type='',
                                        start_time=0, end_time=0, url=''))

@@ -88,12 +88,22 @@ class TestEventCalendarPureFunctions(unittest.TestCase):
         self.assertEqual('StoryEvent', events[0].event_type)
         self.assertEqual(1690000000, events[0].start_time)
         self.assertEqual(1700000000, events[0].end_time)
+        self.assertEqual('剧情活动', events[0].name)  # name 保留接口原文（落盘不加工）。
+        self.assertEqual('STORY', events[0].display_name)  # 展示名从 banner 键去前缀推导。
 
     def test_parse_events_tolerates_empty_payload(self):
         self.assertEqual([], event_calendar.parse_events(None))
         self.assertEqual([], event_calendar.parse_events({}))
         self.assertEqual([], event_calendar.parse_events({'data': {'version_event': None}}))
         self.assertEqual([], event_calendar.parse_events({'data': {'version_event': {'items': []}}}))
+
+    def test_strip_banner_prefix(self):
+        self.assertEqual('GREATVILLAINUNION', event_calendar.strip_banner_prefix('EVENT_BANNER_GREATVILLAINUNION'))
+        self.assertEqual('greatvillainunion', event_calendar.strip_banner_prefix('event_banner_greatvillainunion'))  # 前缀大小写无关，剩余部分保留原样。
+        self.assertEqual('', event_calendar.strip_banner_prefix('EVENT_BANNER_'))  # 前缀整个就是键：去完为空。
+        self.assertEqual('EVENT_BANNER', event_calendar.strip_banner_prefix('EVENT_BANNER'))  # 差下划线不构成前缀：原样返回。
+        self.assertEqual('OTHER_KEY', event_calendar.strip_banner_prefix('OTHER_KEY'))  # 无前缀原样返回。
+        self.assertEqual('', event_calendar.strip_banner_prefix(''))  # 空键安全。
 
     def test_fetch_calendar_does_not_retry_on_4xx(self):
         error = urllib.error.HTTPError(event_calendar.CALENDAR_URL, 403, 'Forbidden', None, None)
@@ -258,7 +268,7 @@ class TestEventCalendarOfflineFallback(unittest.TestCase):
                 events = event_calendar.prepare(cache_dir=os.path.join(tmp, 'cache'), bundled_dir=bundled_dir,
                                               attempts=1)  # 单次尝试，避免用例里真等重试间隔。
         self.assertEqual(['EVENT_BANNER_X', 'EVENT_BANNER_Y'], [e.key for e in events])  # 不抛异常，用保底包顶上。
-        self.assertTrue(all(e.category == 'bundled' for e in events))  # 无接口元数据时用键当名字。
+        self.assertTrue(all(e.category == 'bundled' for e in events))  # 无接口元数据时名字用键顶替。
 
     def test_prepare_keeps_online_metadata_and_dedupes_bundled(self):
         calendar = {'data': {'version_event': {'items': [
@@ -271,7 +281,8 @@ class TestEventCalendarOfflineFallback(unittest.TestCase):
             with patch.object(event_calendar, 'fetch_calendar', return_value=calendar):
                 events = event_calendar.prepare(cache_dir=os.path.join(tmp, 'cache'), bundled_dir=bundled_dir)
         self.assertEqual(['EVENT_BANNER_X', 'EVENT_BANNER_Y'], [e.key for e in events])  # 同键不重复。
-        self.assertEqual('线上活动名', events[0].name)  # 线上条目保留元数据。
+        self.assertEqual('线上活动名', events[0].name)  # 线上条目 name 保留接口原文。
+        self.assertEqual('X', events[0].display_name)  # 展示名从键去前缀推导。
         self.assertEqual('version_event', events[0].category)
         self.assertEqual('bundled', events[1].category)  # 只在保底包里的活动排后面。
 
@@ -381,6 +392,8 @@ class TestEventCalendarSnapshot(unittest.TestCase):
             self.assertEqual(['EVENT_BANNER_STORY'], [event.key for event in snapshot.events])  # 只留剧情活动。
             self.assertTrue(snapshot.is_fresh(60))
             self.assertTrue(os.path.exists(event_calendar.cache_path(snapshot.events[0].url, cache_dir)))  # 图落 cache。
+            self.assertEqual('No Caller ID', snapshot.events[0].name)  # 落盘保留接口原文，不做加工。
+            self.assertEqual('STORY', snapshot.events[0].display_name)  # 展示名读取时从键推导。
             loaded = event_calendar.load_snapshot(cache_dir)  # JSON 也能读回。
         self.assertEqual(['EVENT_BANNER_STORY'], [event.key for event in loaded.events])
         self.assertEqual('Champion Arena', loaded.status_of('arena')[0]['name'])
@@ -430,6 +443,27 @@ class TestEventCalendarSnapshot(unittest.TestCase):
         snapshot = event_calendar.CalendarSnapshot(fetched_at=1, events=events, status={})
         self.assertEqual(['NEW'], [event.key for event in snapshot.pick_events(1, now=now)])
         self.assertEqual(['NEW', 'UNKNOWN'], [event.key for event in snapshot.pick_events(None, now=now)])
+
+    def test_expiring_events_picks_ending_within_window(self):
+        now = 100000
+        within = event_calendar.EXPIRE_NOTIFY_SECONDS  # 12 小时窗口。
+        events = tuple(self._event(key, 0, end) for key, end in (
+            ('SOON', now + 3600),  # 1 小时后结束 → 命中。
+            ('EDGE', now + within),  # 恰好压线 → 命中。
+            ('LATER', now + within + 1),  # 窗口外 → 不命中。
+            ('GONE', now - 1),  # 已过期 → 不命中（refresh 已剔除，这里防御）。
+            ('UNKNOWN', 0),  # end_time=0 视为时间未知 → 不提示。
+        ))
+        self.assertEqual(['SOON', 'EDGE'],
+                         [event.key for event in event_calendar.expiring_events(events, now=now)])
+        self.assertEqual([], event_calendar.expiring_events([], now=now))
+        self.assertEqual([], event_calendar.expiring_events(events, within_seconds=0, now=now))  # 窗口为 0。
+
+    def test_expiring_events_keeps_input_order(self):
+        now = 100000
+        events = (self._event('B', 0, now + 60), self._event('A', 0, now + 30))  # 故意乱序给。
+        self.assertEqual(['B', 'A'],
+                         [event.key for event in event_calendar.expiring_events(events, now=now)])  # 保持传入顺序。
 
     def test_prune_cache_never_touches_non_banner_files(self):
         # 只删本项目缓存命名形态（md5 十六进制 + .png）：陌生 .png、非 png 文件、同名目录一律不动。
@@ -562,6 +596,155 @@ class TestGlobalsStartupRefresh(unittest.TestCase):
         exit_event = threading.Event()
         exit_event.set()
         self._run_hook(exit_event, is_test=False).assert_not_called()  # 已开始退出则不发起请求。
+
+
+class TestExpireNotifyOption(unittest.TestCase):
+    """「活动结束提醒」开关注册进通知配置：默认开启、可见、描述齐全。"""
+
+    def test_option_registered_visible_and_default_on(self):
+        from src.patches import notification_tab
+        from ok.util.GlobalConfig import create_notification_options
+        options = create_notification_options()
+        self.assertTrue(options.default_config[notification_tab.EXPIRE_NOTIFY_ENABLED_KEY])  # 默认开启。
+        self.assertFalse(
+            options.config_type.get(notification_tab.EXPIRE_NOTIFY_ENABLED_KEY, {}).get('hidden'))  # 不被隐藏。
+        self.assertIn(notification_tab.EXPIRE_NOTIFY_ENABLED_KEY, options.config_description)  # 有说明文案。
+        self.assertFalse(options.show_at_tab)  # 整个通知配置仍并入「软件设置」页。
+
+
+class TestExpiringEventNotifier(unittest.TestCase):
+    """刷新成功后「即将结束活动」提示：筛选边界与窗口未就绪时的暂存/补发。"""
+
+    @staticmethod
+    def _event(key='SOON', name=None, end_time=0):
+        return event_calendar.CalendarEvent(key=key, name=name or key, category='version_event',
+                                            event_type='StoryEvent', start_time=0, end_time=end_time,
+                                            url=f'https://example.invalid/{key}.png')
+
+    def test_message_shapes(self):
+        soon = self._event('EVENT_BANNER_SOON', name='接口原文')  # name 是接口原文，展示走键推导。
+        other = self._event('EVENT_BANNER_OTHER', name='接口原文2')
+        self.assertEqual('活动「SOON」即将结束（12小时内）', app_globals.expire_message([soon]))  # 单个。
+        self.assertEqual('以下活动即将结束（12小时内）：SOON、OTHER',
+                         app_globals.expire_message([soon, other]))  # 多个。
+
+    def test_no_emit_when_nothing_expiring(self):
+        notifier = app_globals.ExpiringEventNotifier(exit_event=threading.Event())
+        with patch.object(notifier, '_emit_info') as emit:
+            notifier.notify_expiring([self._event('LATER', end_time=int(time.time()) + 999999)])
+            notifier.notify_expiring([self._event('UNKNOWN', end_time=0)])  # 时间未知不提示。
+        emit.assert_not_called()
+
+    def test_skips_emit_when_switch_disabled(self):
+        og = app_globals.og
+        og.main_window = 'window'
+        try:
+            notifier = app_globals.ExpiringEventNotifier(exit_event=threading.Event())
+            with patch.object(app_globals, 'expire_notify_enabled', return_value=False), \
+                    patch.object(notifier, '_emit_info') as emit:
+                notifier.notify_expiring(
+                    [self._event('SOON', end_time=int(time.time()) + 3600)], now=time.time())
+            emit.assert_not_called()  # 开关关闭：即使有即将结束的活动也不提示。
+            self.assertIsNone(notifier._pending)
+        finally:
+            og.main_window = None
+
+    def test_expire_notify_enabled_reads_config(self):
+        key = '活动结束提醒'
+        with patch('src.globals.og') as og_mock:
+            og_mock.global_config.get_config.return_value = {key: False}
+            self.assertFalse(app_globals.expire_notify_enabled())
+            og_mock.global_config.get_config.return_value = {key: True}
+            self.assertTrue(app_globals.expire_notify_enabled())
+            og_mock.global_config.get_config.return_value = {}
+            self.assertTrue(app_globals.expire_notify_enabled())  # 旧配置缺键：按开启兜底。
+            og_mock.global_config.get_config.side_effect = RuntimeError('config unavailable')
+            self.assertTrue(app_globals.expire_notify_enabled())  # 配置取不到：按开启兜底，不阻断。
+
+    def test_emit_with_window_ready(self):
+        og = app_globals.og
+        og.main_window = 'window'  # 只查存在性，用哨兵即可。
+        try:
+            notifier = app_globals.ExpiringEventNotifier(exit_event=threading.Event())
+            with patch('ok.ui.qt.Communicate.communicate') as communicate:
+                notifier.notify_expiring(
+                    [self._event('EVENT_BANNER_SOON', name='接口原文', end_time=int(time.time()) + 3600)],
+                    now=time.time())
+            communicate.notification.emit.assert_called_once_with(
+                '活动「SOON」即将结束（12小时内）', 'ok-nikke', False, False, None, None, None)
+            self.assertIsNone(notifier._pending)
+        finally:
+            og.main_window = None
+
+    def test_pending_emitted_on_window_hook(self):
+        og = app_globals.og
+        og.main_window = None  # 刷新先于主窗口完成。
+        try:
+            notifier = app_globals.ExpiringEventNotifier(exit_event=threading.Event())
+            with patch('ok.ui.qt.Communicate.communicate') as communicate:
+                notifier.notify_expiring(
+                    [self._event('EVENT_BANNER_SOON', name='接口原文', end_time=int(time.time()) + 3600)],
+                    now=time.time())
+                communicate.notification.emit.assert_not_called()  # 窗口未就绪：先不发。
+                self.assertIsNotNone(notifier._pending)
+                og.main_window = 'window'  # 模拟 show_main_window 挂载完成。
+                notifier.on_show_main_window('window')  # 框架钩子。
+                communicate.notification.emit.assert_called_once_with(
+                    '活动「SOON」即将结束（12小时内）', 'ok-nikke', False, False, None, None, None)
+            self.assertIsNone(notifier._pending)  # 补发后清空。
+            with patch('ok.ui.qt.Communicate.communicate') as communicate:
+                notifier.on_show_main_window('window')  # 再触发也无 pending 可发。
+                communicate.notification.emit.assert_not_called()
+        finally:
+            og.main_window = None
+
+    def test_no_pending_when_app_exiting(self):
+        og = app_globals.og
+        og.main_window = None
+        exit_event = threading.Event()
+        exit_event.set()  # 应用已在退出：不提示也不暂存。
+        try:
+            notifier = app_globals.ExpiringEventNotifier(exit_event=exit_event)
+            with patch.object(notifier, '_emit_info') as emit:
+                notifier.notify_expiring(
+                    [self._event('SOON', end_time=int(time.time()) + 3600)], now=time.time())
+            emit.assert_not_called()
+            self.assertIsNone(notifier._pending)
+            notifier.on_show_main_window('window')  # 钩子同样不发。
+            emit.assert_not_called()
+        finally:
+            og.main_window = None
+
+    def test_refresh_notifies_expiring_on_success(self):
+        exit_event = threading.Event()
+        notifier = app_globals.ExpiringEventNotifier(exit_event=exit_event)
+        now = int(time.time())
+        snapshot = event_calendar.CalendarSnapshot(
+            fetched_at=now, events=(), status={})
+        with patch.object(app_globals.event_calendar, 'load_snapshot', return_value=None), \
+                patch.object(app_globals.event_calendar, 'refresh', return_value=snapshot), \
+                patch.object(notifier, 'notify_expiring') as notify:
+            app_globals._refresh_event_calendar(exit_event, notifier)
+        notify.assert_called_once_with(snapshot.events)
+
+    def test_refresh_does_not_notify_on_failure(self):
+        notifier = app_globals.ExpiringEventNotifier(exit_event=threading.Event())
+        snapshot = event_calendar.CalendarSnapshot(fetched_at=0, events=(), status={})
+        with patch.object(app_globals.event_calendar, 'load_snapshot', return_value=None), \
+                patch.object(app_globals.event_calendar, 'refresh', return_value=snapshot), \
+                patch.object(notifier, 'notify_expiring') as notify:
+            app_globals._refresh_event_calendar(threading.Event(), notifier)
+        notify.assert_not_called()  # 接口不可达时不提示。
+
+    def test_refresh_skips_when_snapshot_fresh(self):
+        notifier = app_globals.ExpiringEventNotifier(exit_event=threading.Event())
+        snapshot = event_calendar.CalendarSnapshot(fetched_at=int(time.time()), events=(), status={})
+        with patch.object(app_globals.event_calendar, 'load_snapshot', return_value=snapshot), \
+                patch.object(app_globals.event_calendar, 'refresh') as refresh, \
+                patch.object(notifier, 'notify_expiring') as notify:
+            app_globals._refresh_event_calendar(threading.Event(), notifier)
+        refresh.assert_not_called()  # ttl 内直接跳过。
+        notify.assert_not_called()
 
 
 class TestEventRowMatch(TaskTestCase):

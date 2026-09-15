@@ -326,9 +326,9 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
     def _find_event_row(self, event):  # 用官方活动图在列表内 banner 匹配定位该活动所在行，返回行 Box 或 None。
         path = event_calendar.local_banner_path(event.key, event.url)  # 本地活动图路径（cache -> 保底包，纯本地）。
         if path is None:  # 无本地活动图（断网且不在保底包）。
-            self.log_warning(f"活动「{event.name}」无本地活动图，无法定位")  # 记录跳过原因。
+            self.log_warning(f"活动「{event.display_name}」无本地活动图，无法定位")  # 记录跳过原因。
             return None  # 视为该活动当前不可定位。
-        return self.find_event_row(event.name, path)  # 在 box_event_banner_area 内匹配该活动行。
+        return self.find_event_row(event.display_name, path)  # 在 box_event_banner_area 内匹配该活动行。
 
     def _enter_event(self, row_box):  # 点击卡片进入活动主页并等菜单就绪；返回是否确认为活动（超时判非活动条目）。
         self.click_box(row_box, after_sleep=2)  # 点击卡片（点击源由调用方定位）。

@@ -5,6 +5,13 @@ logger = Logger.get_logger(__name__)
 # 通知配置仅保留「系统通知」一项，其余渠道(Discord/Telegram/企业微信/QQ等)隐藏。
 # 隐藏走框架 config_type 的 hidden 参数（ConfigContentMixin 跳过渲染），保留配置键与默认值；
 # NotificationManager 各渠道按 config.get() 判断，默认 False 即禁用，与缺键等价。
+#
+# 此外注入本项目自定义项：启动刷新活动日历后「活动即将结束」应用内提示的开关。
+
+# 活动日历「即将结束」应用内提示开关（通知配置卡片里的自定义项）
+EXPIRE_NOTIFY_ENABLED_KEY = '活动结束提醒'
+
+_EXPIRE_NOTIFY_DESCRIPTION = '应用启动刷新活动日历后，若发现 12 小时内结束的活动，在应用内弹出提示'
 
 
 def _patch_notification_tab():
@@ -26,7 +33,10 @@ def _patch_notification_tab():
         for key in options.default_config:
             if key not in keep_keys:
                 options.config_type.setdefault(key, {})['hidden'] = True
-        options.description = '任务结束或出错时弹出 Windows 系统通知'
+        # 自定义项在隐藏循环之后注入，保证不会被上面的 hidden 逻辑误隐藏。
+        options.default_config[EXPIRE_NOTIFY_ENABLED_KEY] = True
+        options.config_description[EXPIRE_NOTIFY_ENABLED_KEY] = _EXPIRE_NOTIFY_DESCRIPTION
+        options.description = '任务结束/出错的通知渠道与「活动即将结束」启动提醒开关'
         return options
 
     _global_config_module.create_notification_options = _create_notification_options
