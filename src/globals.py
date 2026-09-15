@@ -23,12 +23,12 @@ def expire_message(expiring):
     """即将结束活动的提示文案（单数/复数两种形态）。"""
     names = '、'.join(event.display_name for event in expiring)
     if len(expiring) > 1:
-        return f'以下活动即将结束（12小时内）：{names}'
-    return f'活动「{names}」即将结束（12小时内）'
+        return f'以下活动即将结束（24小时内）：{names}'
+    return f'活动「{names}」即将结束（24小时内）'
 
 
 class ExpiringEventNotifier(QObject):
-    """活动日历刷新成功后，把「结束时间在 12 小时内的活动」弹成 Qt InfoBar 提示。
+    """活动日历刷新成功后，把「结束时间在 24 小时内的活动」弹成 Qt InfoBar 提示。
 
     刷新线程不直接碰 Qt 控件：通过 communicate.notification 与 UI 通信，框架内部会把
     回调投递到 Qt 主线程（ok.ui.qt.events.QtEventDispatcher）。主窗口尚不存在（刷新先

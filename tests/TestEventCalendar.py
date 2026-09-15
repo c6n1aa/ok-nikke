@@ -446,7 +446,7 @@ class TestEventCalendarSnapshot(unittest.TestCase):
 
     def test_expiring_events_picks_ending_within_window(self):
         now = 100000
-        within = event_calendar.EXPIRE_NOTIFY_SECONDS  # 12 小时窗口。
+        within = event_calendar.EXPIRE_NOTIFY_SECONDS  # 24 小时窗口。
         events = tuple(self._event(key, 0, end) for key, end in (
             ('SOON', now + 3600),  # 1 小时后结束 → 命中。
             ('EDGE', now + within),  # 恰好压线 → 命中。
@@ -624,8 +624,8 @@ class TestExpiringEventNotifier(unittest.TestCase):
     def test_message_shapes(self):
         soon = self._event('EVENT_BANNER_SOON', name='接口原文')  # name 是接口原文，展示走键推导。
         other = self._event('EVENT_BANNER_OTHER', name='接口原文2')
-        self.assertEqual('活动「SOON」即将结束（12小时内）', app_globals.expire_message([soon]))  # 单个。
-        self.assertEqual('以下活动即将结束（12小时内）：SOON、OTHER',
+        self.assertEqual('活动「SOON」即将结束（24小时内）', app_globals.expire_message([soon]))  # 单个。
+        self.assertEqual('以下活动即将结束（24小时内）：SOON、OTHER',
                          app_globals.expire_message([soon, other]))  # 多个。
 
     def test_no_emit_when_nothing_expiring(self):
@@ -671,7 +671,7 @@ class TestExpiringEventNotifier(unittest.TestCase):
                     [self._event('EVENT_BANNER_SOON', name='接口原文', end_time=int(time.time()) + 3600)],
                     now=time.time())
             communicate.notification.emit.assert_called_once_with(
-                '活动「SOON」即将结束（12小时内）', 'ok-nikke', False, False, None, None, None)
+                '活动「SOON」即将结束（24小时内）', 'ok-nikke', False, False, None, None, None)
             self.assertIsNone(notifier._pending)
         finally:
             og.main_window = None
@@ -690,7 +690,7 @@ class TestExpiringEventNotifier(unittest.TestCase):
                 og.main_window = 'window'  # 模拟 show_main_window 挂载完成。
                 notifier.on_show_main_window('window')  # 框架钩子。
                 communicate.notification.emit.assert_called_once_with(
-                    '活动「SOON」即将结束（12小时内）', 'ok-nikke', False, False, None, None, None)
+                    '活动「SOON」即将结束（24小时内）', 'ok-nikke', False, False, None, None, None)
             self.assertIsNone(notifier._pending)  # 补发后清空。
             with patch('ok.ui.qt.Communicate.communicate') as communicate:
                 notifier.on_show_main_window('window')  # 再触发也无 pending 可发。

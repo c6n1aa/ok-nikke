@@ -11,7 +11,7 @@ logger = Logger.get_logger(__name__)
 # 活动日历「即将结束」应用内提示开关（通知配置卡片里的自定义项）
 EXPIRE_NOTIFY_ENABLED_KEY = '活动结束提醒'
 
-_EXPIRE_NOTIFY_DESCRIPTION = '应用启动刷新活动日历后，若发现 12 小时内结束的活动，在应用内弹出提示'
+_EXPIRE_NOTIFY_DESCRIPTION = '应用启动刷新活动日历后，若发现 24 小时内结束的活动，在应用内弹出提示'
 
 
 def _patch_notification_tab():
