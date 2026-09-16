@@ -187,10 +187,13 @@ class NavigationMixin:
         Raises:
             WaitFailedException: raise_on_fail=True 且恢复回大厅 / 冷启动等待 / 进入目标界面失败。
         """
-        if self.wait_screen(name, time_out=wait_enter):  # 已在目标界面或正在过场：轮询容忍滑入动画。
+        # 已确认人在大厅（lobby 判据与其余界面互斥）：目标页特征必然不可见，两轮轮询注定等到超时，直接走点击边。
+        # 目标页已可见时不短路（滑入过场中目标页可能先于大厅图标出现），交回原轮询容忍动画。
+        on_lobby = name != "lobby" and not self.is_screen(name) and self.is_screen("lobby")
+        if not on_lobby and self.wait_screen(name, time_out=wait_enter):  # 已在目标界面或正在过场：轮询容忍滑入动画。
             return True  # 无需导航。
         self.dismiss_all_popups(wait_for_popup=False, time_out=10)  # 弹窗可能遮挡目标界面特征。
-        if self.wait_screen(name, time_out=wait_enter):  # 清弹窗后已在目标界面。
+        if not on_lobby and self.wait_screen(name, time_out=wait_enter):  # 清弹窗后已在目标界面。
             return True  # 无需导航。
         if self.is_screen("login_page"):  # 正向命中登录页：明确冷启动入口，覆盖应用内推定，跳过恢复动作。
             in_app = False

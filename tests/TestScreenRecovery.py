@@ -1,6 +1,6 @@
 import unittest
 import re
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 from ok.feature.Box import Box
 from ok.task.exceptions import WaitFailedException
@@ -485,6 +485,64 @@ class TestScreenRecovery(TaskTestCase):
             result = self.task._find_back_button()
         self.assertIs(fake_back, result)
         find_mock.assert_called_once_with("common_back")  # 精确命中不再兜底。
+
+    # ---- ensure_screen 的「已在大厅」短路 ----
+
+    def _ensure_screen_on_lobby(self, **kwargs):
+        """在「单帧确认已在大厅」的环境下调用 ensure_screen(子页)，返回各 mock 供断言。"""
+        self.task.register_screen("子页", features=["simulation_mark"])
+        with patch.object(self.task, "wait_screen", return_value=False) as wait_mock, \
+                patch.object(self.task, "is_screen", side_effect=lambda n: n == "lobby"), \
+                patch.object(self.task, "dismiss_all_popups") as dismiss_mock, \
+                patch.object(self.task, "_recover_to_lobby", return_value=True), \
+                patch.object(self.task, "wait_until_lobby_after_start") as cold_mock, \
+                patch.object(self.task, "transition") as transition_mock:
+            result = self.task.ensure_screen("子页", click_feature="入口特征", **kwargs)
+        return result, wait_mock, dismiss_mock, cold_mock, transition_mock
+
+    def test_ensure_screen_lobby_short_circuits_target_poll(self):
+        """已确认大厅：跳过两轮目标页轮询，直接清弹窗走点击边。"""
+        result, wait_mock, dismiss_mock, cold_mock, transition_mock = self._ensure_screen_on_lobby()
+        self.assertTrue(result)
+        wait_mock.assert_not_called()  # 两轮目标页探测全部跳过（省 2×wait_enter 秒）。
+        self.assertGreaterEqual(dismiss_mock.call_count, 1)  # 仍清大厅残留弹窗。
+        cold_mock.assert_not_called()  # 已在大厅，不再走冷启动引导。
+        transition_mock.assert_called_once_with("子页", click_feature="入口特征")
+
+    def test_ensure_screen_not_on_lobby_polls_then_transitions(self):
+        """不在大厅（过场/子页）：不短路，仍走原两轮轮询与分流。"""
+        with patch.object(self.task, "wait_screen", return_value=False) as wait_mock, \
+                patch.object(self.task, "is_screen", return_value=False), \
+                patch.object(self.task, "find_one", return_value=Box(0, 0, 5, 5, confidence=1)), \
+                patch.object(self.task, "dismiss_all_popups"), \
+                patch.object(self.task, "_recover_to_lobby", return_value=True) as recover_mock, \
+                patch.object(self.task, "wait_until_lobby_after_start"), \
+                patch.object(self.task, "transition"):
+            result = self.task.ensure_screen("子页", click_feature="入口特征")
+        self.assertTrue(result)
+        self.assertEqual(2, wait_mock.call_count)  # 两轮目标页轮询保留。
+        recover_mock.assert_called_once()  # 有应用内证据 → 走恢复回大厅。
+
+    def test_ensure_screen_target_visible_does_not_short_circuit(self):
+        """目标页已可见（滑入过场中）：不短路，交回原轮询确认。"""
+        with patch.object(self.task, "wait_screen", return_value=True) as wait_mock, \
+                patch.object(self.task, "is_screen", return_value=True), \
+                patch.object(self.task, "dismiss_all_popups") as dismiss_mock:
+            self.assertTrue(self.task.ensure_screen("子页", click_feature="入口特征"))
+        wait_mock.assert_called_once_with("子页", time_out=5)  # 仍轮询目标页。
+        dismiss_mock.assert_not_called()  # 首轮即命中，直接返回。
+
+    def test_ensure_screen_lobby_target_is_never_short_circuited(self):
+        """name == "lobby"：大厅即目标，不短路（仍走探测 + 零点击尾段）。"""
+        with patch.object(self.task, "wait_screen", return_value=False) as wait_mock, \
+                patch.object(self.task, "is_screen", side_effect=lambda n: n == "lobby") as screen_mock, \
+                patch.object(self.task, "dismiss_all_popups"), \
+                patch.object(self.task, "_recover_to_lobby", return_value=True), \
+                patch.object(self.task, "wait_until_lobby_after_start", return_value=False), \
+                patch.object(self.task, "save_failure_screenshot"):
+            self.assertFalse(self.task.ensure_screen("lobby", raise_on_fail=False))
+        self.assertNotIn(call("lobby"), screen_mock.call_args_list)  # 不做短路判定（分流里的 login_page 探测不算）。
+        self.assertEqual(3, wait_mock.call_count)  # 两轮大厅探测 + 零点击尾段确认全部保留。
 
 
 if __name__ == '__main__':

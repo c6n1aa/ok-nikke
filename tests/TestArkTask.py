@@ -2,7 +2,7 @@ import os
 import unittest
 from contextlib import ExitStack
 from types import SimpleNamespace
-from unittest.mock import PropertyMock, patch
+from unittest.mock import PropertyMock, call, patch
 
 import numpy as np
 
@@ -889,12 +889,17 @@ class TestNavToArk(_DebugOffTestCase):
         return stack, recover_mock, lobby_mock, transition_mock
 
     def test_animation_tolerance_ark_hit_after_first_wait(self):
-        """过场动画：首次轮询即命中方舟 → 不清弹窗、不导航，直接返回。"""
+        """过场动画：首次轮询即命中方舟 → 不清弹窗、不导航，直接返回。
+
+        单帧判定尚未命中目标页且未确认大厅时不短路，仍走 wait_screen 轮询容忍滑入动画。
+        """
         with patch.object(self.task, "wait_screen", return_value=True) as wait_mock, \
+                patch.object(self.task, "is_screen", return_value=False) as screen_mock, \
                 patch.object(self.task, "dismiss_all_popups") as dismiss_mock, \
                 patch.object(self.task, "transition") as transition_mock:
             self.task._nav_to_ark()
-        wait_mock.assert_called_once_with("ark", time_out=5)
+        self.assertEqual([call("ark"), call("lobby")], screen_mock.call_args_list)  # 先探目标页，未命中再探大厅。
+        wait_mock.assert_called_once_with("ark", time_out=5)  # 轮询目标页未被跳过。
         dismiss_mock.assert_not_called()
         transition_mock.assert_not_called()
 

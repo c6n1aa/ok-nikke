@@ -216,7 +216,7 @@ class TestRaidTaskSolo(_DebugOffTestCase):
     def test_solo_challenge_mode_marks_done_without_battle(self):
         cm_box = _fake_box("solo_raid_challenge_mode", 30, 30, 10, 10)
         home_box = _fake_box("common_home", 0, 0, 5, 5)
-        with patch.object(self.task, "wait_screen", return_value=True), patch.object(self.task, "find_one", side_effect=lambda name, **kw: {"solo_raid_challenge_mode": cm_box, "common_home": home_box}.get(name)), patch.object(self.task, "click_box") as click_mock, patch.object(self.task, "wait_for_lobby"), patch.object(self.task, "_is_solo_raid_option_enabled", side_effect=AssertionError("挑战模式不应进入出战判定")):
+        with patch.object(self.task, "is_screen", side_effect=lambda n: n == "solo_raid_page"), patch.object(self.task, "wait_screen", return_value=True), patch.object(self.task, "find_one", side_effect=lambda name, **kw: {"solo_raid_challenge_mode": cm_box, "common_home": home_box}.get(name)), patch.object(self.task, "click_box") as click_mock, patch.object(self.task, "wait_for_lobby"), patch.object(self.task, "_is_solo_raid_option_enabled", side_effect=AssertionError("挑战模式不应进入出战判定")):
             self.task._do_solo_raid()
         clicked = [c.args[0] for c in click_mock.call_args_list]
         self.assertIn(home_box, clicked)  # 识别到挑战模式后应点 common_home 回大厅。
