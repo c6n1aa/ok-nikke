@@ -79,7 +79,7 @@ SCREENS = {
     "event_list_page": {"keywords": [_keyword("活动页面")], "ocr_box": "box_sub_pages_title"},
     # 活动主页（大小活动两形态）：大活动底部菜单栏 / 小活动四周按钮均带「剩余时间」，
     # 以其为跨期稳定判据（无稳定模板）；进入判定容忍入场动画见 EventTask._enter_and_probe。
-    "event_main": {"keywords": [_keyword("剧情活动"), _keyword("活动区域")], "ocr_box": "box_sub_pages_title"},
+    "event_main": {"keywords": [_keyword("剧情活动"), _keyword("活动地区")], "ocr_box": "box_sub_pages_title"},
     # 活动关卡页：剧情入口后的关卡列表（左上标题「活动关卡」）；关卡行解析见 src/event_stage.py，
     # 列表区与难度区分别是 box_event_stage_list / box_event_stage_mode。
     "event_stage_page": {"keywords": [_keyword("活动关卡")], "ocr_box": "box_sub_pages_title"},
