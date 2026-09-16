@@ -65,8 +65,8 @@ _SWEEP_CLOSE_FEATURE = "stage_detail_close"  # 关卡详情页右上关闭按钮
 _CHALLENGE_LIST_BOX = "box_event_challenge_stage_list"  # 挑战关卡列表区域（关卡标记的搜索/定位范围）。
 _CHALLENGE_STAGE_FEATURE = "event_challenge_stage"  # 单个挑战关卡标记（可点击 + 判态；自下而上取第一个可用）。
 
-# 大活动子页面到达等待（秒）：点击底部菜单入口后，SD 小人先走到地点、子界面才打开（签到/挑战共用同一物理量）。
-# 小活动点击入口即切页，轮询首帧就命中，故本窗口只影响大活动「小人走过去」的耗时；一处校准两处受益。
+# 大活动子页面到达等待（秒）：点击底部菜单入口后，SD 小人先走到地点、子界面才打开（签到/挑战/剧情子页面共用同一物理量）。
+# 小活动点击入口即切页，轮询首帧就命中；大活动每期地图大小不同、小人走到地点后还有切页动画，故取统一可用上限而非逐期精确值。
 _SD_ARRIVE_TIMEOUT = 12  # 点到子界面出现的等待上限（秒）：轮询命中即提前返回，仅小人未到达时才等满。
 
 # 面板底部「全部领取」判据（签到印章面板与活动任务弹窗共用：文字同字、都落在面板底部同一带）。
@@ -82,16 +82,23 @@ _MISSION_SUBTITLE_TEXT = re.compile("CHALLENGE", re.IGNORECASE)  # 副标题关�
 _MISSION_READY_TIMEOUT = 10  # 点入口后等弹窗就位（副标题出现）的窗口（秒）。
 _MISSION_CLAIM_MAX_CLICKS = 20  # 单次领取循环的点击上限（点击未生效时防死循环）。
 
+# 剧情入口关键词（探测顺序即优先级；_ENTRIES['剧情'] 直接引用，大小活动差异由命中的关键词区分）。
+# 大活动菜单页是 STORY I/II，小活动主页与大活动剧情子页面是「加成奖励妮姬」。
+_STORY_MENU_PATTERNS = (  # 大活动菜单页的剧情入口。
+    re.compile(r"STORY\s*II", re.IGNORECASE),  # STORY II 先于 STORY I：STORY I 是 STORY II 的前缀。
+    re.compile(r"STORY\s*I(?!I)", re.IGNORECASE),  # 与 STORY II 消歧。
+)
+_STORY_SUB_PATTERN = re.compile(r"加成", re.IGNORECASE)  # 文案为「加成奖励妮姬」，只取前两字避免整词识别不到。
+
+# 活动菜单可见性判据入口：大活动地图页与小活动主页都有（大活动剧情子页面只是布局上「像小活动」，没有活动菜单）。
+_MENU_PROBE_ENTRIES = ("挑战", "任务", "商店")
+
 # 活动主页功能入口探测表：label -> 关键词正则列表（列表顺序即探测顺序）。
 # OCR 在 _MENU_BAND_BOXES 各区域内逐区匹配；预留 feature 位：实机若发现某入口只有图标无文字，
 # 再改成 {label: (feature, [keywords])} 形式补 coco 特征匹配（handoff §1）。
 _ENTRIES = {
     "签到": [re.compile(r"签到印章", re.IGNORECASE)],
-    "剧情": [
-        re.compile(r"STORY\s*II", re.IGNORECASE),
-        re.compile(r"STORY\s*I(?!I)", re.IGNORECASE),  # 与 STORY II 消歧：STORY I 是 II 的前缀。
-        re.compile(r"加成", re.IGNORECASE),  # 小活动剧情入口（界面文案为「加成奖励妮姬」，只取前两字避免整词识别不到）。
-    ],
+    "剧情": [*_STORY_MENU_PATTERNS, _STORY_SUB_PATTERN],
     "挑战": [re.compile(r"挑战", re.IGNORECASE)],
     "任务": [re.compile(r"任务", re.IGNORECASE)],  # 小活动在菜单带；大活动在专属区域（见 _ENTRY_EXTRA_BOXES）。
     "商店": [re.compile(r"商店", re.IGNORECASE)],
@@ -119,7 +126,7 @@ _SUBFLOW_METHODS = {
 _SKIPPED_ENTRIES = ("小游戏",)
 
 # 入口点击框修正：关键词（pattern.pattern）-> 沿 Y 轴的上移量（占屏高比例）。
-# 小活动剧情入口「加成奖励妮姬」的命中文字在按钮下缘，点击落点需上移到按钮主体（实机标定）。
+# 「加成奖励妮姬」的命中文字在按钮下缘，点击落点需上移到按钮主体（小活动主页与剧情子页面同款布局，实机标定）。
 _ENTRY_CLICK_Y_OFFSET = {
     "加成": 0.06,
 }
@@ -211,14 +218,25 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
         return (self._probe_event_main() or self.is_screen("event_stage_page")  # 主页 / 剧情关卡页。
                 or self.is_screen("event_challenge_page") or self._detail_page_open())  # 挑战页 / 详情页（任一命中即视为在活动内）。
 
-    def _ensure_event_menu(self):  # 把活动子页面退回活动菜单页（已在菜单页则不动），供接管分支与重入使用。
-        if self._probe_event_main():  # 已在活动菜单页（主页）。
+    def _probe_menu_entries(self):  # 活动菜单入口是否可见（大活动地图页 / 小活动主页都有这些入口）。
+        return any(self._probe_entry(label) for label in _MENU_PROBE_ENTRIES)  # 任一菜单入口命中即菜单在。
+
+    def _probe_story_sub_page(self):  # 是否处于大活动剧情子页面：左上标题同为「剧情活动」，但只有小活动同款剧情入口、没有活动菜单。
+        if not self._probe_event_main() or self._probe_menu_entries():  # 不在活动主页，或活动菜单在（= 菜单页）。
+            return False  # 不是剧情子页面。
+        entry = self._entry_box("剧情")  # 该页面唯一可用的剧情入口。
+        return entry is not None and not self._is_story_main_entry(entry)  # 命中「加成」类入口才算。
+
+    def _ensure_event_menu(self):  # 把活动子页面退回活动菜单页（已在菜单页则不动），供接管分支与子流程收尾使用。
+        if self._probe_event_main() and not self._probe_story_sub_page():  # 已在活动菜单页（大活动地图页 / 小活动主页）。
             return  # 无需导航。
         if self._detail_page_open():  # 关卡详情页。
             self._close_stage_detail()  # 先关到关卡列表页。
         # 返回键样式逐期/逐子页不同（签到等活动子页的 common_back 模板实测仅 0.41，模板匹配会失败），
         # 故走基类 _find_back_button（模板精确 → 左下角区域兜底 → OCR「返回」三层）。
-        self.transition("event_main", click=self._click_back_to_menu, wait_confirm=10, after_sleep=1)  # 子页面 → 活动菜单页。
+        self.transition("event_main", click=self._click_back_to_menu, wait_confirm=10, after_sleep=1)  # 子页面 → 上一级。
+        if self._probe_story_sub_page():  # 落在剧情子页面（关卡页的上一级就是它）：再退一级回活动菜单页。
+            self.transition("event_main", click=self._click_back_to_menu, wait_confirm=10, after_sleep=1)  # 剧情子页面 → 地图页。
 
     def _click_back_to_menu(self):  # 点击活动子页面的返回按钮回菜单页（基类三层兜底定位，功能同 click_box(common_back)）。
         back = self._find_back_button()  # 模板精确 → 左下角区域模板 → OCR「返回」。
@@ -447,6 +465,10 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
             return hit  # 命中框本身即点击框。
         return Box(hit.x, hit.y - int(self.height * offset), hit.width, hit.height,  # 同尺寸上移，不改写原命中框。
                    confidence=hit.confidence, name=hit.name)
+
+    def _is_story_main_entry(self, entry):  # 命中框是否为大活动菜单页的 STORY I/II 入口（点开后进剧情子页面，不是关卡页）。
+        name = entry.name  # 入口命中的 OCR 文字（_ENTRY_CLICK_Y_OFFSET 的偏移框也保留原文字）。
+        return isinstance(name, str) and any(pattern.search(name) for pattern in _STORY_MENU_PATTERNS)
 
     def _wait_menu_ready(self, time_out=6):  # 等菜单栏内容渲染就绪：标题先于菜单出现，菜单另有入场动画不可立即点击。
         patterns = [p for ps in _ENTRIES.values() for p in ps]  # 全部入口关键词并集（任一命中即视为菜单已渲染）。
@@ -906,10 +928,7 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
         mode = self.config.get("剧情模式", _STORY_MODES[0])  # 剧情关卡难度（配置项已隐藏，实现前保持默认）。
         if mode != _STORY_MODES[0]:  # 非默认值（历史配置残留或手改）：难度选择未实现。
             self.log_info(f"剧情模式 {mode} 暂未支持，按页面当前难度继续")  # TODO 实机标定 box_event_stage_mode 的选中态与点击。
-        entry = self._entry_box("剧情")  # 剧情入口命中框（大活动 STORY II → STORY I，小活动「加成」）。
-        if entry is None:  # 入口缺失（页面结构变化或菜单未渲染）。
-            raise WaitFailedException("未找到剧情入口")  # 抛异常由 try_step 恢复。
-        self.transition("event_stage_page", box=entry, wait_confirm=10, after_sleep=1)  # 点击剧情入口并确认进入关卡页。
+        self._enter_stage_page()  # 活动菜单页 → 关卡页（大活动要经 STORY I/II 剧情子页面绕一级）。
         if self.config.get("剧情"):  # 推图开关（与扫荡独立，任一开启都进关卡页）。
             target = self._progress_target()  # 目标 = 最下面的可打行（进页面即自动定位到当前进度关，先认当前屏）。
             if target is None:  # 无可打关卡：当前进度之后都是锁定行 = 已全通（或本期还没开放新关）。
@@ -918,7 +937,31 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
                 self._push_stages(target)  # 点行进入连续战斗链，结束落回关卡页。
         if self.config.get("扫荡"):  # 扫荡开关：对配置的可重复关卡快速战斗。
             self._sweep_stage(self.config.get("扫荡关卡", _SWEEP_STAGE_DEFAULT))  # 点行 → 详情页快速战斗（次数拉满）→ 扫到不可用。
-        self.transition("event_main", click=self._click_back_to_menu, wait_confirm=10, after_sleep=1)  # 点返回回活动菜单页，供后续子流程接续。
+        self._ensure_event_menu()  # 点返回回活动菜单页，供后续子流程接续（大活动剧情子页面多退一级）。
+
+    def _enter_stage_page(self):  # 活动菜单页 → 关卡页：小活动直接用「加成」入口进，大活动先经 STORY I/II 剧情子页面。
+        entry = self._entry_box("剧情")  # 剧情入口命中框（大活动菜单页 STORY II → STORY I，小活动主页「加成」）。
+        if entry is None:  # 入口缺失（页面结构变化或菜单未渲染）。
+            raise WaitFailedException("未找到剧情入口")  # 抛异常由 try_step 恢复。
+        if self._is_story_main_entry(entry):  # 大活动菜单页：STORY I/II 打开的是剧情子页面而非关卡页。
+            self._enter_story_sub_page(entry)  # 点 STORY 入口并等剧情子页面就位。
+            entry = self._entry_box("剧情")  # 子页面内重新定位剧情入口（与小活动同款）。
+            if entry is None:  # 子页面内没有剧情入口（未渲染完或该期页面结构不同）。
+                raise WaitFailedException("剧情子页面内未找到剧情入口")  # 抛异常由 try_step 恢复。
+        self.transition("event_stage_page", box=entry, wait_confirm=10, after_sleep=1)  # 点击剧情入口并确认进入关卡页。
+
+    def _enter_story_sub_page(self, entry_box):  # 点 STORY I/II 进入剧情子页面并等它渲染完。
+        # 子页面左上标题同为「剧情活动」（event_main 判定命中）、没有活动菜单，没有可用于 wait_screen 的独有判据，
+        # 故反向判就位：小活动同款剧情入口（「加成」）出现即子页面可操作（同签到页反向判切页）。
+        self.click_box(entry_box, after_sleep=2)  # 点击 STORY 入口切页。
+        ready = self.wait_until(lambda: self._story_sub_entry_ready(),  # 轮询等剧情入口出现（每轮取新帧）。
+                                time_out=_SD_ARRIVE_TIMEOUT, settle_time=1.5)  # 命中后再稳定 1.5s，吸收切页动画里按钮仍位移的过渡期。
+        if not ready:  # 窗口内未出现剧情子页面入口。
+            raise WaitFailedException("剧情子页面未在预期时间内就位")  # 抛异常由 try_step 恢复。
+
+    def _story_sub_entry_ready(self):  # 剧情子页面就位判据：出现小活动同款剧情入口（STORY I/II 入口只在大活动菜单页）。
+        entry = self._entry_box("剧情")  # 当前页面的剧情入口。
+        return entry is not None and not self._is_story_main_entry(entry)  # 命中「加成」类入口即子页面已可操作。
 
     def _flow_challenge(self):  # 挑战流程（自足重入）：进挑战页 → 战斗/扫荡 → 返回活动菜单页。
         # 大小活动都有「挑战」，且为同一套 UI（已确认）。

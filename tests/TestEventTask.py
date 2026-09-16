@@ -175,8 +175,52 @@ class TestEventTask(_DebugOffTestCase):
 
     def test_ensure_event_menu_noop_when_on_menu(self):
         with patch.object(self.task, '_probe_event_main', return_value=True), \
+                patch.object(self.task, '_probe_story_sub_page', return_value=False), \
                 patch.object(self.task, 'transition', side_effect=AssertionError('已在菜单页不应导航')):
             self.task._ensure_event_menu()
+
+    def test_ensure_event_menu_returns_twice_from_story_sub_page(self):
+        # 关卡页的上一级是大活动剧情子页面（标题同为「剧情活动」）：退一级后仍在子页面上 → 再退一级回地图页。
+        with patch.object(self.task, '_probe_event_main', return_value=False), \
+                patch.object(self.task, '_detail_page_open', return_value=False), \
+                patch.object(self.task, '_probe_story_sub_page', return_value=True), \
+                patch.object(self.task, 'transition') as transition_mock:
+            self.task._ensure_event_menu()
+        self.assertEqual(2, transition_mock.call_count)  # 关卡页 → 剧情子页面 → 地图页。
+        transition_mock.assert_called_with('event_main', click=self.task._click_back_to_menu,
+                                           wait_confirm=10, after_sleep=1)
+
+    def test_ensure_event_menu_leaves_story_sub_page_on_takeover(self):
+        # 接管时人在剧情子页面上：先退一级回地图页，落地后确认菜单可见即停（不再多点一次返回键）。
+        with patch.object(self.task, '_probe_event_main', return_value=True), \
+                patch.object(self.task, '_detail_page_open', return_value=False), \
+                patch.object(self.task, '_probe_story_sub_page', side_effect=[True, False]), \
+                patch.object(self.task, 'transition') as transition_mock:
+            self.task._ensure_event_menu()
+        transition_mock.assert_called_once_with('event_main', click=self.task._click_back_to_menu,
+                                                wait_confirm=10, after_sleep=1)
+
+    def test_probe_menu_entries_stops_at_first_hit(self):
+        # 活动菜单可见性判据：挑战/任务/商店任一命中即菜单在（命中即短路，不查其余入口）。
+        with patch.object(self.task, '_probe_entry', side_effect=lambda label: label == '任务') as probe_mock:
+            self.assertTrue(self.task._probe_menu_entries())
+        self.assertEqual(['挑战', '任务'], [call.args[0] for call in probe_mock.call_args_list])
+
+    def test_probe_story_sub_page_needs_sub_entry_without_menu(self):
+        # 剧情子页面判据 = 在活动主页 + 没有活动菜单 + 只有「加成」类剧情入口。
+        sub_entry = Box(60, 700, 30, 20, confidence=1, name='加成奖励妮姬')
+        with patch.object(self.task, '_probe_event_main', return_value=True), \
+                patch.object(self.task, '_probe_menu_entries', return_value=False), \
+                patch.object(self.task, '_entry_box', return_value=sub_entry):
+            self.assertTrue(self.task._probe_story_sub_page())
+        with patch.object(self.task, '_probe_event_main', return_value=True), \
+                patch.object(self.task, '_probe_menu_entries', return_value=True), \
+                patch.object(self.task, '_entry_box', side_effect=AssertionError('菜单在不应探测剧情入口')):
+            self.assertFalse(self.task._probe_story_sub_page())  # 菜单在 = 菜单页（小活动主页同款入口）。
+        with patch.object(self.task, '_probe_event_main', return_value=False), \
+                patch.object(self.task, '_probe_menu_entries', side_effect=AssertionError('不在主页不应探测菜单')), \
+                patch.object(self.task, '_entry_box', side_effect=AssertionError('不在主页不应探测入口')):
+            self.assertFalse(self.task._probe_story_sub_page())
 
     def test_process_event_list_no_events(self):
         with patch.object(self.task, '_pending_events', return_value=[]), \
@@ -1307,30 +1351,84 @@ class TestEventTask(_DebugOffTestCase):
             found = self.task._entry_box('剧情')
         self.assertEqual(700, found.y)  # 无偏移，命中框直接作为点击框。
 
-    def test_flow_story_pushes_target_then_returns_to_event_main(self):
+    def test_flow_story_big_event_enters_sub_page_then_stage_page(self):
+        # 大活动：STORY I/II 点开后先进剧情子页面（标题同为「剧情活动」、无活动菜单），再由子页面入口进关卡页。
         target = self._story_row('1-05')
-        entry = Box(60, 10, 30, 10, confidence=1, name='STORY II')
+        story = Box(60, 10, 30, 10, confidence=1, name='STORY II')
+        sub_entry = Box(60, 700, 30, 20, confidence=1, name='加成奖励妮姬')
         with patch.object(self.task, '_nav_to_event_main') as nav_mock, \
-                patch.object(self.task, '_entry_box', return_value=entry), \
+                patch.object(self.task, '_entry_box', side_effect=[story, sub_entry]) as entry_mock, \
+                patch.object(self.task, '_enter_story_sub_page') as sub_page_mock, \
                 patch.object(self.task, 'transition') as transition_mock, \
                 patch.object(self.task, '_progress_target', return_value=target), \
-                patch.object(self.task, '_push_stages') as push_mock:
+                patch.object(self.task, '_push_stages') as push_mock, \
+                patch.object(self.task, '_ensure_event_menu') as back_mock:
             self.task._flow_story()
         nav_mock.assert_called_once()  # 子流程闸门：就位活动主页（恢复回大厅后由此重入）。
-        self.assertEqual(['event_stage_page', 'event_main'],
-                         [call.args[0] for call in transition_mock.call_args_list])  # 进关卡页 → 收尾回活动菜单页。
-        self.assertEqual(entry, transition_mock.call_args_list[0].kwargs['box'])  # 用剧情入口命中框点击。
+        sub_page_mock.assert_called_once_with(story)  # 先点 STORY 入口并等剧情子页面就位。
+        self.assertEqual(2, entry_mock.call_count)  # 子页面内重新定位剧情入口。
+        self.assertEqual(['event_stage_page'],
+                         [call.args[0] for call in transition_mock.call_args_list])  # 从剧情子页面入口进关卡页。
+        self.assertEqual(sub_entry, transition_mock.call_args_list[0].kwargs['box'])  # 用子页面入口命中框点击。
         push_mock.assert_called_once_with(target)  # 推图目标透传。
+        back_mock.assert_called_once()  # 收尾回活动菜单页（大活动由它多退一级）。
+
+    def test_flow_story_small_event_enters_stage_page_directly(self):
+        # 小活动：主页「加成」入口就是关卡页入口，不进剧情子页面。
+        entry = Box(60, 700, 30, 20, confidence=1, name='加成奖励妮姬')
+        with patch.object(self.task, '_nav_to_event_main'), \
+                patch.object(self.task, '_entry_box', return_value=entry) as entry_mock, \
+                patch.object(self.task, '_enter_story_sub_page', side_effect=AssertionError('小活动不应进子页面')), \
+                patch.object(self.task, 'transition') as transition_mock, \
+                patch.object(self.task, '_progress_target', return_value=self._story_row('1-05')), \
+                patch.object(self.task, '_push_stages'), \
+                patch.object(self.task, '_ensure_event_menu') as back_mock:
+            self.task._flow_story()
+        entry_mock.assert_called_once()  # 只定位一次入口。
+        self.assertEqual(entry, transition_mock.call_args_list[0].kwargs['box'])  # 直接用该入口进关卡页。
+        back_mock.assert_called_once()  # 收尾回活动菜单页。
 
     def test_flow_story_without_target_only_returns_to_event_main(self):
         with patch.object(self.task, '_nav_to_event_main'), \
-                patch.object(self.task, '_entry_box', return_value=Box(60, 10, 30, 10, confidence=1, name='STORY II')), \
+                patch.object(self.task, '_entry_box', return_value=Box(60, 700, 30, 20, confidence=1, name='加成奖励妮姬')), \
                 patch.object(self.task, 'transition') as transition_mock, \
                 patch.object(self.task, '_progress_target', return_value=None), \
-                patch.object(self.task, '_push_stages', side_effect=AssertionError('无目标不应推图')):
+                patch.object(self.task, '_push_stages', side_effect=AssertionError('无目标不应推图')), \
+                patch.object(self.task, '_ensure_event_menu') as back_mock:
             self.task._flow_story()
-        self.assertEqual(['event_stage_page', 'event_main'],
-                         [call.args[0] for call in transition_mock.call_args_list])  # 仍要走关卡页并返回菜单页。
+        self.assertEqual(['event_stage_page'],
+                         [call.args[0] for call in transition_mock.call_args_list])  # 仍要走关卡页。
+        back_mock.assert_called_once()  # 无目标也要回菜单页。
+
+    def test_enter_story_sub_page_clicks_and_waits_for_entry(self):
+        # 剧情子页面无独有界面判据 → 点 STORY 入口后轮询等「加成」类入口出现（反向判就位）。
+        from src.tasks.EventTask import _SD_ARRIVE_TIMEOUT
+        story = Box(60, 10, 30, 10, confidence=1, name='STORY II')
+        with patch.object(self.task, 'click_box') as click_mock, \
+                patch.object(self.task, 'wait_until', return_value=True) as wait_mock:
+            self.task._enter_story_sub_page(story)
+        click_mock.assert_called_once_with(story, after_sleep=2)  # 只点一次（切页不需补点）。
+        self.assertEqual(_SD_ARRIVE_TIMEOUT, wait_mock.call_args.kwargs['time_out'])  # 用子页面到达窗口。
+
+    def test_enter_story_sub_page_raises_when_not_ready(self):
+        story = Box(60, 10, 30, 10, confidence=1, name='STORY II')
+        with patch.object(self.task, 'click_box'), \
+                patch.object(self.task, 'wait_until', return_value=False):
+            self.assertRaises(WaitFailedException, self.task._enter_story_sub_page, story)
+
+    def test_story_sub_entry_ready_needs_sub_entry(self):
+        # 就位判据：出现「加成」类入口才算（仍识别到 STORY I/II = 还停在大活动菜单页）。
+        with patch.object(self.task, '_entry_box', return_value=Box(1, 1, 2, 2, confidence=1, name='STORY II')):
+            self.assertFalse(self.task._story_sub_entry_ready())
+        with patch.object(self.task, '_entry_box', return_value=Box(1, 1, 2, 2, confidence=1, name='加成奖励妮姬')):
+            self.assertTrue(self.task._story_sub_entry_ready())
+        with patch.object(self.task, '_entry_box', return_value=None):
+            self.assertFalse(self.task._story_sub_entry_ready())
+
+    def test_is_story_main_entry_matches_story_text_only(self):
+        # STORY I/II 命中框 = 大活动菜单页入口（点击后进剧情子页面），「加成」类入口不是。
+        for name, expected in (('STORY II', True), ('STORY I', True), ('加成奖励妮姬', False), (None, False)):
+            self.assertEqual(expected, self.task._is_story_main_entry(Box(1, 1, 2, 2, confidence=1, name=name)))
 
     # ---- 推图目标：当前屏优先（游戏进页面自动定位到当前进度关） ----
 
@@ -1568,8 +1666,10 @@ class TestEventTask(_DebugOffTestCase):
         calls = []
         self.task.config['扫荡'] = True
         with patch.object(self.task, '_nav_to_event_main'), \
-                patch.object(self.task, '_entry_box', return_value=Box(10, 10, 20, 20, confidence=1, name='STORY II')), \
+                patch.object(self.task, '_entry_box', return_value=Box(10, 10, 20, 20, confidence=1, name='加成奖励妮姬')), \
                 patch.object(self.task, 'transition'), \
+                patch.object(self.task, '_probe_event_main', return_value=False), \
+                patch.object(self.task, '_probe_story_sub_page', return_value=False), \
                 patch.object(self.task, '_progress_target', return_value=self._story_row()), \
                 patch.object(self.task, '_push_stages', side_effect=lambda row: calls.append('push')), \
                 patch.object(self.task, '_sweep_stage', side_effect=lambda stage: calls.append(f'sweep:{stage}')):
@@ -1581,8 +1681,10 @@ class TestEventTask(_DebugOffTestCase):
         self.task.config['扫荡'] = True
         self.task.config['扫荡关卡'] = '1-09'
         with patch.object(self.task, '_nav_to_event_main'), \
-                patch.object(self.task, '_entry_box', return_value=Box(10, 10, 20, 20, confidence=1, name='STORY II')), \
+                patch.object(self.task, '_entry_box', return_value=Box(10, 10, 20, 20, confidence=1, name='加成奖励妮姬')), \
                 patch.object(self.task, 'transition') as transition_mock, \
+                patch.object(self.task, '_probe_event_main', return_value=False), \
+                patch.object(self.task, '_probe_story_sub_page', return_value=False), \
                 patch.object(self.task, '_scan_stage_rows', side_effect=AssertionError('剧情关闭不应扫描推图')), \
                 patch.object(self.task, '_push_stages', side_effect=AssertionError('剧情关闭不应推图')), \
                 patch.object(self.task, '_sweep_stage') as sweep_mock:
