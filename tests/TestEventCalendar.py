@@ -69,7 +69,7 @@ class TestEventCalendarPureFunctions(unittest.TestCase):
         with self.assertRaises(ValueError):
             event_calendar.build_row_template(np.zeros((10, 10), dtype=np.uint8), 749)
 
-    def test_parse_events_keeps_only_version_event_story_event(self):
+    def test_parse_events_keeps_only_big_version_events(self):
         calendar = {'data': {
             'version_event': {'items': [
                 {'banner': 'EVENT_BANNER_STORY', 'name': '剧情活动', 'type': 'StoryEvent',
@@ -77,19 +77,25 @@ class TestEventCalendarPureFunctions(unittest.TestCase):
                 {'banner': 'EVENT_BANNER_LOGIN', 'name': '登录活动', 'type': 'LoginEvent'},  # 子类型不符。
                 {'banner': 'EVENT_BANNER_STORY', 'name': '重复的同图条目', 'type': 'StoryEvent'},  # 同图去重。
                 {'name': '没有活动图的条目', 'type': 'StoryEvent'},  # 无图无法匹配。
+                {'banner': 'EVENT_BANNER_FIELDHUB', 'name': 'FIELD HUB 版大活动', 'type': 'FieldHubEvent',
+                 'start_time': '1690000100', 'end_time': '1700000100'},  # 新版大活动的 type。
             ]},
             'character_gacha': {'items': [
                 {'banner': 'EVENT_BANNER_GACHA', 'name': '招募', 'type': 'PickupGachaEvent'},  # 分类不符。
             ]},
         }}
         events = event_calendar.parse_events(calendar)
-        self.assertEqual(['EVENT_BANNER_STORY'], [e.key for e in events])  # 只留剧情大活动且按图去重。
+        self.assertEqual(['EVENT_BANNER_STORY', 'EVENT_BANNER_FIELDHUB'], [e.key for e in events])  # 只留剧情大活动且按图去重。
         self.assertEqual('version_event', events[0].category)
         self.assertEqual('StoryEvent', events[0].event_type)
         self.assertEqual(1690000000, events[0].start_time)
         self.assertEqual(1700000000, events[0].end_time)
         self.assertEqual('剧情活动', events[0].name)  # name 保留接口原文（落盘不加工）。
         self.assertEqual('STORY', events[0].display_name)  # 展示名从 banner 键去前缀推导。
+        self.assertEqual('FieldHubEvent', events[1].event_type)  # FieldHub 版大活动同样收录。
+        self.assertEqual('FIELDHUB', events[1].display_name)
+        self.assertEqual(event_calendar.banner_url('EVENT_BANNER_STORY', 'StoryEvent'), events[0].url)
+        self.assertEqual(event_calendar.banner_url('EVENT_BANNER_FIELDHUB', 'FieldHubEvent'), events[1].url)  # 同走 schedule/banner 子路径。
 
     def test_parse_events_tolerates_empty_payload(self):
         self.assertEqual([], event_calendar.parse_events(None))
@@ -270,7 +276,8 @@ class TestEventCalendarOfflineFallback(unittest.TestCase):
         self.assertEqual(['EVENT_BANNER_X', 'EVENT_BANNER_Y'], [e.key for e in events])  # 不抛异常，用保底包顶上。
         self.assertTrue(all(e.category == 'bundled' for e in events))  # 无接口元数据时名字用键顶替。
 
-    def test_prepare_keeps_online_metadata_and_dedupes_bundled(self):
+    def test_prepare_online_drops_bundled_only_events(self):
+        # 接口可达但某个保底图键不在返回清单里 = 该活动已过期/下架：不复活成活动，否则会被当「时间未知」一直保留。
         calendar = {'data': {'version_event': {'items': [
             {'banner': 'EVENT_BANNER_X', 'name': '线上活动名', 'type': 'StoryEvent'}]}}}
         with tempfile.TemporaryDirectory() as tmp:
@@ -280,11 +287,10 @@ class TestEventCalendarOfflineFallback(unittest.TestCase):
                 self._touch(os.path.join(bundled_dir, key + '.png'))
             with patch.object(event_calendar, 'fetch_calendar', return_value=calendar):
                 events = event_calendar.prepare(cache_dir=os.path.join(tmp, 'cache'), bundled_dir=bundled_dir)
-        self.assertEqual(['EVENT_BANNER_X', 'EVENT_BANNER_Y'], [e.key for e in events])  # 同键不重复。
+        self.assertEqual(['EVENT_BANNER_X'], [e.key for e in events])  # 缺席的键不复活，同键也不重复。
         self.assertEqual('线上活动名', events[0].name)  # 线上条目 name 保留接口原文。
         self.assertEqual('X', events[0].display_name)  # 展示名从键去前缀推导。
         self.assertEqual('version_event', events[0].category)
-        self.assertEqual('bundled', events[1].category)  # 只在保底包里的活动排后面。
 
     def test_prepare_drops_events_whose_image_is_unavailable(self):
         calendar = {'data': {'version_event': {'items': [
@@ -387,17 +393,46 @@ class TestEventCalendarSnapshot(unittest.TestCase):
             cache_dir = os.path.join(tmp, 'cache')
             bundled_dir = os.path.join(tmp, 'bundled')
             with patch.object(event_calendar, 'fetch_calendar', return_value=self._calendar()), \
-                    patch.object(event_calendar, 'download_banner', side_effect=self._fake_download()):
+                    patch.object(event_calendar, 'download_banner', side_effect=self._fake_download()), \
+                    patch.object(event_calendar.time, 'time', return_value=1789000000):  # 钉死在活动窗口内，不受真实日期影响。
                 snapshot = event_calendar.refresh(cache_dir=cache_dir, bundled_dir=bundled_dir)
-            self.assertEqual(['EVENT_BANNER_STORY'], [event.key for event in snapshot.events])  # 只留剧情活动。
-            self.assertTrue(snapshot.is_fresh(60))
-            self.assertTrue(os.path.exists(event_calendar.cache_path(snapshot.events[0].url, cache_dir)))  # 图落 cache。
-            self.assertEqual('No Caller ID', snapshot.events[0].name)  # 落盘保留接口原文，不做加工。
-            self.assertEqual('STORY', snapshot.events[0].display_name)  # 展示名读取时从键推导。
+                self.assertEqual(['EVENT_BANNER_STORY'], [event.key for event in snapshot.events])  # 只留剧情活动。
+                self.assertTrue(snapshot.is_fresh(60))
+                self.assertTrue(os.path.exists(event_calendar.cache_path(snapshot.events[0].url, cache_dir)))  # 图落 cache。
+                self.assertEqual('No Caller ID', snapshot.events[0].name)  # 落盘保留接口原文，不做加工。
+                self.assertEqual('STORY', snapshot.events[0].display_name)  # 展示名读取时从键推导。
             loaded = event_calendar.load_snapshot(cache_dir)  # JSON 也能读回。
         self.assertEqual(['EVENT_BANNER_STORY'], [event.key for event in loaded.events])
         self.assertEqual('Champion Arena', loaded.status_of('arena')[0]['name'])
         self.assertEqual('Coordinated Operation', loaded.status_of('raid')[0]['name'])
+
+    def test_refresh_downloads_field_hub_event_banner(self):
+        # 新版大活动的 type 是 FieldHubEvent（含 STORY/FIELD HUB 子页），应和 StoryEvent 一样收录并下载。
+        calendar = {'data': {'version_event': {'items': [
+            {'banner': 'EVENT_BANNER_FIELDHUB', 'name': 'FIELD HUB 版大活动', 'type': 'FieldHubEvent',
+             'start_time': '1', 'end_time': '9999999999'},
+        ]}}}
+        with tempfile.TemporaryDirectory() as tmp:
+            cache_dir = os.path.join(tmp, 'cache')
+            with patch.object(event_calendar, 'fetch_calendar', return_value=calendar), \
+                    patch.object(event_calendar, 'download_banner', side_effect=self._fake_download()) as dl:
+                snapshot = event_calendar.refresh(cache_dir=cache_dir, bundled_dir=os.path.join(tmp, 'bundled'))
+        self.assertEqual(['EVENT_BANNER_FIELDHUB'], [event.key for event in snapshot.events])
+        self.assertEqual('FieldHubEvent', snapshot.events[0].event_type)
+        dl.assert_called_once()  # 与 StoryEvent 同走下载缓存路径。
+
+    def test_refresh_online_excludes_bundled_events_absent_from_api(self):
+        # 接口成功返回时，保底包里未被返回的键（已过期/下架）不进入快照，避免被「时间未知」复活。
+        with tempfile.TemporaryDirectory() as tmp:
+            bundled_dir = os.path.join(tmp, 'bundled')
+            os.makedirs(bundled_dir)
+            with open(os.path.join(bundled_dir, 'EVENT_BANNER_STALE.png'), 'w', encoding='utf-8') as file:
+                file.write('x')
+            with patch.object(event_calendar, 'fetch_calendar', return_value=self._calendar()), \
+                    patch.object(event_calendar, 'download_banner', side_effect=self._fake_download()), \
+                    patch.object(event_calendar.time, 'time', return_value=1789000000):  # 钉死在活动窗口内，不受真实日期影响。
+                snapshot = event_calendar.refresh(cache_dir=os.path.join(tmp, 'cache'), bundled_dir=bundled_dir)
+        self.assertEqual(['EVENT_BANNER_STORY'], [event.key for event in snapshot.events])  # 缺席的保底键不复活。
 
     def test_refresh_degrades_silently_and_keeps_previous_snapshot(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -518,7 +553,8 @@ class TestEventCalendarSnapshot(unittest.TestCase):
             with open(stale, 'w', encoding='utf-8') as file:
                 file.write('x')
             with patch.object(event_calendar, 'fetch_calendar', return_value=self._calendar()), \
-                    patch.object(event_calendar, 'download_banner', side_effect=self._fake_download()):
+                    patch.object(event_calendar, 'download_banner', side_effect=self._fake_download()), \
+                    patch.object(event_calendar.time, 'time', return_value=1789000000):  # 钉死在活动窗口内，不受真实日期影响。
                 snapshot = event_calendar.refresh(cache_dir=cache_dir, bundled_dir=os.path.join(tmp, 'bundled'))
             self.assertFalse(os.path.exists(stale))  # 刷新成功后清掉非当期的图。
             self.assertTrue(os.path.exists(event_calendar.cache_path(snapshot.events[0].url, cache_dir)))
@@ -564,7 +600,8 @@ class TestEventCalendarSnapshot(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             cache_dir = os.path.join(tmp, 'cache')
             with patch.object(event_calendar, 'fetch_calendar', return_value=self._calendar()), \
-                    patch.object(event_calendar, 'download_banner', side_effect=self._fake_download()):
+                    patch.object(event_calendar, 'download_banner', side_effect=self._fake_download()), \
+                    patch.object(event_calendar.time, 'time', return_value=1789000000):  # 钉死在活动窗口内，不受真实日期影响。
                 events = event_calendar.prepare(cache_dir=cache_dir, bundled_dir=os.path.join(tmp, 'bundled'))
         self.assertEqual(['EVENT_BANNER_STORY'], [event.key for event in events])  # 轻量入口与 refresh 同源。
 
