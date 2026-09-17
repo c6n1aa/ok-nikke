@@ -60,8 +60,6 @@ config = {
         'exe': ['nikke.exe'],
         # optional, if set, will search the exe only
         # 'hwnd_class': 'UnrealWindow', #增加重名检查准确度
-        # 只列实测可用的输入方式：NIKKE(Unity) 不吃 post 过来的鼠标消息，PostMessage/ForegroundPostMessage 点不动游戏；
-        # Genshin 走窗口消息可后台点击（会临时移动真实光标、短暂 BlockInput），Pynput/PyDirect 仅前台可用
         'interaction': ['Pynput', 'PyDirect', 'Genshin'],
         'capture_method': ['WGC', 'BitBlt_RenderFull', 'BitBlt'],  # Windows版本支持的话, 优先使用WGC, 否则使用BitBlt_Full. 支持的capture有 BitBlt, WGC, BitBlt_RenderFull, DXGI
         'check_hdr': False, #当用户开启AutoHDR时候提示用户, 但不禁止使用
