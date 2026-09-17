@@ -1,6 +1,6 @@
 import os
 import unittest
-from unittest.mock import PropertyMock, patch
+from unittest.mock import MagicMock, PropertyMock, call, patch
 
 import numpy as np
 
@@ -603,6 +603,9 @@ class TestEventTask(_DebugOffTestCase):
     def _mission_subtitle(self):
         return Box(942, 314, 221, 64, confidence=1, name='CHALLENGE')
 
+    def _mission_tab(self, x=1035):
+        return Box(x, 292, 44, 44, confidence=1, name='event_mission_tab')
+
     def test_entry_regions_scans_extra_box_before_menu_bands(self):
         extra = Box(2418, 248, 141, 142, confidence=1, name='box_event_menu_mission')
         menu = Box(0, 0, 10, 10, confidence=1, name='menu')
@@ -645,39 +648,184 @@ class TestEventTask(_DebugOffTestCase):
             self.assertIsNone(self.task._find_mission_subtitle())  # 区域未标注视为弹窗未就位。
 
     def test_flow_mission_claims_then_closes_by_blank(self):
-        # 正常路径：点任务入口 → 弹窗就位 → 循环领取（彩色点、灰白停）→ 点空白关弹窗回菜单页。
+        # 正常路径：点任务入口 → 弹窗就位 → 分栏目领取 → 点空白关弹窗回菜单页。
         entry = self._mission_entry()
-        claim = self._claim_all_box()
-
-        def run_condition(condition, **kwargs):
-            return condition()  # 单测驱动：实算弹窗就位条件。
-
         with patch.object(self.task, '_nav_to_event_main') as nav_mock, \
                 patch.object(self.task, '_entry_box', return_value=entry), \
                 patch.object(self.task, 'click_box') as click_mock, \
-                patch.object(self.task, 'wait_until', side_effect=run_condition), \
-                patch.object(self.task, '_find_mission_subtitle', return_value=self._mission_subtitle()), \
-                patch.object(self.task, '_find_claim_all', return_value=claim), \
-                patch.object(self.task, 'is_feature_enabled', side_effect=[True, False]) as enabled_mock, \
-                patch.object(self.task, '_close_claim_overlay') as overlay_mock, \
+                patch.object(self.task, 'wait_until', return_value=True) as wait_mock, \
+                patch.object(self.task, '_claim_mission_pages') as pages_mock, \
                 patch.object(self.task, 'close_popup_by_blank', return_value=True) as blank_mock:
             self.task._flow_mission()
         nav_mock.assert_called_once()  # 进入前就位活动主页。
         click_mock.assert_any_call(entry, after_sleep=2)  # 点任务入口弹出弹窗。
-        click_mock.assert_any_call(claim, after_sleep=1)  # 点「全部领取」。
-        self.assertEqual(2, enabled_mock.call_count)  # 两轮判态：彩色（点击）→ 灰白（结束）。
-        overlay_mock.assert_called_once()  # 领取后清奖励遮罩。
-        blank_mock.assert_called_once()  # 灰白后点空白关弹窗。
+        from src.tasks.EventTask import _MISSION_READY_TIMEOUT
+        self.assertEqual(_MISSION_READY_TIMEOUT, wait_mock.call_args.kwargs['time_out'])  # 用弹窗就位窗口等待。
+        pages_mock.assert_called_once()  # 弹窗就位后按栏目领取。
+        blank_mock.assert_called_once()  # 领取完点空白关弹窗。
+
+    def test_mission_popup_ready_prefers_tabs_then_falls_back_to_subtitle(self):
+        # 弹窗就位判据：大活动两个栏目定位到即就位；无栏目时回落小活动副标题关键词。
+        tabs = {'daily': self._mission_tab(1035), 'challenge': self._mission_tab(1395)}
+        with patch.object(self.task, '_mission_tabs', return_value=tabs), \
+                patch.object(self.task, '_find_mission_subtitle', side_effect=AssertionError('有栏目无需认副标题')):
+            self.assertTrue(self.task._mission_popup_ready())  # 大活动两栏目弹窗。
+        with patch.object(self.task, '_mission_tabs', return_value=None), \
+                patch.object(self.task, '_find_mission_subtitle', return_value=self._mission_subtitle()):
+            self.assertTrue(self.task._mission_popup_ready())  # 小活动单页弹窗。
+        with patch.object(self.task, '_mission_tabs', return_value=None), \
+                patch.object(self.task, '_find_mission_subtitle', return_value=None):
+            self.assertFalse(self.task._mission_popup_ready())  # 都不命中 = 弹窗未就位。
+
+    def test_mission_tabs_locates_both_features_in_region(self):
+        from src.tasks.EventTask import _MISSION_ICON_BOX
+        daily = self._mission_tab(1035)
+        challenge = self._mission_tab(1395)
+        region = Box(927, 277, 707, 72, confidence=1, name=_MISSION_ICON_BOX)
+        with patch.object(self.task, '_optional_box', return_value=region) as box_mock, \
+                patch.object(self.task, 'find_feature', side_effect=[[daily], [challenge]]) as feature_mock:
+            tabs = self.task._mission_tabs()
+        box_mock.assert_called_once_with(_MISSION_ICON_BOX)  # 栏目固定在该区域内定位。
+        self.assertEqual({'daily': daily, 'challenge': challenge}, tabs)
+        self.assertEqual('event_mission_daily', feature_mock.call_args_list[0].args[0])  # 先定位每日任务栏目。
+        self.assertEqual('event_mission_challenge', feature_mock.call_args_list[1].args[0])  # 再定位成就栏目。
+        self.assertEqual(region, feature_mock.call_args_list[0].kwargs['box'])  # 特征匹配限定在栏目区。
+
+    def test_mission_tabs_falls_back_to_tab_text_when_feature_missing(self):
+        # 选中态会改变栏目图标外观：模板匹配落空时按栏目文案定位（文案跨期稳定）。
+        daily = self._mission_tab(1035)
+        challenge = self._mission_tab(1395)
+        region = Box(927, 277, 707, 72, confidence=1, name='box_event_mission_icon')
+        with patch.object(self.task, '_optional_box', return_value=region), \
+                patch.object(self.task, 'find_feature', return_value=[]), \
+                patch.object(self.task, 'ocr', side_effect=[[daily], [challenge]]) as ocr_mock:
+            tabs = self.task._mission_tabs()
+        self.assertEqual({'daily': daily, 'challenge': challenge}, tabs)
+        from src.tasks.EventTask import _MISSION_TABS
+        self.assertEqual([_MISSION_TABS[0][2]], ocr_mock.call_args_list[0].kwargs['match'])  # 用每日任务文案兜底。
+        self.assertEqual([_MISSION_TABS[1][2]], ocr_mock.call_args_list[1].kwargs['match'])  # 用成就文案兜底。
+
+    def test_mission_tabs_returns_none_without_region(self):
+        with patch.object(self.task, '_optional_box', return_value=None), \
+                patch.object(self.task, 'find_feature', side_effect=AssertionError('区域缺失不应匹配特征')):
+            self.assertIsNone(self.task._mission_tabs())  # 栏目区未标注 = 无栏目弹窗（小活动）。
+
+    def test_mission_tabs_returns_none_when_one_tab_missing(self):
+        daily = self._mission_tab(1035)
+        region = Box(927, 277, 707, 72, confidence=1, name='box_event_mission_icon')
+        with patch.object(self.task, '_optional_box', return_value=region), \
+                patch.object(self.task, 'find_feature', return_value=[]), \
+                patch.object(self.task, 'ocr', side_effect=[[daily], []]):
+            self.assertIsNone(self.task._mission_tabs())  # 栏目不全不按多栏目流程处理。
+
+    def test_mission_subtitle_text_joins_region_text(self):
+        from src.tasks.EventTask import _MISSION_DAILY_SUBTITLE_BOX
+        region = Box(943, 365, 262, 77, confidence=1, name=_MISSION_DAILY_SUBTITLE_BOX)
+        texts = [Box(0, 0, 1, 1, confidence=1, name='DAILY '), Box(0, 0, 1, 1, confidence=1, name='MISSION')]
+        with patch.object(self.task, '_optional_box', return_value=region) as box_mock, \
+                patch.object(self.task, 'ocr', return_value=texts) as ocr_mock:
+            text = self.task._mission_subtitle_text()
+        box_mock.assert_called_once_with(_MISSION_DAILY_SUBTITLE_BOX)  # 页面状态判据取副标题区。
+        self.assertEqual(region, ocr_mock.call_args.kwargs['box'])
+        self.assertEqual('DAILY MISSION', text)  # 区域内文字整段拼接供前后比较。
+
+    def test_mission_subtitle_text_returns_none_without_region_or_text(self):
+        with patch.object(self.task, '_optional_box', return_value=None), \
+                patch.object(self.task, 'ocr', side_effect=AssertionError('区域缺失不应 OCR')):
+            self.assertIsNone(self.task._mission_subtitle_text())  # 区域未标注视为状态未知。
+        with patch.object(self.task, '_optional_box', return_value=Box(0, 0, 1, 1, confidence=1)), \
+                patch.object(self.task, 'ocr', return_value=[]):
+            self.assertIsNone(self.task._mission_subtitle_text())  # 区域内无文字视为状态未知。
+
+    def test_switch_mission_tab_clicks_and_confirms_state_change(self):
+        tab = self._mission_tab(1395)
+
+        def run_condition(condition, **kwargs):
+            return condition()  # 单测驱动：实算切换判据。
+
+        with patch.object(self.task, 'click_box') as click_mock, \
+                patch.object(self.task, 'wait_until', side_effect=run_condition), \
+                patch.object(self.task, '_mission_subtitle_text', return_value='CHALLENGE') as text_mock:
+            state = self.task._switch_mission_tab(tab, 'DAILY MISSION')
+        click_mock.assert_called_once_with(tab, after_sleep=1)  # 点栏目标签。
+        self.assertEqual('CHALLENGE', state)  # 副标题与切换前不同即切换成功。
+        text_mock.assert_called_once()  # 切换判据即副标题文字（切换后状态由判据返回）。
+
+    def test_switch_mission_tab_returns_none_when_state_unchanged(self):
+        tab = self._mission_tab(1035)
+        with patch.object(self.task, 'click_box'), \
+                patch.object(self.task, 'wait_until', return_value=False), \
+                patch.object(self.task, '_mission_subtitle_text', return_value='DAILY MISSION') as text_mock:
+            self.assertIsNone(self.task._switch_mission_tab(tab, 'DAILY MISSION'))  # 副标题没变不算切换成功。
+        text_mock.assert_not_called()  # 判据未通过不再取新状态。
+
+    def test_claim_mission_pages_switches_challenge_then_daily(self):
+        # 大活动两栏目：点开停在「每日任务」页 → 切「成就」领一轮 → 切回「每日任务」领一轮。
+        tabs = {'daily': self._mission_tab(1035), 'challenge': self._mission_tab(1395)}
+        manager = MagicMock()
+        with patch.object(self.task, '_mission_tabs', return_value=tabs) as tabs_mock, \
+                patch.object(self.task, '_mission_subtitle_text', return_value='DAILY MISSION') as text_mock, \
+                patch.object(self.task, '_switch_mission_tab', side_effect=['CHALLENGE', 'DAILY MISSION']) as switch_mock, \
+                patch.object(self.task, '_claim_mission_rewards') as claim_mock:
+            manager.attach_mock(switch_mock, 'switch')
+            manager.attach_mock(claim_mock, 'claim')
+            self.task._claim_mission_pages()
+        tabs_mock.assert_called_once()  # 先定位栏目。
+        text_mock.assert_called_once()  # 点开先记录当前页面状态。
+        self.assertEqual([call(tabs['challenge'], 'DAILY MISSION'), call(tabs['daily'], 'CHALLENGE')],
+                         switch_mock.call_args_list)  # 先切成就（比记录状态），再切回每日任务（比成就页状态）。
+        self.assertEqual(['switch', 'claim', 'switch', 'claim'],
+                         [mock_call[0] for mock_call in manager.mock_calls])  # 每切换一次领一轮。
+
+    def test_claim_mission_pages_claims_single_page_without_tabs(self):
+        # 小活动弹窗（或栏目区未标注）：无栏目，直接领当前页。
+        with patch.object(self.task, '_mission_tabs', return_value=None), \
+                patch.object(self.task, '_switch_mission_tab', side_effect=AssertionError('无栏目不应切换')), \
+                patch.object(self.task, '_claim_mission_rewards') as claim_mock:
+            self.task._claim_mission_pages()
+        claim_mock.assert_called_once()
+
+    def test_claim_mission_pages_claims_current_when_subtitle_missing(self):
+        tabs = {'daily': self._mission_tab(1035), 'challenge': self._mission_tab(1395)}
+        with patch.object(self.task, '_mission_tabs', return_value=tabs), \
+                patch.object(self.task, '_mission_subtitle_text', return_value=None), \
+                patch.object(self.task, '_switch_mission_tab', side_effect=AssertionError('状态未知不应切换')), \
+                patch.object(self.task, '_claim_mission_rewards') as claim_mock, \
+                patch.object(self.task, 'log_warning') as warn_mock:
+            self.task._claim_mission_pages()
+        claim_mock.assert_called_once()  # 无法判定页面状态时不冒险切换，只领当前页。
+        warn_mock.assert_called_once()
+
+    def test_claim_mission_pages_claims_current_when_challenge_switch_fails(self):
+        tabs = {'daily': self._mission_tab(1035), 'challenge': self._mission_tab(1395)}
+        with patch.object(self.task, '_mission_tabs', return_value=tabs), \
+                patch.object(self.task, '_mission_subtitle_text', return_value='DAILY MISSION'), \
+                patch.object(self.task, '_switch_mission_tab', return_value=None) as switch_mock, \
+                patch.object(self.task, '_claim_mission_rewards') as claim_mock, \
+                patch.object(self.task, 'log_warning') as warn_mock:
+            self.task._claim_mission_pages()
+        switch_mock.assert_called_once_with(tabs['challenge'], 'DAILY MISSION')  # 尝试切成就栏目。
+        claim_mock.assert_called_once()  # 切换未确认仍领当前页。
+        warn_mock.assert_called_once()
+
+    def test_claim_mission_pages_stops_when_switch_back_fails(self):
+        tabs = {'daily': self._mission_tab(1035), 'challenge': self._mission_tab(1395)}
+        with patch.object(self.task, '_mission_tabs', return_value=tabs), \
+                patch.object(self.task, '_mission_subtitle_text', return_value='DAILY MISSION'), \
+                patch.object(self.task, '_switch_mission_tab', side_effect=['CHALLENGE', None]), \
+                patch.object(self.task, '_claim_mission_rewards') as claim_mock, \
+                patch.object(self.task, 'log_warning') as warn_mock:
+            self.task._claim_mission_pages()
+        claim_mock.assert_called_once()  # 只领了成就栏目：切不回每日任务即结束。
+        warn_mock.assert_called_once()
 
     def test_flow_mission_blank_close_verify_checks_menu_screen(self):
         entry = self._mission_entry()
-        claim = self._claim_all_box()
         with patch.object(self.task, '_nav_to_event_main'), \
                 patch.object(self.task, '_entry_box', return_value=entry), \
                 patch.object(self.task, 'click_box'), \
                 patch.object(self.task, 'wait_until', return_value=True), \
-                patch.object(self.task, '_find_claim_all', return_value=claim), \
-                patch.object(self.task, 'is_feature_enabled', return_value=False), \
+                patch.object(self.task, '_claim_mission_pages'), \
                 patch.object(self.task, 'close_popup_by_blank', return_value=True) as blank_mock, \
                 patch.object(self.task, 'is_screen', return_value=True) as screen_mock:
             self.task._flow_mission()
@@ -686,18 +834,16 @@ class TestEventTask(_DebugOffTestCase):
         screen_mock.assert_called_once_with('event_main')
 
     def test_flow_mission_popup_not_shown_skips_claim(self):
-        # 弹窗未出现（副标题未识别到）：不领取也不关闭，告警后结束（弹窗未开则无需关闭）。
+        # 弹窗未出现（栏目与副标题都没识别到）：不领取也不关闭，告警后结束（弹窗未开则无需关闭）。
         entry = self._mission_entry()
         with patch.object(self.task, '_nav_to_event_main'), \
                 patch.object(self.task, '_entry_box', return_value=entry), \
                 patch.object(self.task, 'click_box'), \
-                patch.object(self.task, 'wait_until', return_value=False) as wait_mock, \
+                patch.object(self.task, 'wait_until', return_value=False), \
                 patch.object(self.task, 'log_warning') as warn_mock, \
-                patch.object(self.task, '_claim_mission_rewards', side_effect=AssertionError('弹窗未开不应领取')), \
+                patch.object(self.task, '_claim_mission_pages', side_effect=AssertionError('弹窗未开不应领取')), \
                 patch.object(self.task, 'close_popup_by_blank', side_effect=AssertionError('弹窗未开不需关闭')):
             self.task._flow_mission()
-        from src.tasks.EventTask import _MISSION_READY_TIMEOUT
-        self.assertEqual(_MISSION_READY_TIMEOUT, wait_mock.call_args.kwargs['time_out'])  # 用弹窗就位窗口。
         warn_mock.assert_called_once()
 
     def test_flow_mission_missing_entry_raises(self):
@@ -712,7 +858,7 @@ class TestEventTask(_DebugOffTestCase):
                 patch.object(self.task, '_entry_box', return_value=entry), \
                 patch.object(self.task, 'click_box'), \
                 patch.object(self.task, 'wait_until', return_value=True), \
-                patch.object(self.task, '_claim_mission_rewards'), \
+                patch.object(self.task, '_claim_mission_pages'), \
                 patch.object(self.task, 'close_popup_by_blank', return_value=False), \
                 patch.object(self.task, 'log_warning') as warn_mock:
             self.task._flow_mission()
@@ -1365,7 +1511,7 @@ class TestEventTask(_DebugOffTestCase):
                 patch.object(self.task, '_ensure_event_menu') as back_mock:
             self.task._flow_story()
         nav_mock.assert_called_once()  # 子流程闸门：就位活动主页（恢复回大厅后由此重入）。
-        sub_page_mock.assert_called_once_with(story)  # 先点 STORY 入口并等剧情子页面就位。
+        sub_page_mock.assert_called_once()  # 先在菜单页内逐个尝试 STORY 入口并等剧情子页面就位。
         self.assertEqual(2, entry_mock.call_count)  # 子页面内重新定位剧情入口。
         self.assertEqual(['event_stage_page'],
                          [call.args[0] for call in transition_mock.call_args_list])  # 从剧情子页面入口进关卡页。
@@ -1400,21 +1546,148 @@ class TestEventTask(_DebugOffTestCase):
                          [call.args[0] for call in transition_mock.call_args_list])  # 仍要走关卡页。
         back_mock.assert_called_once()  # 无目标也要回菜单页。
 
-    def test_enter_story_sub_page_clicks_and_waits_for_entry(self):
+    def test_try_enter_story_sub_page_clicks_and_waits_for_entry(self):
         # 剧情子页面无独有界面判据 → 点 STORY 入口后轮询等「加成」类入口出现（反向判就位）。
         from src.tasks.EventTask import _SD_ARRIVE_TIMEOUT
         story = Box(60, 10, 30, 10, confidence=1, name='STORY II')
         with patch.object(self.task, 'click_box') as click_mock, \
                 patch.object(self.task, 'wait_until', return_value=True) as wait_mock:
-            self.task._enter_story_sub_page(story)
+            ready = self.task._try_enter_story_sub_page(story)
+        self.assertTrue(ready)  # 子页面就位即成功。
         click_mock.assert_called_once_with(story, after_sleep=2)  # 只点一次（切页不需补点）。
         self.assertEqual(_SD_ARRIVE_TIMEOUT, wait_mock.call_args.kwargs['time_out'])  # 用子页面到达窗口。
 
-    def test_enter_story_sub_page_raises_when_not_ready(self):
+    def test_try_enter_story_sub_page_returns_false_when_not_ready(self):
+        # 未开放的章节点开不切页：只返回 False（不抛异常），由调用方回落下一个入口。
         story = Box(60, 10, 30, 10, confidence=1, name='STORY II')
         with patch.object(self.task, 'click_box'), \
                 patch.object(self.task, 'wait_until', return_value=False):
-            self.assertRaises(WaitFailedException, self.task._enter_story_sub_page, story)
+            self.assertFalse(self.task._try_enter_story_sub_page(story))
+
+    def test_story_entry_boxes_orders_story_ii_before_story_i(self):
+        # 候选顺序 = _STORY_MENU_PATTERNS 顺序（STORY II 优先），且逐个关键词单独定位；未出现的入口不进候选。
+        from src.tasks.EventTask import _STORY_MENU_PATTERNS
+        story2 = Box(1, 1, 2, 2, confidence=1, name='STORY II')
+        story1 = Box(1, 5, 2, 2, confidence=1, name='STORY I')
+        asked = []
+
+        def fake_entry_box(label, patterns=None):
+            asked.append(patterns[0])
+            return story1 if patterns[0] is _STORY_MENU_PATTERNS[1] else story2  # STORY I 也在菜单栏里。
+
+        with patch.object(self.task, '_entry_box', side_effect=fake_entry_box):
+            boxes = self.task._story_entry_boxes()
+        self.assertEqual([story2, story1], boxes)  # STORY II 在前、STORY I 在后。
+        self.assertEqual(list(_STORY_MENU_PATTERNS), asked)  # 每个关键词各探测一次（不做整表一次探测）。
+
+    def test_story_entry_boxes_skips_missing_entries(self):
+        # 当期只有 STORY I（或 STORY II 尚未出现在菜单栏）：候选里就没有它。
+        from src.tasks.EventTask import _STORY_MENU_PATTERNS
+        story1 = Box(1, 5, 2, 2, confidence=1, name='STORY I')
+        with patch.object(self.task, '_entry_box',
+                          side_effect=lambda label, patterns=None: (
+                              story1 if patterns[0] is _STORY_MENU_PATTERNS[1] else None)):
+            self.assertEqual([story1], self.task._story_entry_boxes())
+
+    def test_enter_story_sub_page_falls_back_to_story_i_when_story_ii_locked(self):
+        # STORY II 未开放（点开不切页）→ 回落 STORY I；STORY I 成功后不再点第二个之后的候选。
+        story2 = Box(60, 10, 30, 10, confidence=1, name='STORY II')
+        story1 = Box(60, 50, 30, 10, confidence=1, name='STORY I')
+        with patch.object(self.task, '_story_entry_boxes', return_value=[story2, story1]), \
+                patch.object(self.task, '_try_enter_story_sub_page', side_effect=[False, True]) as try_mock, \
+                patch.object(self.task, 'is_screen', return_value=True):
+            self.task._enter_story_sub_page()
+        self.assertEqual([story2, story1], [c.args[0] for c in try_mock.call_args_list])  # 按优先级逐个尝试。
+
+    def test_enter_story_sub_page_returns_to_menu_before_next_candidate(self):
+        # 点锁定入口落在别的页面：先退回菜单页再试下一个候选。
+        story2 = Box(60, 10, 30, 10, confidence=1, name='STORY II')
+        story1 = Box(60, 50, 30, 10, confidence=1, name='STORY I')
+        with patch.object(self.task, '_story_entry_boxes', return_value=[story2, story1]), \
+                patch.object(self.task, '_try_enter_story_sub_page', side_effect=[False, True]), \
+                patch.object(self.task, 'is_screen', return_value=False), \
+                patch.object(self.task, '_ensure_event_menu') as menu_mock:
+            self.task._enter_story_sub_page()
+        menu_mock.assert_called_once()  # 只在落点异常时补退一级。
+
+    def test_enter_story_sub_page_raises_when_all_entries_unavailable(self):
+        story2 = Box(60, 10, 30, 10, confidence=1, name='STORY II')
+        with patch.object(self.task, '_story_entry_boxes', return_value=[story2]), \
+                patch.object(self.task, '_try_enter_story_sub_page', return_value=False), \
+                patch.object(self.task, 'is_screen', return_value=True):
+            self.assertRaises(WaitFailedException, self.task._enter_story_sub_page)
+
+    def test_enter_story_sub_page_raises_when_no_story_entry(self):
+        # 菜单页一个 STORY 入口都没定位到（OCR 失败/页面结构变化）：直接抛异常由 try_step 恢复。
+        with patch.object(self.task, '_story_entry_boxes', return_value=[]), \
+                patch.object(self.task, '_try_enter_story_sub_page', side_effect=AssertionError('无候选不应尝试')):
+            self.assertRaises(WaitFailedException, self.task._enter_story_sub_page)
+
+    # ---- 锁定入口的亮度前置判据（_entry_locked） ----
+
+    @staticmethod
+    def _fake_frame(value=30, bright_box=None):
+        """构造单色帧（默认整帧灰暗），可按需叠一块高亮区域模拟白字/高亮底。"""
+        frame = np.full((1440, 2560, 3), value, dtype='uint8')
+        if bright_box is not None:
+            x, y, w, h = bright_box
+            frame[y:y + h, x:x + w] = 255
+        return frame
+
+    def _with_frame(self, frame):
+        return patch.object(type(self.task), 'frame', new_callable=PropertyMock, return_value=frame)
+
+    def test_entry_locked_true_when_row_dim(self):
+        # 整行灰暗（锁图标 + 灰字，无任何高亮像素）= 锁定入口。
+        with self._with_frame(self._fake_frame(30)):
+            self.assertTrue(self.task._entry_locked(Box(900, 100, 100, 30)))
+
+    def test_entry_locked_false_when_row_has_bright_pixels(self):
+        # 框内有高亮像素（白字笔画或高亮底）= 可用态，即使底色很暗也不判锁定。
+        frame = self._fake_frame(30, bright_box=(900, 100, 100, 12))  # 框内一半面积高亮。
+        with self._with_frame(frame):
+            self.assertFalse(self.task._entry_locked(Box(900, 100, 100, 30)))
+
+    def test_entry_locked_false_without_frame_or_valid_region(self):
+        # 判不出来（无帧/区域越界）一律保守按未锁定，交点开后的行为后验兜底。
+        with self._with_frame(None):
+            self.assertFalse(self.task._entry_locked(Box(10, 10, 20, 20)))
+        with self._with_frame(self._fake_frame(30)):
+            self.assertFalse(self.task._entry_locked(Box(3000, 2000, 50, 50)))  # 完全越界。
+
+    def test_enter_story_sub_page_skips_locked_entry_by_brightness(self):
+        # STORY II 亮度判据为锁定 → 不点它（省掉一次 _SD_ARRIVE_TIMEOUT 空等），直接试 STORY I。
+        story2 = Box(60, 10, 30, 10, confidence=1, name='STORY II')
+        story1 = Box(60, 50, 30, 10, confidence=1, name='STORY I')
+        with patch.object(self.task, '_story_entry_boxes', return_value=[story2, story1]), \
+                patch.object(self.task, '_entry_locked', side_effect=[True, False]) as locked_mock, \
+                patch.object(self.task, '_try_enter_story_sub_page', return_value=True) as try_mock, \
+                patch.object(self.task, 'is_screen', return_value=True):
+            self.task._enter_story_sub_page()
+        self.assertEqual([story2, story1], [c.args[0] for c in locked_mock.call_args_list])  # 候选逐个过亮度判据。
+        self.assertEqual([story1], [c.args[0] for c in try_mock.call_args_list])  # 锁定入口不点击。
+
+    def test_enter_story_sub_page_raises_when_all_entries_locked(self):
+        story2 = Box(60, 10, 30, 10, confidence=1, name='STORY II')
+        story1 = Box(60, 50, 30, 10, confidence=1, name='STORY I')
+        with patch.object(self.task, '_story_entry_boxes', return_value=[story2, story1]), \
+                patch.object(self.task, '_entry_locked', return_value=True), \
+                patch.object(self.task, '_try_enter_story_sub_page', side_effect=AssertionError('锁定入口不应点击')):
+            self.assertRaises(WaitFailedException, self.task._enter_story_sub_page)
+
+    @unittest.skipUnless(os.path.exists('ok_templates/event_big_main_01.png'),
+                         '缺少实机截图（ok_templates 子模块未检出）')
+    def test_entry_locked_on_real_screenshot(self):
+        # 实机标定回归（COINRUSH SHOWDOWN 大活动主页）：锁定的 STORY II（灰字 + 锁图标）判为锁定，
+        # 同屏可用的 STORY I 判为可用；阈值见 _ENTRY_LOCK_BRIGHT_V / _ENTRY_LOCK_BRIGHT_RATIO。
+        from src.tasks.EventTask import _STORY_MENU_PATTERNS
+        self.set_image('ok_templates/event_big_main_01.png')
+        locked = self.task._entry_box('剧情', patterns=[_STORY_MENU_PATTERNS[0]])
+        unlocked = self.task._entry_box('剧情', patterns=[_STORY_MENU_PATTERNS[1]])
+        self.assertIsNotNone(locked)  # 锁定态的 STORY II 仍能被 OCR 定位（故必须靠判据区分）。
+        self.assertIsNotNone(unlocked)
+        self.assertTrue(self.task._entry_locked(locked))
+        self.assertFalse(self.task._entry_locked(unlocked))
 
     def test_story_sub_entry_ready_needs_sub_entry(self):
         # 就位判据：出现「加成」类入口才算（仍识别到 STORY I/II = 还停在大活动菜单页）。

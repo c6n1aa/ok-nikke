@@ -77,18 +77,35 @@ _CLAIM_ALL_PAD = (0.2, 0.36)  # 文字框外扩比例（宽, 高）：外扩取�
 
 # 活动任务弹窗（大小活动同一套 UI）：点入口弹出模态框，弹窗内「全部领取」可反复点到无可领。
 # 弹窗美术逐期变（标题是当期活动名），无跨期稳定的模板特征，判据只用「coco 区域 + OCR 文案」。
-_MISSION_SUBTITLE_BOX = "box_event_mission_subtitle"  # 弹窗副标题区域（coco 区域，位置逐期固定）。
-_MISSION_SUBTITLE_TEXT = re.compile("CHALLENGE", re.IGNORECASE)  # 副标题关键词（弹窗就位唯一跨期稳定判据）。
-_MISSION_READY_TIMEOUT = 10  # 点入口后等弹窗就位（副标题出现）的窗口（秒）。
+_MISSION_SUBTITLE_BOX = "box_event_mission_subtitle"  # 小活动弹窗副标题区域（单页弹窗，coco 区域，位置逐期固定）。
+_MISSION_SUBTITLE_TEXT = re.compile("CHALLENGE", re.IGNORECASE)  # 小活动副标题关键词（弹窗就位的跨期稳定判据）。
+_MISSION_ICON_BOX = "box_event_mission_icon"  # 大活动弹窗栏目区（「每日任务」「成就」两个栏目的搜索范围）。
+_MISSION_TABS = (  # 大活动弹窗栏目（点开默认停在「每日任务」页）：role -> (coco 特征, 栏目文案)。
+    ("daily", "event_mission_daily", re.compile("每日任务")),  # 每日任务栏目。
+    ("challenge", "event_mission_challenge", re.compile("成就")),  # 成就（挑战）栏目。
+)
+_MISSION_DAILY_SUBTITLE_BOX = "box_event_daily_subtitle"  # 大活动弹窗副标题区（页面状态判据：文字随栏目变）。
+_MISSION_READY_TIMEOUT = 10  # 点入口后等弹窗就位（大活动认栏目图标，小活动认副标题）的窗口（秒）。
+_MISSION_TAB_SWITCH_TIMEOUT = 5  # 点栏目标签后等副标题变化的窗口（秒）。
 _MISSION_CLAIM_MAX_CLICKS = 20  # 单次领取循环的点击上限（点击未生效时防死循环）。
 
 # 剧情入口关键词（探测顺序即优先级；_ENTRIES['剧情'] 直接引用，大小活动差异由命中的关键词区分）。
 # 大活动菜单页是 STORY I/II，小活动主页与大活动剧情子页面是「加成奖励妮姬」。
+# STORY I/II 会同时出现在菜单栏；未开放的章节仍是可读文字（锁图标 + 灰字），点开不切页，
+# 故顺序即候选顺序：STORY II 优先，点不开由 _enter_story_sub_page 回落到 STORY I。
 _STORY_MENU_PATTERNS = (  # 大活动菜单页的剧情入口。
     re.compile(r"STORY\s*II", re.IGNORECASE),  # STORY II 先于 STORY I：STORY I 是 STORY II 的前缀。
     re.compile(r"STORY\s*I(?!I)", re.IGNORECASE),  # 与 STORY II 消歧。
 )
 _STORY_SUB_PATTERN = re.compile(r"加成", re.IGNORECASE)  # 文案为「加成奖励妮姬」，只取前两字避免整词识别不到。
+
+# 锁定入口的亮度前置判据（_entry_locked）：未开放的菜单入口整行为灰暗态（锁图标 + 灰字，无任何高亮像素），
+# 可用入口必有白色笔画或高亮底。实测 2560x1440 命中框内高亮像素占比：锁定 0.000~0.007（两张往期截图）、
+# 可用 0.16~0.45（STORY I/挑战/签到印章/商店等），阈值取中间留 8 倍余量。
+# 方向保守：只用于「提前跳过」省掉一次 _SD_ARRIVE_TIMEOUT 空等，判不出来一律当可用，交行为后验（点开等子页面就位）。
+# 不靠锁图标模板：锁图标属美术资源，逐期可能不一致（实测两期分别为「锁图标 + 灰字」与「灰字 + 亮底条」）。
+_ENTRY_LOCK_BRIGHT_V = 200  # 高亮像素的亮度门限（HSV 的 V 通道，0~255）。
+_ENTRY_LOCK_BRIGHT_RATIO = 0.02  # 高亮像素占比低于该值 = 无白字/高亮底 → 视为锁定态。
 
 # 活动菜单可见性判据入口：大活动地图页与小活动主页都有（大活动剧情子页面只是布局上「像小活动」，没有活动菜单）。
 _MENU_PROBE_ENTRIES = ("挑战", "任务", "商店")
@@ -447,8 +464,8 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
                 boxes.append(box)  # 收集。
         return boxes + self._menu_boxes()  # 专属区优先，菜单带兜底（小活动入口仍在菜单带内）。
 
-    def _entry_box(self, label):  # 按 _ENTRIES 关键词顺序定位入口点击框；未命中返回 None。
-        patterns = _ENTRIES.get(label) or []  # 该入口的关键词正则列表（列表顺序即优先级）。
+    def _entry_box(self, label, patterns=None):  # 按关键词顺序定位入口点击框（patterns 缺省取 _ENTRIES[label]）；未命中返回 None。
+        patterns = _ENTRIES.get(label) if patterns is None else patterns  # 显式传入时只按这些关键词探测（STORY 候选逐个回落用）。
         if not patterns:  # 未知入口。
             return None  # 无法定位。
         for menu_box in self._entry_regions(label):  # 逐区（专属区 + 大小活动菜单带各一区）。
@@ -944,20 +961,57 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
         if entry is None:  # 入口缺失（页面结构变化或菜单未渲染）。
             raise WaitFailedException("未找到剧情入口")  # 抛异常由 try_step 恢复。
         if self._is_story_main_entry(entry):  # 大活动菜单页：STORY I/II 打开的是剧情子页面而非关卡页。
-            self._enter_story_sub_page(entry)  # 点 STORY 入口并等剧情子页面就位。
+            self._enter_story_sub_page()  # 逐个尝试 STORY 入口（STORY II 优先，未开放的章节回落下一个入口）。
             entry = self._entry_box("剧情")  # 子页面内重新定位剧情入口（与小活动同款）。
             if entry is None:  # 子页面内没有剧情入口（未渲染完或该期页面结构不同）。
                 raise WaitFailedException("剧情子页面内未找到剧情入口")  # 抛异常由 try_step 恢复。
         self.transition("event_stage_page", box=entry, wait_confirm=10, after_sleep=1)  # 点击剧情入口并确认进入关卡页。
 
-    def _enter_story_sub_page(self, entry_box):  # 点 STORY I/II 进入剧情子页面并等它渲染完。
+    def _story_entry_boxes(self):  # 菜单页各 STORY 入口命中框（按 _STORY_MENU_PATTERNS 优先级：STORY II → STORY I）；未出现的跳过。
+        entries = []  # 候选入口命中框。
+        for pattern in _STORY_MENU_PATTERNS:  # 优先级即列表顺序。
+            box = self._entry_box("剧情", patterns=[pattern])  # 只按该关键词定位（STORY I/II 同时出现时是两个独立入口）。
+            if box is not None:  # 该入口出现在菜单栏（未开放的章节也会被 OCR 读到文字）。
+                entries.append(box)  # 收集候选。
+        return entries  # 至多两个。
+
+    def _entry_locked(self, entry_box):  # 亮度前置判据：命中框内几乎无高亮像素（整行灰暗）= 锁定入口；判不出来保守返回 False。
+        frame = self.frame  # 当前帧（无帧时判不了）。
+        if frame is None:  # 单测/无帧：保守按未锁定处理，由点开后的行为后验兜底。
+            return False  # 不跳过。
+        x1, y1 = max(int(entry_box.x), 0), max(int(entry_box.y), 0)  # 命中框左上角裁到帧内。
+        x2 = min(int(entry_box.x + entry_box.width), frame.shape[1])  # 右下角裁到帧内。
+        y2 = min(int(entry_box.y + entry_box.height), frame.shape[0])
+        if x2 <= x1 or y2 <= y1:  # 区域越界无效。
+            return False  # 保守按未锁定。
+        roi = frame[y1:y2, x1:x2]  # 命中框子图。
+        bright = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)[:, :, 2] >= _ENTRY_LOCK_BRIGHT_V  # 高亮像素掩码（白字/高亮底）。
+        ratio = float(bright.mean())  # 高亮像素占比。
+        self.log_debug(f"入口 {entry_box.name} 高亮像素占比 {ratio:.3f}（锁定阈值 {_ENTRY_LOCK_BRIGHT_RATIO}）")  # 判据明细便于实机校准。
+        return ratio < _ENTRY_LOCK_BRIGHT_RATIO  # 低于阈值 = 整行灰暗 = 锁定态。
+
+    def _enter_story_sub_page(self):  # 点开 STORY 入口进入剧情子页面：STORY II 优先，点不开的章节回落下一个入口。
+        # STORY I/II 会同时出现在菜单栏，未开放的章节只多了锁图标、文字仍是灰字（OCR 照常读到），
+        # 点它不会切页；只认第一个命中框会让「锁一个入口」拖垮整条剧情链（含 STORY I 的推图与扫荡）。
+        for entry_box in self._story_entry_boxes():  # 候选按优先级：STORY II → STORY I。
+            if self._entry_locked(entry_box):  # 亮度前置判断：整行灰暗 = 锁定入口，跳过省掉一次 _SD_ARRIVE_TIMEOUT 空等。
+                self.log_info(f"{entry_box.name} 亮度判据为锁定态（整行灰暗），跳过并尝试下一个剧情入口")  # 记录跳过原因。
+                continue  # 下一个候选。
+            if self._try_enter_story_sub_page(entry_box):  # 点开并等剧情子页面就位。
+                return  # 已进入剧情子页面。
+            if not self.is_screen("event_main"):  # 点开后不在活动菜单页（锁定提示等落点）：先退回菜单页再试下一个候选。
+                self._ensure_event_menu()  # 逐级退回菜单页。
+        raise WaitFailedException("STORY 入口均不可用（章节未开放或页面结构变化）")  # 抛异常由 try_step 恢复。
+
+    def _try_enter_story_sub_page(self, entry_box):  # 点 STORY 入口并等剧情子页面就位，返回是否成功。
         # 子页面左上标题同为「剧情活动」（event_main 判定命中）、没有活动菜单，没有可用于 wait_screen 的独有判据，
         # 故反向判就位：小活动同款剧情入口（「加成」）出现即子页面可操作（同签到页反向判切页）。
         self.click_box(entry_box, after_sleep=2)  # 点击 STORY 入口切页。
         ready = self.wait_until(lambda: self._story_sub_entry_ready(),  # 轮询等剧情入口出现（每轮取新帧）。
                                 time_out=_SD_ARRIVE_TIMEOUT, settle_time=1.5)  # 命中后再稳定 1.5s，吸收切页动画里按钮仍位移的过渡期。
-        if not ready:  # 窗口内未出现剧情子页面入口。
-            raise WaitFailedException("剧情子页面未在预期时间内就位")  # 抛异常由 try_step 恢复。
+        if not ready:  # 窗口内未出现剧情子页面入口 = 该章节未开放/不可用。
+            self.log_warning(f"{entry_box.name} 点开后未进入剧情子页面（章节未开放/不可用）")  # 记录回落原因。
+        return ready  # 交由调用方决定回落下一个入口。
 
     def _story_sub_entry_ready(self):  # 剧情子页面就位判据：出现小活动同款剧情入口（STORY I/II 入口只在大活动菜单页）。
         entry = self._entry_box("剧情")  # 当前页面的剧情入口。
@@ -1005,26 +1059,97 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
             self._close_stage_detail(to_screen="event_challenge_page")  # 关详情页回挑战页。
         self._ensure_event_menu()  # 点返回键回活动菜单页（已在菜单页则 no-op）。
 
-    def _flow_mission(self):  # 任务流程（自足重入）：点任务入口弹模态框 → 循环领取 → 点空白关闭回菜单页。
+    def _flow_mission(self):  # 任务流程（自足重入）：点任务入口弹模态框 → 分栏目领取 → 点空白关闭回菜单页。
         # 大小活动同一套弹窗 UI；弹窗美术逐期变（标题是当期活动名），无跨期稳定模板特征，
-        # 判据只用「coco 区域 + OCR 文案」：就位认副标题关键词，可领认「全部领取」外扩底色（同签到印章那套）。
+        # 判据只用「coco 区域 + OCR 文案」：就位认大活动栏目图标 / 小活动副标题关键词，
+        # 可领认「全部领取」外扩底色（同签到印章那套）。
         self._nav_to_event_main()  # 就位活动主页（正常已就位；恢复回大厅后由此重入）。
         entry = self._entry_box("任务")  # 任务入口（大活动在专属区域 box_event_menu_mission，小活动在菜单带）。
         if entry is None:  # 入口缺失（菜单未渲染或页面结构变化）。
             raise WaitFailedException("未找到任务入口")  # 抛异常由 try_step 恢复。
         self.click_box(entry, after_sleep=2)  # 点击入口弹出任务弹窗（模态框，不注册为界面）。
-        if not self.wait_until(lambda: self._find_mission_subtitle() is not None,  # 轮询等弹窗就位（副标题出现）。
+        if not self.wait_until(self._mission_popup_ready,  # 轮询等弹窗就位（大活动认栏目图标，小活动认副标题）。
                                time_out=_MISSION_READY_TIMEOUT, settle_time=1.5):  # 命中后再稳定 1.5s，吸收弹窗开启动画。
             self.log_warning("任务弹窗未在预期时间内出现，跳过领取")  # 记录跳过原因（弹窗未开则无需关闭）。
             return  # 结束任务流程（仍在活动菜单页）。
-        self._claim_mission_rewards()  # 循环领取，直到「全部领取」变灰白（无可领奖励）。
+        self._claim_mission_pages()  # 大活动两个栏目各领一轮，小活动单页领一轮。
         # 领取按钮灰白后点面板外空白关闭弹窗：确认回到活动菜单页即完成（模态框点空白等价点遮罩，对皮肤免疫）。
         if self.close_popup_by_blank(lambda: self.is_screen("event_main"), time_out=5):  # 关不掉时补点（默认次数）。
             self.log_info("任务奖励领取完成，已回到活动菜单页")  # 记录完成。
         else:  # 补点耗尽仍未确认关闭。
             self.log_warning("点击空白未能关闭任务弹窗")  # 记录失败（弹窗遮挡会让后续子流程探测跳过）。
 
-    def _find_mission_subtitle(self):  # 在弹窗副标题区域内 OCR 识别关键词，返回匹配框或 None（弹窗就位判据）。
+    def _mission_popup_ready(self):  # 弹窗就位判据：大活动两个栏目都定位到，或小活动副标题关键词命中。
+        if self._mission_tabs() is not None:  # 大活动两栏目弹窗：栏目出现即弹窗已打开。
+            return True  # 就位。
+        return self._find_mission_subtitle() is not None  # 小活动单页弹窗：副标题 CHALLENGE 命中即就位。
+
+    def _mission_tabs(self):  # 在栏目区定位两个栏目，返回 {role: Box}；栏目区缺失或任一栏目未定位到返回 None。
+        region = self._optional_box(_MISSION_ICON_BOX)  # 栏目区（coco 区域特征；缺失即无法判定栏目）。
+        if region is None:  # 区域未标注（coco 版本不符 / 小活动弹窗无栏目）。
+            return None  # 按无栏目处理。
+        tabs = {}  # role -> 栏目框。
+        for role, feature, pattern in _MISSION_TABS:  # 逐栏目定位。
+            box = self._mission_tab_box(region, feature, pattern)  # 特征模板匹配优先，栏目文案兜底。
+            if box is None:  # 该栏目未定位到。
+                return None  # 栏目不全即不按多栏目流程处理。
+            tabs[role] = box  # 记录栏目框。
+        return tabs  # 返回全部栏目框。
+
+    def _mission_tab_box(self, region, feature, pattern):  # 定位单个栏目：coco 特征模板匹配优先，未命中回落栏目文案 OCR。
+        # 选中态会改变栏目图标外观（当前页图标高亮），模板匹配可能落空，故保一层稳定文案兜底。
+        hits = self.find_feature(feature, box=region)  # 在栏目区内模板匹配该栏目图标。
+        if hits:  # 特征命中。
+            return hits[0]  # 返回命中框。
+        texts = self.ocr(box=region, match=[pattern])  # 栏目文案（跨期稳定的游戏 UI 文案）。
+        return texts[0] if texts else None  # 文案命中即栏目框，未命中返回 None。
+
+    def _mission_subtitle_text(self):  # 识别大活动弹窗副标题文字（页面状态判据），区域缺失或无文字返回 None。
+        box = self._optional_box(_MISSION_DAILY_SUBTITLE_BOX)  # 副标题区域（coco 区域特征）。
+        if box is None:  # 区域未标注（coco 版本不符）。
+            return None  # 无法判定页面状态。
+        texts = self.ocr(box=box)  # 区域内全部文字（逐期大小写/断行有差异，只做整段比较）。
+        return "".join(text.name for text in texts) if texts else None  # 拼接成一段文本供切换前后比较。
+
+    def _mission_switched_text(self, previous):  # 栏目切换判据：返回与切换前不同的副标题文字；未变化返回 None。
+        text = self._mission_subtitle_text()  # 当前副标题文字。
+        if text is not None and text != previous:  # 有文字且与切换前不同即已切页。
+            return text  # 返回新状态供下一次比较。
+        return None  # 未变化（或未识别到）继续轮询。
+
+    def _switch_mission_tab(self, tab_box, previous):  # 点栏目标签并在副标题区确认页面已切换，返回切换后的副标题文字；未确认返回 None。
+        # 栏目切换在同一模态框内换内容，无独立界面特征，判据只有副标题文字变化（点开默认停在「每日任务」页）。
+        self.click_box(tab_box, after_sleep=1)  # 点击栏目标签。
+        current = self.wait_until(lambda: self._mission_switched_text(previous),  # 等副标题变成与切换前不同。
+                                  time_out=_MISSION_TAB_SWITCH_TIMEOUT, settle_time=0)  # 瞬态判据不额外稳定等待。
+        if not current:  # 超时未确认切换。
+            return None  # 由调用方决定降级处理。
+        self.log_info(f"任务弹窗栏目已切换：{previous} → {current}")  # 记录切换前后的页面状态。
+        return current  # 返回切换后的副标题文字。
+
+    def _claim_mission_pages(self):  # 任务奖励领取编排：大活动两栏目各领一轮（先成就后每日任务），小活动单页领一轮。
+        # 大活动弹窗每次点开都停在「每日任务」页，故先切「成就」领完，再切回「每日任务」领完；小活动无栏目直接领。
+        tabs = self._mission_tabs()  # 栏目定位（小活动弹窗 / 栏目区未标注返回 None）。
+        if tabs is None:  # 无栏目弹窗：单页领取。
+            self._claim_mission_rewards()  # 循环领到「全部领取」灰白。
+            return  # 结束领取。
+        state = self._mission_subtitle_text()  # 记录点开时的页面状态（默认停在「每日任务」页）。
+        if state is None:  # 副标题未识别到（区域未标注 / 渲染异常）：不冒险切换，只领当前页。
+            self.log_warning("未识别到任务弹窗副标题，仅领取当前栏目")  # 记录降级原因。
+            self._claim_mission_rewards()  # 只领当前页。
+            return  # 结束领取。
+        state = self._switch_mission_tab(tabs["challenge"], state)  # 切到「成就」栏目。
+        if state is None:  # 切换未确认。
+            self.log_warning("任务弹窗未切换到「成就」栏目，仅领取当前栏目")  # 记录降级原因。
+            self._claim_mission_rewards()  # 只领当前页。
+            return  # 结束领取。
+        self._claim_mission_rewards()  # 成就栏目：循环领到「全部领取」灰白。
+        if self._switch_mission_tab(tabs["daily"], state) is None:  # 切回「每日任务」栏目未确认。
+            self.log_warning("任务弹窗未切换回「每日任务」栏目，结束领取")  # 记录结束原因（成就栏目已领完）。
+            return  # 结束领取。
+        self._claim_mission_rewards()  # 每日任务栏目：循环领到「全部领取」灰白。
+
+    def _find_mission_subtitle(self):  # 在小活动弹窗副标题区域内 OCR 识别关键词，返回匹配框或 None（弹窗就位判据）。
         box = self._optional_box(_MISSION_SUBTITLE_BOX)  # 副标题区域（coco 区域特征；缺失时无法判定）。
         if box is None:  # 区域未标注（coco 版本不符）。
             self.log_warning(f"缺少区域特征: {_MISSION_SUBTITLE_BOX}")  # 记录缺失，便于排查。
