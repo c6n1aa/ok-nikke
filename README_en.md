@@ -114,3 +114,4 @@ This project is built on the [ok-script](https://ok-script.com) framework. Feel 
 ## ❤️ Credits
 
 - [ok-script](https://github.com/ok-oldking/ok-script)
+- [MaaFramework](https://github.com/MaaXYZ/MaaFramework) — the synthetic touch pointer (WM_POINTER) interaction method is adapted from this framework

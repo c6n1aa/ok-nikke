@@ -23,7 +23,7 @@
 | 键 | 当前值 | 说明 |
 | --- | --- | --- |
 | `exe` | `['nikke.exe']` | 游戏进程名，启动器据此拉起或匹配窗口 |
-| `interaction` | `['Pynput', 'PyDirect', 'Genshin']` | 输入方式及优先级；`Genshin` 走窗口消息可后台点击（会临时移动真实光标），`Pynput`/`PyDirect` 需窗口前台 |
+| `interaction` | `[SyntheticTouch, 'Pynput', 'PyDirect', 'Genshin']` | 输入方式及优先级；`SyntheticTouch` 走合成触控指针（WM_POINTER）绕开游戏输入过滤、可后台点击且不抢前台、键盘未实现；`Genshin` 走窗口消息；`Pynput`/`PyDirect` 需窗口前台 |
 | `capture_method` | `['WGC', 'BitBlt_RenderFull', 'BitBlt']` | 截图方式及优先级，WGC 优先以支持后台运行 |
 | `require_bg` | `True` | 要求后台截图能力 |
 | `check_hdr` / `force_no_hdr` | `False` | AutoHDR 时是否提示/禁止运行 |

@@ -119,3 +119,4 @@ uv sync
 ## ❤️ 致谢
 
 - [ok-script](https://github.com/ok-oldking/ok-script)
+- [MaaFramework](https://github.com/MaaXYZ/MaaFramework) — 合成触控指针（WM_POINTER）交互方式取自该框架
