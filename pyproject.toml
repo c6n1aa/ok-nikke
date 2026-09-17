@@ -8,7 +8,7 @@ requires-python = ">=3.12,<3.13"
 # 以及显式 pin PySide6-Essentials / pyside6-fluent-widgets（配合下方 [tool.uv] exclude-dependencies
 # 掐断 pyside6-fluent-widgets -> pyside6 元包 这条边，避免元包把 pyside6-addons 拉进来）。
 dependencies = [
-    "ok-script[adb,default,ocr,qt]==2.0.0b7",
+    "ok-script[adb,default,ocr,qt]==2.0.6",
     "openvino",
     "opencv-python",
     "pywin32>=306,!=312",
