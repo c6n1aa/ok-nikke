@@ -29,7 +29,7 @@
 
 ### start_tab.py
 
-包装 `ok.ui.qt.start.StartTab.StartTab.__init__`：正式版（非 `config['debug']` 启动）在构建完成后把末尾的「调试悬浮窗」卡片（标记框/悬浮窗日志两个开关）从布局移除并销毁；debug 模式（`main_debug.py`）下保留。
+包装 `ok.ui.qt.start.StartTab.StartTab.__init__`：正式版（非 `config['debug']` 启动）在构建完成后把底部的「Debug」卡片（导出日志/打开目录/OCR/悬浮窗标记框开关等调试入口）从布局移除并销毁；debug 模式（`main_debug.py`）下保留。ok-script 2.0.6 起原「调试悬浮窗」卡片已并入 Debug 卡片，锚点为 `debug_widget`。
 
 ### tasks_tab.py
 
