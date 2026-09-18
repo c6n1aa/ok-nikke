@@ -27,7 +27,7 @@ python -m mkdocs build --strict
 
 1. 打开仓库的 **Settings → Pages**。
 2. 将 **Build and deployment → Source** 设置为 **GitHub Actions**。
-3. 推送到 `master` 或 `main`，或手动运行 `Docs` workflow。
+3. 推送到 `main`，或手动运行 `Docs` workflow。
 4. 在 workflow 的 deployment URL 或仓库 Pages 设置中打开网站。
 
 ## 文档结构

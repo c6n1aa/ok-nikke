@@ -27,7 +27,7 @@ The repository includes `.github/workflows/docs.yml`:
 
 1. Open **Settings → Pages** in the repository.
 2. Set **Build and deployment → Source** to **GitHub Actions**.
-3. Push to `master` or `main`, or run the `Docs` workflow manually.
+3. Push to `main`, or run the `Docs` workflow manually.
 4. Open the deployment URL from the workflow or Pages settings.
 
 ## Layout
