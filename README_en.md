@@ -71,7 +71,6 @@ Notes:
 
 ## 📝 TODO
 
-- [ ] Overclocked simulation room
 - [ ] i18n
 - [ ] TBD
 
