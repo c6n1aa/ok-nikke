@@ -63,8 +63,8 @@ class TestEventTask(_DebugOffTestCase):
         self.assertIn('活动', self.task.description)
         self.assertEqual({'event': 'day'}, EventTask.done_keys)
         self.assertTrue(self.task.default_config['签到'])
-        self.assertTrue(self.task.default_config['剧情'])
-        self.assertFalse(self.task.default_config['扫荡'])
+        self.assertFalse(self.task.default_config['剧情'])
+        self.assertTrue(self.task.default_config['扫荡'])
         self.assertEqual('1-11', self.task.default_config['扫荡关卡'])
         self.assertTrue(self.task.default_config['挑战'])
         self.assertTrue(self.task.default_config['任务'])
@@ -1584,6 +1584,7 @@ class TestEventTask(_DebugOffTestCase):
 
     def test_flow_story_big_event_enters_sub_page_then_stage_page(self):
         # 大活动：STORY I/II 点开后先进剧情子页面（标题同为「剧情活动」、无活动菜单），再由子页面入口进关卡页。
+        self.task.config['剧情'] = True  # 推图默认关闭，本用例验证推图链。
         target = self._story_row('1-05')
         story = Box(60, 10, 30, 10, confidence=1, name='STORY II')
         sub_entry = Box(60, 700, 30, 20, confidence=1, name='加成奖励妮姬')
@@ -2022,6 +2023,7 @@ class TestEventTask(_DebugOffTestCase):
 
     def test_flow_story_pushes_then_sweeps(self):
         calls = []
+        self.task.config['剧情'] = True
         self.task.config['扫荡'] = True
         with patch.object(self.task, '_nav_to_event_main'), \
                 patch.object(self.task, '_entry_box', return_value=Box(10, 10, 20, 20, confidence=1, name='加成奖励妮姬')), \
