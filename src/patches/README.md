@@ -25,11 +25,11 @@
 
 ### runtime.py
 
-禁用 OpenVINO 遥测；在 `HwndWindow.visible_monitors` 上注册焦点守卫：一次性任务运行期间游戏窗口失焦即暂停执行器（弹托盘通知），切回前台自动恢复（先经 `reset_scene` 丢弃暂停前的旧帧）。仅当交互方式依赖窗口前台（`Pynput`/`PyDirect`/`ForegroundPostMessage`）时暂停，`PostMessage`/`Genshin` 可后台点击、不暂停，否则会抵消其后台运行能力。包装 `DeviceManager.set_interaction`：运行中切换交互方式后按新方式重判，若正被失焦暂停则解除（暂停态下不再取帧，没有回调能唤醒）。`interaction_requires_foreground()` 还被任务基类 `bring_game_to_front` 与启动控制器（`NikkeStartController._bring_game_window_to_front`）复用：可后台点击的交互方式下不抢占游戏窗口前台。后台 `TriggerTask` 不受影响；运行期间不会主动抢占前台。包装 `TaskExecutor.destroy`：进程退出前 join 后台 `DefaultOCRInit` 线程（懒初始化 OCR、导入 openvino），否则初始化未完成时解释器终结会因 import 锁死锁导致进程永不退出（典型触发：跑得快的测试文件）。
+禁用 OpenVINO 遥测；在 `HwndWindow.visible_monitors` 上注册焦点守卫：一次性任务运行期间游戏窗口失焦即暂停执行器（弹托盘通知），切回前台自动恢复（先经 `reset_scene` 丢弃暂停前的旧帧）。仅当交互方式依赖窗口前台（`Pynput`/`PyDirect`/`ForegroundPostMessage`）时暂停，`PostMessage`/`Genshin` 可后台点击、不暂停，否则会抵消其后台运行能力。包装 `DeviceManager.set_interaction`：运行中切换交互方式后按新方式重判，若正被失焦暂停则解除（暂停态下不再取帧，没有回调能唤醒）。`interaction_requires_foreground()` 还被任务基类 `bring_game_to_front` 与启动控制器（`NikkeStartController._bring_game_window_to_front`）复用：可后台点击的交互方式下不抢占游戏窗口前台。后台 `TriggerTask` 不受影响；运行期间不会主动抢占前台。包装 `TaskExecutor.destroy` 并把 join 挂进 `atexit`/`threading._register_atexit`：等后台 `DefaultOCRInit` 线程（懒初始化 OCR、导入 openvino）收尾，否则进程退出得比它快时（跑得快的测试文件、启动后立刻退出的 GUI）主线程会卡在解释器终结阶段的全局 import 锁上，进程永不退出。只挂 `destroy` 不够——它跑在 TaskExecutor 线程上，主线程不等它，必须在主线程的退出阶段等。
 
 ### start_tab.py
 
-包装 `ok.ui.qt.start.StartTab.StartTab.__init__`：正式版（非 `config['debug']` 启动）在构建完成后把末尾的「调试悬浮窗」卡片（标记框/悬浮窗日志两个开关）从布局移除并销毁；debug 模式（`main_debug.py`）下保留。
+包装 `ok.ui.qt.start.StartTab.StartTab.__init__`：正式版（非 `config['debug']` 启动）在构建完成后把底部的「Debug」卡片（导出日志/打开目录/OCR/悬浮窗标记框开关等调试入口）从布局移除并销毁；debug 模式（`main_debug.py`）下保留。ok-script 2.0.6 起原「调试悬浮窗」卡片已并入 Debug 卡片，锚点为 `debug_widget`。
 
 ### tasks_tab.py
 

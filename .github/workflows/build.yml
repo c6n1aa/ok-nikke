@@ -46,6 +46,7 @@ jobs:
 
       - name: Run tests
         run: ./run_tests.ps1
+        timeout-minutes: 20
 
       - name: Download standalone Python -> python/
         env:
