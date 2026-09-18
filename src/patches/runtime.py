@@ -198,27 +198,52 @@ def _patch_device_set_interaction():
     logger.info('patched DeviceManager.set_interaction to release focus pause on interaction change')
 
 
+_OCR_INIT_JOIN_TIMEOUT = 120  # 秒；CI 冷缓存下加载/编译 OpenVINO 模型可能耗时数十秒
+
+
+def _join_ocr_init_thread(executor=None):
+    # 等后台 DefaultOCRInit 线程收尾。框架起了这个守护线程（懒初始化 OCR、import openvino）
+    # 却从不 join；进程退出得比它快时，主线程会在解释器终结阶段卡在全局 import 锁上
+    # （_imp.acquire_lock），锁被该线程占着，进程永不退出。
+    if executor is None:
+        from ok import og
+        executor = getattr(og, 'executor', None)
+    if executor is None:
+        return
+    thread = getattr(executor, "_ocr_init_thread", None)
+    if thread is None or not thread.is_alive():
+        return
+    logger.info("waiting for DefaultOCRInit thread before shutdown")
+    thread.join(_OCR_INIT_JOIN_TIMEOUT)
+    if thread.is_alive():
+        logger.warning(f"DefaultOCRInit still running after {_OCR_INIT_JOIN_TIMEOUT}s; "
+                       "interpreter shutdown may hang on the import lock")
+
+
 def _patch_executor_ocr_init_join():
-    # 包装 TaskExecutor.destroy：退出前等待后台 DefaultOCRInit 线程收尾。
-    # 该守护线程懒初始化 OCR（导入 openvino + 加载模型）。当进程在初始化完成前就
-    # 退出（典型：跑得快的测试文件，如 RaidTask 全部用例 <1s），解释器终结阶段会
-    # 冻结这个仍持有 import 锁的线程，导致进程在退出阶段永久死锁——测试全部通过、
-    # CPU 归零、进程永不结束。先 join 把竞态窗口关掉；正常初始化约 1 秒内完成。
+    # 包装 TaskExecutor.destroy：执行器收尾时先等 OCR 初始化线程。
     from ok.task.TaskExecutor import TaskExecutor
 
     original_destroy = TaskExecutor.destroy
 
     def destroy_with_ocr_join(self):
         original_destroy(self)
-        thread = getattr(self, "_ocr_init_thread", None)
-        if thread is not None and thread.is_alive():
-            logger.info("waiting for DefaultOCRInit thread before shutdown")
-            thread.join(timeout=30)
-            if thread.is_alive():
-                logger.warning("DefaultOCRInit still running after 30s; interpreter shutdown may hang")
+        _join_ocr_init_thread(self)
 
     TaskExecutor.destroy = destroy_with_ocr_join
     logger.info("patched TaskExecutor.destroy to join DefaultOCRInit thread")
+
+
+def _patch_shutdown_ocr_init_join():
+    # 只挂 destroy 不够：它跑在 TaskExecutor 线程上，主线程不等它。必须在主线程的退出阶段等，
+    # 这些回调都早于解释器开始 module 清理（即那次抢 import 锁的 import）。
+    import atexit
+    import threading
+
+    atexit.register(_join_ocr_init_thread)
+    if hasattr(threading, "_register_atexit"):  # 更早，随 threading._shutdown 执行
+        threading._register_atexit(_join_ocr_init_thread)
+    logger.info("patched process shutdown to join DefaultOCRInit thread")
 
 
 def apply():
@@ -228,5 +253,6 @@ def apply():
     _patch_executor_focus_guard()
     # 运行中切换交互方式时按新方式重判失焦暂停，必要时解除已有暂停
     _patch_device_set_interaction()
-    # 退出前等待 OCR 初始化线程收尾，避免解释器终结阶段的 import 锁死锁
+    # 执行器收尾与进程退出阶段都要等 OCR 初始化线程，避免解释器终结阶段的 import 锁死锁
     _patch_executor_ocr_init_join()
+    _patch_shutdown_ocr_init_join()
