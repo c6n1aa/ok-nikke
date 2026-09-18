@@ -28,6 +28,28 @@ This software is an external helper tool that automates parts of the Windows cli
 
 This software is open-source and free, provided for personal learning and communication only. Do not use it for any commercial or profit-making purpose. The developers retain the final interpretation. Any problems arising from using this software (including, without limitation, account restrictions or bans) are unrelated to the project and its developers.
 
+### The Official Stance on Automation
+
+The publisher of Goddess of Victory: NIKKE explicitly prohibits tools of this kind under section "3-2. Macros and Gameplay Automation Programs" of its violation policy, and has raised the penalty to **an account ban for up to 10 years**. This software automates the game by simulating user-interface input, which falls squarely within what that section forbids. The official notice dated 2026/09/16:
+
+> **3-2. Macros and Gameplay Automation Programs**
+>
+> In NIKKE, it is not permitted to use external programs or devices instead of officially provided functions to automate, repeat, or substitute or repeat actions that players must perform themselves.
+>
+> This includes mouse macros, auto clickers, automation scripts, automated gameplay systems, or other external methods to perform actions on behalf of the player.
+>
+> Such behavior uses external tools to replace actions that players must perform themselves. This can negatively affect battle results and, in competitive content, rankings and rewards.
+>
+> We cannot provide detailed information about specific program types or lists of detection targets, as this could be used to evade detection or for malicious purposes. However, we will continue to review and refine the list of detection targets and related programs we check. We will also examine input and gameplay records more closely. These improvements will help our automated checks determine more accurately whether these methods were actually used.
+>
+> **Updated sanction: Account ban for up to 10 years**
+>
+> We will apply sanctions at different levels by comprehensively considering the frequency and the duration of the violations, whether the behavior was repeated, whether detection or restriction measures were bypassed, the impact on the competitive environment, any unfair benefits obtained, and other relevant factors.
+>
+> In particular, repeated circumvention of relevant restrictions or continuing the same behavior will be considered aggravating circumstances.
+
+**Be aware: using this software carries the risk of account restriction or ban, with penalties of up to 10 years. Evaluate the risk yourself before deciding to use it.**
+
 **By using this software, you acknowledge that you have read, understood, and agreed to the above, and voluntarily assume all potential risks.**
 
 ## 🚀 Quick Start
