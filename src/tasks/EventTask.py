@@ -179,8 +179,8 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
         self._current_event = None  # 当前处理的活动（日历条目）；失败恢复回大厅后重入时用它 banner 定位。
         self.default_config.update({  # 子流程专属设置，独立持久化到 configs/。
             "签到": True,  # 是否收取活动签到印章奖励（仅大活动）。
-            "剧情": True,  # 是否推进活动剧情。
-            "扫荡": False,  # 是否对可重复关卡执行快速战斗扫荡（默认关闭，避免误耗资源）。
+            "剧情": False,  # 是否推进活动剧情。
+            "扫荡": True,  # 是否对可重复关卡执行快速战斗扫荡。
             "扫荡关卡": _SWEEP_STAGE_DEFAULT,  # 扫荡目标关卡编号。
             "挑战": True,  # 是否执行活动挑战。
             "任务": True,  # 是否领取活动任务奖励。
