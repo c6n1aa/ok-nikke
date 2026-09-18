@@ -174,7 +174,6 @@ def render_body(
         '### 下载说明\n\n'
         f'* [{PACKAGE}](https://github.com/{repo}/releases/download/{tag}/{PACKAGE}) '
         '完整便携包: 解压到任意目录运行 ok-nikke.exe (需管理员权限)。\n'
-        '* 无需下载 Source code, 仅供存档用。'
     )
 
     if prev_tag is not None:
