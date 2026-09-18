@@ -53,6 +53,8 @@ if not self.ensure_screen("coop_page", entry=find_entry, wait_confirm=10, after_
 
 行为：已在/正在过场进入目标页 → 直接返回（每轮 `wait_enter=5` 轮询容忍滑入动画）→ 清弹窗再等一轮 → 分流：正向命中 `login_page` 或无任何应用内证据 → 冷启动 `wait_until_lobby_after_start`；有应用内证据 → `_recover_to_lobby` → 清大厅弹窗 → 有点击源走 `transition()` 进入；无点击源（目标即大厅）→ 尾段 `wait_screen` 确认。`raise_on_fail` 默认 `True`（供 `try_step` 恢复）；任务开头用 `raise_on_fail=False` 优雅中止。
 
+短路：单帧已确认「人在大厅且目标页不可见」时跳过两轮目标页轮询，直接走点击边——`lobby` 判据（`ark`+`lobby` 图标）与其余已注册界面互斥，目标页特征必然不可见，两轮轮询只会各等满 `wait_enter` 秒。从大厅点入口进子页的闸门（`ensure_screen("ark")`/`("outpost")`/`("coop_page")` 等）适用。目标页已可见时不短路（向目标页滑入的过场中目标页特征可能先出现而大厅图标尚未消失），`name == "lobby"`（大厅即目标）同样不短路。
+
 任务开头的就位大厅统一用 `ensure_screen("lobby")`（大厅「入口」是冷启动引导这段程序化流程，不是点击边）。冷启动正向锚点 `login_page`（TOUCH TO CONTINUE + `box_enter_game` 区域）注册在 `src/screens.py`。
 
 ### 转换边：`transition()`

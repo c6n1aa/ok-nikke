@@ -54,6 +54,8 @@ if not self.ensure_screen("coop_page", entry=find_entry, wait_confirm=10, after_
 
 Behavior: already on / currently transitioning into the target -> return immediately (polls `wait_enter=5` per round, tolerating slide-in animations) -> dismiss popups and poll once more -> route: a positive `login_page` match or zero in-app evidence -> cold-start `wait_until_lobby_after_start`; in-app evidence -> `_recover_to_lobby` -> dismiss lobby popups -> with a click source, guarded `transition()` entry; without a click source (target is the lobby) -> tail `wait_screen` confirmation. Defaults to `raise_on_fail=True` (for `try_step` recovery); pass `raise_on_fail=False` at task starts for a graceful abort.
 
+Short-circuit: when a single frame confirms "we are on the lobby and the target screen is not visible", both target-screen polls are skipped and the gate goes straight to the click edge — the `lobby` spec (`ark`+`lobby` icons) is mutually exclusive with every other registered screen, so no target-screen feature can be visible and both polls would only burn their full `wait_enter` timeout. Applies to gates that enter a sub-page from the lobby (`ensure_screen("ark")` / `("outpost")` / `("coop_page")` ...). The shortcut is disabled when the target screen *is* visible (during a slide-in the target feature may appear before the lobby icon is gone), and when `name == "lobby"`, where the lobby is the target itself.
+
 Task-start lobby-siting is uniformly `ensure_screen("lobby")` (the lobby's "entry" is the cold-start procedural flow, not a click edge). The positive cold-start anchor `login_page` (TOUCH TO CONTINUE + `box_enter_game` region) is registered in `src/screens.py`.
 
 ### Transition edges: `transition()`

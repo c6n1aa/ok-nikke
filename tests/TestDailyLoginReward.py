@@ -178,7 +178,8 @@ class TestDailyLoginRewardPopup(TaskTestCase):
         """奖励遮罩与登录奖励面板同时存在时先关遮罩（面板排在遮罩之后）。"""
         mask = self._box(name='mask')  # 模拟遮罩提示命中框。
         clicked = []  # 收集被点击的框。
-        with patch.object(self.task, '_close_rupee_flash_sale_popup', return_value=False), \
+        with patch.object(self.task, '_confirm_server_select', return_value=False), \
+                patch.object(self.task, '_close_rupee_flash_sale_popup', return_value=False), \
                 patch.object(self.task, '_close_notice_popup', return_value=False), \
                 patch.object(self.task, 'ocr', return_value=[mask]) as ocr_mock, \
                 patch.object(self.task, 'click_box', side_effect=lambda box, **_k: clicked.append(box)), \
@@ -194,7 +195,8 @@ class TestDailyLoginRewardPopup(TaskTestCase):
         text = self._box(name='全部领取')  # 模拟 OCR 文字框。
         clicked = []  # 收集被点击的框。
         # 第一次 OCR 为遮罩分支（无遮罩），第二次为面板的「全部领取」。
-        with patch.object(self.task, '_close_rupee_flash_sale_popup', return_value=False), \
+        with patch.object(self.task, '_confirm_server_select', return_value=False), \
+                patch.object(self.task, '_close_rupee_flash_sale_popup', return_value=False), \
                 patch.object(self.task, '_close_notice_popup', return_value=False), \
                 patch.object(self.task, 'ocr', side_effect=[[], [text]]), \
                 patch.object(self.task, 'find_one', return_value=None), \

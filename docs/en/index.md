@@ -6,7 +6,7 @@ ok-nikke is an automation app for the Windows client of Goddess of Victory: NIKK
 
 ## Features
 
-- **Input methods**: `Pynput`/`PyDirect` need the game window in the foreground; `Genshin` clicks in the background (moves the real cursor and briefly blocks input). Screenshots prefer WGC background capture.
+- **Input method**: `SyntheticTouch` uses a synthetic touch pointer (WM_POINTER) to bypass the game's input filtering and requires the game window in the foreground. Screenshots prefer WGC background capture.
 - **Image recognition**: OpenCV template matching (COCO-managed assets) combined with onnxocr (PaddleOCR v5 + OpenVINO) to read text and locate buttons.
 - **Resolution adaptive**: supports 16:9 (minimum 1600×900); assets are based on 2560×1440 and scaled to the current resolution automatically.
 - **Completion state**: daily/weekly completion tracking to avoid repeating finished tasks.

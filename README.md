@@ -44,7 +44,7 @@
 
 - **必须以管理员身份启动**：如果游戏以管理员权限运行，自动化程序也需要同等权限，否则截图或输入可能失效。
 - 游戏分辨率需为 16:9 且不低于 1600×900。
-- 输入方式：`Pynput`/`PyDirect` 需游戏窗口保持前台；选 `Genshin` 可后台点击（会临时移动真实光标并短暂冻结输入）。
+- 输入方式：`SyntheticTouch` 走合成触控指针（WM_POINTER）绕开游戏输入过滤，需要游戏窗口位于前台。
 - 更多运行与常见问题细节见文档[快速开始](docs/getting-started.md)。
 
 ## 🗑️ 卸载应用
@@ -119,3 +119,4 @@ uv sync
 ## ❤️ 致谢
 
 - [ok-script](https://github.com/ok-oldking/ok-script)
+- [MaaFramework](https://github.com/MaaXYZ/MaaFramework) — 合成触控指针（WM_POINTER）交互方式取自该框架

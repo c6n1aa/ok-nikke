@@ -9,7 +9,8 @@
 取图顺序：cache/event_banner/ -> assets/event_banner/（随包保底图，由 scripts/build_event_assets.py 生成）
 -> 联网下载。匹配路径不联网，联网只在 refresh()。
 
-收录范围：version_event 且 type=StoryEvent。状态信息覆盖 STATUS_CATEGORIES（版本活动 /
+收录范围：version_event 且 type∈{StoryEvent, FieldHubEvent}（FieldHub 为含 STORY/FIELD HUB 子页的新大活动）。
+状态信息覆盖 STATUS_CATEGORIES（版本活动 /
 协同作战+单人突袭 / 竞技场），与活动图由同一次 refresh() 落到 cache/event_banner/calendar.json。
 """
 
@@ -42,7 +43,7 @@ CALENDAR_URL = "https://api.blablalink.com/api/ugc/direct/standalonesite/Dynamic
 CDN_BASE = "https://sg-tools-cdn.blablalink.com"
 USER_AGENT = "ok-nikke/1.0"
 EVENT_CATEGORY = "version_event"  # 剧情活动所在分类。
-EVENT_TYPE = "StoryEvent"  # 剧情大活动的 type（登录活动是 LoginEvent）。
+EVENT_TYPES = ("StoryEvent", "FieldHubEvent")  # 剧情大活动的 type（登录活动是 LoginEvent；FieldHubEvent 是含 STORY/FIELD HUB 子页的新版大活动）。
 STATUS_CATEGORIES = ("version_event", "raid", "arena")  # 状态信息收录：版本活动 / 协同作战+单人突袭 / 竞技场。
 SNAPSHOT_NAME = "calendar.json"  # 状态快照文件名。
 EXPIRE_NOTIFY_SECONDS = 24 * 3600  # 「即将结束」判定的提前量：结束时间在未来 24 小时内。
@@ -213,7 +214,7 @@ def strip_banner_prefix(key):
 
 
 def parse_events(calendar):
-    """取出 version_event 且 type=StoryEvent 的活动，按 banner 键去重保序。
+    """取出 version_event 且 type∈EVENT_TYPES（剧情大活动）的项目，按 banner 键去重保序。
 
     name 保留接口原文（落盘不被加工）；展示名请用 event.display_name（banner 键去前缀），
     因为接口 name 可能指向错误的活动（实测 GREATVILLAINUNION 的 name 是开服活动
@@ -225,7 +226,8 @@ def parse_events(calendar):
     if not isinstance(node, dict):  # 分类缺失。
         return events
     for item in node.get("items") or []:
-        if (item.get("type") or "") != EVENT_TYPE:  # 其它子类型（登录活动等）。
+        event_type = item.get("type") or ""
+        if event_type not in EVENT_TYPES:  # 其它子类型（登录活动等）。
             continue
         key = (item.get("banner") or "").strip()
         if not key or key in seen:  # 无活动图，或同图重复。
@@ -235,10 +237,10 @@ def parse_events(calendar):
             key=key,
             name=item.get("name") or key,
             category=EVENT_CATEGORY,
-            event_type=EVENT_TYPE,
+            event_type=event_type,
             start_time=int(item.get("start_time") or 0),
             end_time=int(item.get("end_time") or 0),
-            url=banner_url(key, EVENT_TYPE),
+            url=banner_url(key, event_type),
         ))
     return events
 
@@ -456,7 +458,8 @@ def refresh(timeout=5.0, download_timeout=10.0, attempts=ATTEMPTS,
     """拉日历并落缓存：状态写 calendar.json、剧情活动图下到 cache，返回快照。本模块唯一联网入口。
 
     不抛异常：接口拉不到则返回只有保底包内容的快照（fetched_at=0）且不覆盖已有快照；
-    单张图下载失败则该活动回落到保底图或从清单剔除；已缓存的图与快照直接复用。
+    单张图下载失败则该活动回落到保底图或从清单剔除；已缓存的图与快照直接复用；
+    接口可达时未被接口返回的保底包活动视为已过期/下架，不进快照。
 
     Returns:
         CalendarSnapshot。
@@ -470,13 +473,12 @@ def refresh(timeout=5.0, download_timeout=10.0, attempts=ATTEMPTS,
     if calendar and len(events) < len(parsed):
         logger.debug(f'剔除已过期活动 {len(parsed) - len(events)} 个，不下载其活动图')
     ready = []  # 本地已有图的活动。
-    known = {event.key for event in parsed}  # 保底包去重用全部接口键：过期活动也不回落成 bundled。
     for event in events:
         if ensure_cached(event, cache_dir=cache_dir, bundled_dir=bundled_dir,
                          timeout=download_timeout, attempts=attempts):
             ready.append(event)
-    for key in bundled_keys(bundled_dir):  # 保底包独有的活动：无接口元数据，名字用键顶替（展示名走 display_name）。
-        if key not in known:
+    if not calendar:  # 保底包独有活动只在接口不可达时兜底：接口可达而不返回的键视为已过期/下架，不复活为活动。
+        for key in bundled_keys(bundled_dir):  # 无接口元数据，名字用键顶替（展示名走 display_name）。
             ready.append(CalendarEvent(key=key, name=key, category='bundled', event_type='',
                                        start_time=0, end_time=0, url=''))
     snapshot = CalendarSnapshot(fetched_at=int(time.time()) if calendar else 0,

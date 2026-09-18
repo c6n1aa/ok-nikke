@@ -89,3 +89,10 @@ msgstr ""
 # NavigationMixin：返回按钮文字兜底（左下角区域 OCR）
 msgid "返回"
 msgstr "返回"
+
+# HarvestTask：PASS 面板页签文字（面板已打开/已关闭的判据）
+msgid "奖励"
+msgstr ""
+
+msgid "任务"
+msgstr ""

@@ -157,7 +157,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "ok-script", extras = ["adb", "default", "ocr", "qt"], specifier = "==2.0.0b7" },
+    { name = "ok-script", extras = ["adb", "default", "ocr", "qt"], specifier = "==2.0.6" },
     { name = "opencv-python" },
     { name = "openvino" },
     { name = "pyside6-essentials", specifier = "==6.11.2" },
@@ -170,7 +170,7 @@ dev = [{ name = "polib", specifier = ">=1.2.0" }]
 
 [[package]]
 name = "ok-script"
-version = "2.0.0b7"
+version = "2.0.6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "mouse" },
@@ -183,9 +183,9 @@ dependencies = [
     { name = "requests" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b8/d0/8868c0294a885c463b3905e40420cc633aa2fecd331658df71d91c0f01ee/ok_script-2.0.0b7.tar.gz", hash = "sha256:cb8501e8d473c58c1295fbec969874d47ed551286bebd2492d7b3fcc333ab0c8", size = 1086913, upload-time = "2026-08-15T17:31:04.176Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/93/b8/08aaf891f4b4bff5ccd3d9e9f9c7f9bf2500062e2ff0290d52c31f207575/ok_script-2.0.6.tar.gz", hash = "sha256:21c336a872302e144775cfd6842f1ce1f56151540b537046b2554dd52399b035", size = 1082951, upload-time = "2026-08-28T10:00:24.535Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b5/38/d602b92a7f6a910f7d3152f40ea055f2888def264b0c815a2cd44a668f7f/ok_script-2.0.0b7-py3-none-any.whl", hash = "sha256:3225ebe70c9dddd9dbdfed650a7f1988145a478a97fc87c58f5c3b9a995a6349", size = 1121215, upload-time = "2026-08-15T17:31:02.536Z" },
+    { url = "https://files.pythonhosted.org/packages/64/a4/0bdac442c5d404c77eee9148416bcf2def296dbba0fd1b33fa6fe331e76d/ok_script-2.0.6-py3-none-any.whl", hash = "sha256:db296ac242376eb42d887f5bfd9c70d15a42a2979e7d16e342a3badb55e3c7e1", size = 1113287, upload-time = "2026-08-28T10:00:21.86Z" },
 ]
 
 [package.optional-dependencies]

@@ -47,4 +47,4 @@
 
 ### about_update.py
 
-替换框架基于 pyappify 启动器的更新 UI 为本项目实现：`AboutTab.UpdateCard` 换成 `src.ui.UpdateCard.NikkeUpdateCard`；`get_startup_version_change` 换成基于 `version.txt`/`version.txt.prev` 的实现（首次调用即消费 `.prev` 文件）；空正文的「更新成功」卡片由替换后的 `ChangeLogView` 与包装的 `AboutTab.add_card` 一并收起；启动自检延迟由框架默认 30 秒改为 3 秒（`update_check_delay_ms`）。依赖 `src/update_config.py`。
+替换框架基于 pyappify 启动器的更新 UI 为本项目实现：`AboutTab.UpdateCard` 换成 `src.ui.UpdateCard.NikkeUpdateCard`；`get_startup_version_change` 换成基于 `version.txt`/`version.txt.prev` 的实现（首次调用即消费 `.prev` 文件），卡片正文是本次更新的**更新说明**——读包内 `changelog/<tag>.md`（随 tag 提交，CNB 镜像由 CI 补写，纯本地读取、不联网）；该文件不存在时正文留空，由替换后的 `ChangeLogView` 与包装的 `AboutTab.add_card` 把整张卡片收起；启动自检延迟由框架默认 30 秒改为 3 秒（`update_check_delay_ms`）。依赖 `src/update_config.py`。

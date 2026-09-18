@@ -148,20 +148,39 @@ class TestHarvestTask(_DebugOffTestCase):
         claim_mock.assert_called_once()
 
     def test_open_pass_modal_single_pass_with_red_dot(self):
-        badge = _fake_box("box_pass_badge", 100, 100, 20, 20)
         with patch.object(self.task, "find_one", return_value=None) as find_mock, \
                 patch.object(self.task, "find_red_dot", return_value=_fake_box("dot")) as dot_mock, \
                 patch.object(self.task, "get_box_by_name",
                              side_effect=lambda name: _fake_box(name, 200, 300, 50, 60)), \
                 patch.object(self.task, "click_box") as click_mock, \
-                patch.object(self.task, "wait_feature") as wait_mock:
+                patch.object(self.task, "wait_ocr", return_value=[_fake_box("奖励")]) as ocr_wait_mock:
             opened = self.task._open_pass_modal()
         self.assertTrue(opened)
         dot_mock.assert_called_once_with("box_pass_badge", template_path=self.task._RED_DOT_TEMPLATE,
                                           use_color_fallback=False)
         click_mock.assert_called_once_with("box_pass_area", after_sleep=1)
-        wait_mock.assert_called_once_with("pass_page", box=_fake_box("box_pass_page", 200, 300, 50, 60),
-                                          use_gray_scale=True, time_out=5, raise_if_not_found=True)
+        kwargs = ocr_wait_mock.call_args.kwargs  # 打开判据走页签文字 OCR，不用随皮肤变的徽章模板。
+        self.assertEqual(list(self.task._PASS_TAB_PATTERNS), kwargs["match"])
+        self.assertEqual(5, kwargs["time_out"])
+        self.assertFalse(kwargs["raise_if_not_found"])  # 未命中由本方法抛带原因的异常。
+        self.assertEqual("pass_tab_area", kwargs["box"].name)
+
+    def test_open_pass_modal_raises_when_tab_text_missing(self):
+        from ok.task.exceptions import WaitFailedException
+        with patch.object(self.task, "find_one", return_value=None), \
+                patch.object(self.task, "find_red_dot", return_value=_fake_box("dot")), \
+                patch.object(self.task, "click_box"), \
+                patch.object(self.task, "wait_ocr", return_value=None):
+            with self.assertRaises(WaitFailedException):
+                self.task._open_pass_modal()
+
+    def test_pass_panel_opened_uses_tab_text(self):
+        with patch.object(self.task, "ocr", return_value=[_fake_box("任务")]) as ocr_mock:
+            self.assertTrue(self.task._pass_panel_opened())
+        self.assertEqual(list(self.task._PASS_TAB_PATTERNS), ocr_mock.call_args.kwargs["match"])
+        self.assertEqual("pass_tab_area", ocr_mock.call_args.kwargs["box"].name)
+        with patch.object(self.task, "ocr", return_value=[]):
+            self.assertFalse(self.task._pass_panel_opened())
 
     def test_open_pass_modal_single_pass_without_red_dot_skips(self):
         with patch.object(self.task, "find_one", return_value=None), \
@@ -182,7 +201,7 @@ class TestHarvestTask(_DebugOffTestCase):
                 patch.object(self.task, "move") as move_mock, \
                 patch.object(self.task, "mouse_up"), \
                 patch.object(self.task, "click_box") as click_mock, \
-                patch.object(self.task, "wait_feature"):
+                patch.object(self.task, "wait_ocr", return_value=[_fake_box("奖励")]):
             opened = self.task._open_pass_modal()
         self.assertTrue(opened)
         self.assertEqual(2 * self.task._PASS_FLICK_STEPS, move_mock.call_count)  # 前两页各翻页 20 步加速插值，第三页命中。
@@ -222,7 +241,6 @@ class TestHarvestTask(_DebugOffTestCase):
     def test_claim_pass_modal_claims_both_pages_and_closes(self):
         claim_box = _fake_box("box_pass_reward_claim_feature", 100, 200, 50, 40)
         with patch.object(self.task, "get_box_by_name", return_value=claim_box), \
-                patch.object(self.task, "wait_click_feature") as tab_mock, \
                 patch.object(self.task, "next_frame"), \
                 patch.object(self.task, "is_feature_enabled", return_value=True), \
                 patch.object(self.task, "click_box") as click_mock, \
@@ -230,15 +248,15 @@ class TestHarvestTask(_DebugOffTestCase):
                 patch.object(self.task, "dismiss_all_popups") as dismiss_mock, \
                 patch.object(self.task, "_close_pass_modal") as close_mock:
             self.task._claim_pass_modal()
-        self.assertEqual(2, tab_mock.call_count)  # 任务页 + 奖励页各点击一次。
-        self.assertEqual(2, click_mock.call_count)  # 两页各领一次。
+        tab_calls = [c.args[0] for c in click_mock.call_args_list if isinstance(c.args[0], str)]
+        self.assertEqual(["box_pass_mission_page", "box_pass_reward_page"], tab_calls)  # 依次切任务页、奖励页。
+        self.assertEqual(2, len([c for c in click_mock.call_args_list if c.args[0] is claim_box]))  # 两页各领一次。
         dismiss_mock.assert_called_once_with(time_out=5)  # 奖励页领取后处理一次奖励遮罩。
         close_mock.assert_called_once()
 
     def test_claim_pass_modal_handles_rank_up(self):
         claim_box = _fake_box("box_pass_reward_claim_feature", 100, 200, 50, 40)
         with patch.object(self.task, "get_box_by_name", return_value=claim_box), \
-                patch.object(self.task, "wait_click_feature"), \
                 patch.object(self.task, "next_frame"), \
                 patch.object(self.task, "is_feature_enabled", return_value=True), \
                 patch.object(self.task, "click_box") as click_mock, \
@@ -247,19 +265,22 @@ class TestHarvestTask(_DebugOffTestCase):
                 patch.object(self.task, "dismiss_all_popups"), \
                 patch.object(self.task, "_close_pass_modal"):
             self.task._claim_pass_modal()
-        self.assertEqual(3, click_mock.call_count)  # 任务页领取 + 关闭RANK UP提示 + 奖励页领取。
+        box_calls = [c for c in click_mock.call_args_list if not isinstance(c.args[0], str)]
+        self.assertEqual(3, len(box_calls))  # 任务页领取 + 关闭RANK UP提示 + 奖励页领取。
 
     def test_claim_pass_modal_reward_not_available_still_closes(self):
         claim_box = _fake_box("box_pass_reward_claim_feature", 100, 200, 50, 40)
         with patch.object(self.task, "get_box_by_name", return_value=claim_box), \
-                patch.object(self.task, "wait_click_feature"), \
                 patch.object(self.task, "next_frame"), \
                 patch.object(self.task, "is_feature_enabled", return_value=False), \
-                patch.object(self.task, "click_box", side_effect=AssertionError("无可领奖励不应点击")), \
+                patch.object(self.task, "click_box") as click_mock, \
                 patch.object(self.task, "wait_feature", return_value=None), \
                 patch.object(self.task, "dismiss_all_popups", side_effect=AssertionError("未领取奖励不应处理遮罩")), \
                 patch.object(self.task, "_close_pass_modal") as close_mock:
             self.task._claim_pass_modal()
+        # 领取按钮灰白时只切页签，不点领取按钮。
+        self.assertEqual(["box_pass_mission_page", "box_pass_reward_page"],
+                         [c.args[0] for c in click_mock.call_args_list])
         close_mock.assert_called_once()
 
     def test_close_pass_modal_clicks_blank_and_verifies(self):
@@ -270,9 +291,11 @@ class TestHarvestTask(_DebugOffTestCase):
         dismiss_mock.assert_called_once_with(wait_for_popup=False, time_out=5)
         blank_mock.assert_called_once()  # 走基类通用「点空白 + 验证」。
         verify = blank_mock.call_args.args[0]  # 关闭判据。
-        with patch.object(self.task, "find_one", return_value=None) as find_mock:
-            self.assertTrue(verify())  # 模态窗特征消失 = 已关闭。
-        find_mock.assert_called_once_with("pass_page", use_gray_scale=True)
+        with patch.object(self.task, "_pass_panel_opened", return_value=False) as panel_mock:
+            self.assertTrue(verify())  # 页签文字消失 = 已关闭。
+        panel_mock.assert_called_once()
+        with patch.object(self.task, "_pass_panel_opened", return_value=True):
+            self.assertFalse(verify())  # 面板仍在 = 未确认关闭。
 
     def test_close_pass_modal_returns_false_when_modal_stays(self):
         with patch.object(self.task, "dismiss_all_popups"), \

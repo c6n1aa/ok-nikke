@@ -1,18 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""编译 ok-nikke 入口 shim（launcher/launcher.c → ok-nikke.exe）。
+"""编译入口 shim：launcher/launcher.c -> ok-nikke.exe。
 
-自动探测工具链，优先 MinGW（windres + gcc），其次 MSVC（rc + cl，需在 vcvars 环境下）。
-两种工具链的 manifest 嵌入方式不同，见 launcher.rc 顶部注释；构建结束后会**校验成品**
-确实带 UAC 提权且没有混入 asInvoker 的默认 manifest —— 提权是这个 shim 存在的理由，
-不能静默产出不提权的 exe。
+自动探测工具链：优先 MinGW（windres + gcc），其次 MSVC（rc + cl，需在 vcvars 环境）。
+两种工具链的 manifest 嵌入方式不同，见 launcher.rc 顶部注释。构建后校验成品确实带
+requireAdministrator 且未混入 asInvoker 的默认 manifest。
 
 用法：
     .venv\\Scripts\\python.exe launcher\\build.py
     python launcher/build.py --no-manifest --out dev_tools/shim-test.exe
 
---no-manifest 只用于本地验证 spawn 行为：带 requireAdministrator 的 exe 每次运行都会弹 UAC，
-自动化验证不方便；发布必须不带这个开关（否则没有图标、也不提权）。
+--no-manifest 只用于本地验证 spawn 行为（带 requireAdministrator 的 exe 每次运行都弹 UAC）；
+发布必须不带这个开关，否则没有图标、也不提权。
 """
 
 import argparse
@@ -46,8 +45,8 @@ def run(command, cwd=HERE):
 def compile_resource(toolchain, rc_text, out_name):
     """把 rc 文本写成临时脚本并编译为资源文件，返回产物路径。
 
-    临时 rc 必须放在 launcher/ 下（而不是 build-stamp/），否则 rc 里的
-    "../icons/icon.ico"、"../launcher.manifest" 这类相对路径会指错地方。
+    临时 rc 放在 launcher/ 下（而非 build-stamp/），否则 rc 里的
+    "../icons/icon.ico" 等相对路径会指错地方。
     """
     os.makedirs(STAMP_DIR, exist_ok=True)
     rc_path = os.path.join(HERE, f'_build_{os.path.splitext(out_name)[0]}.rc')
@@ -83,14 +82,12 @@ def prepare_resources(toolchain):
         f.read()
 
     if toolchain == 'msvc':
-        # MSVC 直接把自己的 manifest 写进资源（link.exe 不会自动加），资源 ID 1 = EXE 的 manifest
+        # MSVC 需自己把 manifest 写进资源（link.exe 不会自动加），资源 ID 1 = EXE 的 manifest
         rc_text = base_rc + '\n1 24 "launcher.manifest"\n'
         return [compile_resource(toolchain, rc_text, 'launcher.res')], []
 
-    # MinGW：gcc 的 *endfile spec 会自动链接 <lib>/default-manifest.o（asInvoker）。
-    # 我们在 build-stamp 里放一份同名的「我们的 manifest」对象，并用 -B 让它被优先找到，
-    # 这样最终 exe 里只有唯一一份 manifest（requireAdministrator）。
-    # 生成的 rc 与 launcher.manifest 同目录（launcher/），所以直接写文件名
+    # MinGW：gcc 的 *endfile spec 会自动链接 <lib>/default-manifest.o（asInvoker）；
+    # 在 build-stamp 放一份同名对象，用 -B 让 gcc 优先找到它，exe 里只保留这一份 manifest。
     manifest_obj = compile_resource(toolchain, '1 24 "launcher.manifest"\n', 'default-manifest.o')
     resource = compile_resource(toolchain, base_rc, 'launcher.res')
     return [resource], ['-B', os.path.dirname(manifest_obj) + os.sep]

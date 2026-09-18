@@ -26,6 +26,8 @@ class PopupsMixin:
     # 登录奖励（DAILY LOGIN）弹窗：面板皮肤每期不同，存在判据只取不随皮肤变的「全部领取」文字（OCR）。
     _DAILY_LOGIN_CLAIM_ALL_TEXT = re.compile("全部领取", re.IGNORECASE)  # 「全部领取」按钮文字，OCR 部分匹配（兼容拆框/噪声）。
     _DAILY_LOGIN_CLAIM_PAD = (0.2, 0.36)  # 文字框外扩比例（宽, 高）：OCR 只框到白字，外扩取到按钮底色才能判断可领与否；用比例而非固定像素，保证各分辨率下都不超出按钮本体。
+    # 服务器选择界面（登录前置）：标题文字固定为「选择服务器」之类，取「选择」两字做部分匹配。
+    _SERVER_SELECT_TEXT = re.compile("选择", re.IGNORECASE)  # 服务器选择界面文字，OCR 部分匹配。
 
     # 遮罩提示文字 OCR 关键词：框架对字符串是全等匹配，OCR 常把提示拆成多个文本框
     # （如实测「点击进行下一步」被拆成「点击进行下一」+「步」），一律用正则走部分匹配。
@@ -60,6 +62,25 @@ class PopupsMixin:
         if raise_on_fail:  # 调用方要求关闭失败必须抛错。
             raise WaitFailedException("点击空白未能关闭模态弹窗")  # 抛异常交由 try_step 恢复。
         return False  # 返回关闭失败。
+
+    def _confirm_server_select(self):
+        """服务器选择界面：OCR 识别 box_server_select 区域内的「选择」文字，命中则点击 server_select_confirm 确认，返回是否已处理。
+
+        该界面出现在登录页之前（冷启动引导阶段），确认服务器后才会出现 TOUCH TO CONTINUE。
+        """
+        try:  # 区域特征可能已不存在（coco 重建后旧特征被移除）。
+            box = self.get_box_by_name("box_server_select")  # 获取服务器选择文字区域（已按当前分辨率缩放）。
+        except ValueError:  # 特征缺失。
+            return False  # 视为当前帧无该界面。
+        matches = self.ocr(box=box, match=[self._SERVER_SELECT_TEXT])  # 在区域内 OCR 匹配「选择」文字（正则部分匹配，兼容拆框）。
+        if not matches:  # 未命中 = 当前帧无服务器选择界面。
+            return False  # 返回未处理。
+        confirm = self.find_one("server_select_confirm")  # 查找确认按钮特征。
+        if confirm is None:  # 文字命中但确认按钮未识别到。
+            return False  # 本轮不点击，交由下一轮重试。
+        self.click_box(confirm, after_sleep=1)  # 点击确认选中服务器。
+        self.log_info("已确认服务器选择。")  # 记录动作。
+        return True  # 返回已处理。
 
     def _close_notice_popup(self):
         """在屏幕中上部依次尝试多个公告铃铛模板，命中后向右延伸查找通用关闭按钮并点击，返回是否成功点击。"""
@@ -213,12 +234,19 @@ class PopupsMixin:
         return clicked  # 超时或点满次数后返回当前状态。
 
     def _try_close_one_popup(self, after_sleep=1):
-        """尝试关闭当前帧上的一个弹窗：卢比限时特卖 → 公告/活动横幅 → 领取奖励/点击任意处遮罩 → 登录奖励弹窗。返回是否成功关掉一个。
+        """尝试处理当前帧上的一个界面：服务器选择确认 → 卢比限时特卖 → 公告/活动横幅 → 领取奖励/点击任意处遮罩 → 登录奖励弹窗。返回是否成功处理一个。
 
         顺序按遮挡层级从上到下：遮罩压在登录奖励面板之上，故面板排在遮罩之后——
         否则「点完全部领取弹出的奖励遮罩」会被面板的关闭按钮抢先跳过后者的点击。
-        每次只关一个，由 dismiss_all_popups 循环调用，避免一次点击后界面动画未完成导致误判。
+        每次只处理一个，由 dismiss_all_popups 循环调用，避免一次点击后界面动画未完成导致误判。
         """
+        try:  # 服务器选择 OCR 异常不应中断统一清理。
+            if self._confirm_server_select():  # 服务器选择界面（登录前置）：确认后才会出现 TOUCH TO CONTINUE。
+                return True  # 已处理服务器选择。
+        except TaskDisabledException:  # 任务已被用户停止，必须让中断异常继续向上传播。
+            raise  # 重新抛出，交由执行器结束任务。
+        except Exception as e:  # 其它 OCR/特征异常。
+            self.log_warning(f"服务器选择确认失败: {e}")  # 记录失败原因，继续后续弹窗清理。
         if self._close_rupee_flash_sale_popup():  # 卢比限时特卖（两段式：入口横幅点击后弹详情，再点关闭确认）。
             return True  # 已处理卢比限时特卖。
         if self._close_notice_popup():  # 公告/活动横幅（右上角铃铛+关闭按钮）。

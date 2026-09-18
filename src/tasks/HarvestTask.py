@@ -1,3 +1,6 @@
+import re  # OCR 关键词统一编译为正则（部分匹配 + 忽略大小写）。
+
+from ok.task.exceptions import WaitFailedException  # 等待失败异常，交给 try_step 恢复回大厅重试。
 from src.tasks.NikkeBaseTask import NikkeBaseTask  # 导入项目基类，所有任务统一继承它。
 
 
@@ -10,6 +13,10 @@ class HarvestTask(NikkeBaseTask):  # 定义收获子任务类：收取友情点�
     _PASS_SWIPE_LIMIT = 8  # 多个 PASS 翻页查找红点的总次数上限，超过也标记完成。
     _PASS_FLICK_STEPS = 20  # 加速度翻页的插值步数（每步停顿 10ms，总拖拽约 0.2 秒）。
     _PASS_FLICK_STEP_SLEEP = 0.01  # 每步插值停顿秒数。
+    # 面板存在判据：面板左上徽章在灰度/高亮态之间切换、关闭 X 位置随皮肤漂移，模板逐期失效
+    # （实测徽章灰度匹配 0.648 < 阈值 0.8），改用不随皮肤变的页签文字（OCR）。
+    _PASS_TAB_PATTERNS = (re.compile("奖励", re.IGNORECASE), re.compile("任务", re.IGNORECASE))  # 面板两个页签的文字，命中任一即面板已打开。
+    _PASS_TAB_OCR_BOX = (0.25, 0.20, 0.75, 0.44)  # 页签行所在的屏幕区域（相对比例，按当前分辨率缩放）；大厅同区域无文字。
 
     def __init__(self, *args, **kwargs):  # 初始化任务元数据与配置。
         super().__init__(*args, **kwargs)  # 必须先调用父类初始化。
@@ -94,9 +101,16 @@ class HarvestTask(NikkeBaseTask):  # 定义收获子任务类：收取友情点�
             self.log_warning("PASS 无可领取奖励，跳过。")  # 记录跳过原因。
             return False  # 不打开模态窗，由上层收尾标记完成。
         self.click_box("box_pass_area", after_sleep=1)  # 点击 PASS 徽章区域打开模态框（box_pass_badge 仅用于查找红点）。
-        self.wait_feature("pass_page", box=self.get_box_by_name("box_pass_page"), use_gray_scale=True,
-                          time_out=5, raise_if_not_found=True)  # 在 box_pass_page 区域灰度匹配 pass_page 确认模态框打开。
+        if self.wait_ocr(box=self._pass_tab_box(), match=list(self._PASS_TAB_PATTERNS), time_out=5,
+                         raise_if_not_found=False) is None:  # 页签行 OCR 到文字才算模态框已打开。
+            raise WaitFailedException("PASS 模态框未打开")  # 抛异常交由 try_step 恢复回大厅重试。
         return True  # 已打开 PASS 模态框。
+
+    def _pass_tab_box(self):  # 面板页签行的 OCR 区域（按当前分辨率换算）。
+        return self.box_of_screen(*self._PASS_TAB_OCR_BOX, name="pass_tab_area")
+
+    def _pass_panel_opened(self):  # PASS 面板是否打开：页签行 OCR 到页签文字即视为打开。
+        return bool(self.ocr(box=self._pass_tab_box(), match=list(self._PASS_TAB_PATTERNS)))
 
     def _swipe_pass_page(self):  # 点击 PASS 徽章先按住 0.5 秒，再沿 x 轴加速向左滑动（flick 手感），切换当前显示的 PASS。
         badge = self.get_box_by_name("box_pass_area")  # 获取 PASS 徽章拖拽区域（已按当前分辨率缩放）。
@@ -113,7 +127,7 @@ class HarvestTask(NikkeBaseTask):  # 定义收获子任务类：收取友情点�
 
     def _claim_pass_modal(self):  # 在 PASS 模态框内领取：先任务页再奖励页，无可领时关闭模态窗。
         claim_box = self.get_box_by_name("box_pass_reward_claim_feature")  # 领取按钮区域（两页共用同一按钮位置）。
-        self.wait_click_feature("box_pass_mission_page", time_out=5, raise_if_not_found=True, after_sleep=1)  # 点击任务页页签。
+        self.click_box("box_pass_mission_page", after_sleep=1)  # 点任务页页签：box_ 为纯坐标区域，直接按标注中心点击。
         self.next_frame()  # 刷新一帧，确保后续判定读到切换后的画面。
         if self.is_feature_enabled(claim_box):  # 任务页领取按钮可用（高亮彩色）。
             self.click_box(claim_box, after_sleep=1)  # 点击领取任务页奖励。
@@ -121,7 +135,7 @@ class HarvestTask(NikkeBaseTask):  # 定义收获子任务类：收取友情点�
                 self.click_box(claim_box, after_sleep=1)  # 再次点击领取按钮位置关闭 RANK UP 提示。
                 self.wait_until(lambda: self.find_one("pass_rank_up") is None, time_out=3,
                                 raise_if_not_found=False)  # 等待 RANK UP 提示消失。
-        self.wait_click_feature("box_pass_reward_page", time_out=5, raise_if_not_found=True, after_sleep=1)  # 点击奖励页页签。
+        self.click_box("box_pass_reward_page", after_sleep=1)  # 点奖励页页签：box_ 为纯坐标区域，直接按标注中心点击。
         self.next_frame()  # 刷新一帧，确保后续判定读到切换后的画面。
         if self.is_feature_enabled(claim_box):  # 奖励页领取按钮可用（高亮彩色）。
             self.click_box(claim_box, after_sleep=1)  # 点击领取奖励页奖励。
@@ -130,7 +144,7 @@ class HarvestTask(NikkeBaseTask):  # 定义收获子任务类：收取友情点�
 
     def _close_pass_modal(self):  # 关闭 PASS 模态窗：清理领奖遮罩后点击面板外空白关闭（关闭 X 外观/位置随面板样式漂移，模板识别不稳定）。
         self.dismiss_all_popups(wait_for_popup=False, time_out=5)  # 快速清理领奖遮罩等弹窗，无弹窗不白等。
-        if not self.close_popup_by_blank(lambda: self.find_one("pass_page", use_gray_scale=True) is None):  # 点空白关闭，按模态窗特征消失确认（遮罩吞点击时自动补点）。
+        if not self.close_popup_by_blank(lambda: not self._pass_panel_opened()):  # 点空白关闭，按面板页签文字消失确认（遮罩吞点击时自动补点）。
             self.log_warning("点击空白未能关闭PASS模态窗，跳过关闭。")  # 记录失败（模态窗可能已自行关闭或点击被吞）。
             return False  # 关闭失败。
         self.log_info("已关闭PASS模态窗。")  # 记录关闭动作。

@@ -63,7 +63,10 @@ class TestNoticePopupDetection(TaskTestCase):
                 patch.object(self.task, 'sleep'), \
                 patch.object(self.task, 'click_box'):
             self.assertTrue(self.task._try_close_one_popup())  # 横幅被关闭。
-        ocr_mock.assert_not_called()  # 横幅命中后不走到遮罩 OCR。
+        # 遮罩检测走 ocr(x=, y=, ...) 坐标分支，服务器选择检测走 ocr(box=, ...) 分支；
+        # 横幅命中后不走到遮罩 OCR，但服务器选择检测会先执行一次区域 OCR，故只断言坐标分支未触发。
+        for _args, kwargs in ocr_mock.call_args_list:
+            self.assertNotIn('x', kwargs)
 
     def test_click_position_within_bell_extended_region(self):
         """点击坐标应落在 notice_bell 右侧延伸出的搜索区域内（保证关闭按钮在横幅右侧）。"""
