@@ -30,7 +30,7 @@ This software is open-source and free, provided for personal learning and commun
 
 ### The Official Stance on Automation
 
-The publisher of Goddess of Victory: NIKKE explicitly prohibits tools of this kind under section "3-2. Macros and Gameplay Automation Programs" of its violation policy, and has raised the penalty to **an account ban for up to 10 years**. This software automates the game by simulating user-interface input, which falls squarely within what that section forbids. The official notice dated 2026/09/16:
+The official notice dated 2026/09/16:
 
 > **3-2. Macros and Gameplay Automation Programs**
 >
