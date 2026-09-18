@@ -3,6 +3,9 @@
 
 不联网、不创建窗口：只测配置读写、命令拼装、tag 解析、版本比较、补丁接线与版本变更消费。
 真实「检查更新」链路（子进程 + 随包 git）见 dev_tools/smoke_update_card.py。
+
+注意：TestAboutUpdatePatch 会调用 about_update.apply() 永久替换 ok.ui.qt 内的类与函数
+（monkey-patch 无法回滚），因此本文件必须作为独立进程逐个运行（同 run_tests.ps1 / CI 方式）。
 """
 
 import json
@@ -10,6 +13,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
@@ -225,6 +229,93 @@ class TestUpdateFailureRecord(unittest.TestCase):
                 {'target': 'v1.2.3', 'reason': '下载 v1.2.3 失败：网络不可达'})
 
 
+class TestReleaseNotes(unittest.TestCase):
+    """更新说明：本地 changelog/<tag>.md → 卡片纯文本（不联网）。"""
+
+    BODY = (
+        '### 更新日志\n\n'
+        '#### 新增\n'
+        '- 「关于 → 应用更新」新增依赖镜像源选择（#12）。\n\n'
+        '> 本次更新后首次启动会重装依赖。\n\n'
+        '### 下载说明\n\n'
+        '* [ok-nikke-win32-portable.zip](https://example.com/zip) 完整便携包\n\n'
+        '**完整变更记录**: [v0.2.4...v0.2.5](https://example.com/compare)\n'
+    )
+
+    def test_keeps_only_the_changelog_section(self):
+        text = update_config.release_notes_text(self.BODY)
+        self.assertIn('【新增】', text)
+        self.assertIn('• 「关于 → 应用更新」新增依赖镜像源选择（#12）。', text)
+        self.assertIn('本次更新后首次启动会重装依赖。', text)
+        self.assertNotIn('下载说明', text)
+        self.assertNotIn('完整便携包', text)
+        self.assertNotIn('**', text)
+
+    def test_empty_or_sectionless_body(self):
+        self.assertEqual(update_config.release_notes_text(''), '')
+        self.assertEqual(update_config.release_notes_text(None), '')
+        self.assertEqual(update_config.release_notes_text('### 更新日志\n\n'), '')
+        # 手写的 changelog/<tag>.md 没有「更新日志」标题，整段都是正文
+        self.assertEqual(update_config.release_notes_text('#### 修复\n- 修好了'),
+                         '【修复】\n• 修好了')
+
+    def test_reads_handwritten_changelog(self):
+        with tempfile.TemporaryDirectory() as folder:
+            notes_dir = os.path.join(folder, update_config.LOCAL_NOTES_DIR)
+            os.makedirs(notes_dir)
+            with open(os.path.join(notes_dir, 'v0.2.5.md'), 'w', encoding='utf-8') as f:
+                f.write('#### 新增\n- 更新成功后离线也能看到说明。\n')
+            self.assertEqual(update_config.read_release_notes('v0.2.5', folder),
+                             '【新增】\n• 更新成功后离线也能看到说明。')
+
+    def test_reads_full_release_body_written_by_ci(self):
+        """CNB 镜像里那份是 CI 用生成的 Release 正文写的（含标题与下载说明）。"""
+        with tempfile.TemporaryDirectory() as folder:
+            notes_dir = os.path.join(folder, update_config.LOCAL_NOTES_DIR)
+            os.makedirs(notes_dir)
+            with open(os.path.join(notes_dir, 'v0.2.5.md'), 'w', encoding='utf-8') as f:
+                f.write(self.BODY)
+            text = update_config.read_release_notes('v0.2.5', folder)
+        self.assertIn('• 「关于 → 应用更新」新增依赖镜像源选择（#12）。', text)
+        self.assertNotIn('下载说明', text)
+
+    def test_missing_file_or_unsafe_tag_returns_empty(self):
+        with tempfile.TemporaryDirectory() as folder:
+            self.assertEqual('', update_config.read_release_notes('v0.2.5', folder))
+            os.makedirs(os.path.join(folder, update_config.LOCAL_NOTES_DIR))
+            self.assertEqual('', update_config.read_release_notes('v0.2.6', folder))
+            for tag in ('', '  ', '../update.py', 'a/b', '..'):
+                self.assertEqual('', update_config.read_release_notes(tag, folder), tag)
+
+
+class TestStartupNotesCard(unittest.TestCase):
+    """「更新成功 vX → vY」卡片正文 = 本地更新说明（没有该文件时正文为空 → 整卡收起）。"""
+
+    CHANGE = {'action': 'update', 'from_version': 'v0.2.4', 'to_version': 'v0.2.5'}
+
+    def test_content_is_the_local_changelog(self):
+        with patch.object(about_update, 'pending_version_change', return_value=self.CHANGE), \
+                patch.object(about_update.update_config, 'read_release_notes',
+                             return_value='【新增】\n• 修好了') as read:
+            startup = about_update._get_startup_version_change()
+        read.assert_called_once_with('v0.2.5')
+        self.assertEqual('【新增】\n• 修好了', startup.content)
+        self.assertEqual(('v0.2.4', 'v0.2.5'), (startup.from_version, startup.to_version))
+
+    def test_missing_local_changelog_keeps_content_empty(self):
+        """空正文由 _patch_empty_changelog 把整张卡片收起。"""
+        with patch.object(about_update, 'pending_version_change', return_value=self.CHANGE), \
+                patch.object(about_update.update_config, 'read_release_notes', return_value=''):
+            startup = about_update._get_startup_version_change()
+        self.assertEqual('', startup.content)
+
+    def test_no_version_change_does_not_read_notes(self):
+        with patch.object(about_update, 'pending_version_change', return_value=None), \
+                patch.object(about_update.update_config, 'read_release_notes') as read:
+            self.assertIsNone(about_update._get_startup_version_change())
+        read.assert_not_called()
+
+
 class TestStartUpdate(unittest.TestCase):
 
     def test_start_update_opens_a_console(self):
@@ -261,7 +352,7 @@ class TestAboutUpdatePatch(unittest.TestCase):
         # 启动自检延迟被缩短（框架默认 30 秒），否则用户要等半分钟才看到更新提示
         self.assertEqual(about_update.STARTUP_UPDATE_CHECK_DELAY_MS,
                          main_window_module.update_check_delay_ms())
-        # 不显示更新内容：空正文的「更新成功」卡片不应留白（ChangeLogView 被换成「空则隐藏」子类）
+        # 更新说明卡片：ChangeLogView 被换成「空则隐藏 + 记得待回填的更新说明卡片」子类
         self.assertIsNot(about_tab_module.ChangeLogView, original_changelog)
         self.assertTrue(issubclass(about_tab_module.ChangeLogView, original_changelog))
         # 发现新版本只弹窗口内 InfoBar，不发系统托盘气泡（配「关于」页红点）

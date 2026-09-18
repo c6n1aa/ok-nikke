@@ -612,14 +612,14 @@ class TestEventTask(_DebugOffTestCase):
         with patch.object(self.task, '_optional_box', return_value=extra) as box_mock, \
                 patch.object(self.task, '_menu_boxes', return_value=[menu]):
             regions = self.task._entry_regions('任务')
-        self.assertEqual([extra, menu], regions)  # 专属区优先，菜单带兜底。
+        self.assertEqual([(extra, True), (menu, False)], regions)  # 专属区优先并带专属标记，菜单带兜底。
         box_mock.assert_called_once_with('box_event_menu_mission')  # 只解析该入口声明的专属区。
 
     def test_entry_regions_without_extra_falls_back_to_menu_bands(self):
         menu = Box(0, 0, 10, 10, confidence=1, name='menu')
         with patch.object(self.task, '_optional_box', side_effect=AssertionError('无专属区不应解析')), \
                 patch.object(self.task, '_menu_boxes', return_value=[menu]):
-            self.assertEqual([menu], self.task._entry_regions('签到'))  # 未声明专属区的入口只走菜单带。
+            self.assertEqual([(menu, False)], self.task._entry_regions('签到'))  # 未声明专属区的入口只走菜单带。
 
     def test_probe_mission_scans_extra_region(self):
         # 大活动「任务」不在菜单带内：该入口的专属区域被纳入探测范围并在其中识别到关键词。
@@ -900,6 +900,10 @@ class TestEventTask(_DebugOffTestCase):
     def _challenge_stage(self, y=985, x=1600):
         return Box(x, y, 25, 42, confidence=1, name='event_challenge_stage')
 
+    def _challenge_stage_click(self, stage):
+        """关卡标记的左移点击框（左移量由 _challenge_click_box 随机生成，流程测试里用固定值替身）。"""
+        return Box(stage.x - 200, stage.y, stage.width, stage.height, confidence=1, name='event_challenge_stage')
+
     def _challenge_quick_box(self):
         return Box(1343, 1223, 34, 30, confidence=1, name='box_stage_detail_quick_battle')
 
@@ -942,13 +946,14 @@ class TestEventTask(_DebugOffTestCase):
     def test_flow_challenge_quick_battle_available_runs_quick_then_returns(self):
         # 快速战斗可用：点关卡标记 → 详情页 → 走快速战斗链 → 结算后仍详情页则关页 → 回菜单。
         entry, stage = self._challenge_entry(), self._challenge_stage()
-        quick = self._challenge_quick_box()
+        quick, click = self._challenge_quick_box(), self._challenge_stage_click(stage)
         with patch.object(self.task, '_nav_to_event_main'), \
                 patch.object(self.task, '_entry_box', return_value=entry), \
                 patch.object(self.task, 'click_box') as click_mock, \
                 patch.object(self.task, 'transition'), \
                 patch.object(self.task, '_wait_challenge_nodes'), \
                 patch.object(self.task, '_find_available_challenge_stage', return_value=stage), \
+                patch.object(self.task, '_challenge_click_box', return_value=click), \
                 patch.object(self.task, 'wait_feature', return_value=True), \
                 patch.object(self.task, '_optional_box', return_value=quick), \
                 patch.object(self.task, 'is_feature_enabled', return_value=True), \
@@ -957,7 +962,7 @@ class TestEventTask(_DebugOffTestCase):
                 patch.object(self.task, '_close_stage_detail') as close_mock, \
                 patch.object(self.task, '_ensure_event_menu') as back_mock:
             self.task._flow_challenge()
-        click_mock.assert_any_call(stage, after_sleep=2)  # 点关卡标记进详情页。
+        click_mock.assert_any_call(click, after_sleep=2)  # 点左移后的关卡点击框进详情页。
         quick_mock.assert_called_once()  # 快速战斗可用走快速战斗链。
         self.assertEqual(quick, quick_mock.call_args.args[0])  # 传入快速战斗区域。
         close_mock.assert_called_once_with(to_screen='event_challenge_page')  # 结算落回详情页则关页回挑战页。
@@ -996,12 +1001,14 @@ class TestEventTask(_DebugOffTestCase):
         # 快速战斗与普通战斗都不可用 = 今日已挑战无次数：关详情页回挑战页，再点返回回菜单。
         entry, stage = self._challenge_entry(), self._challenge_stage()
         quick, battle = self._challenge_quick_box(), self._challenge_battle_box()
+        click = self._challenge_stage_click(stage)
         with patch.object(self.task, '_nav_to_event_main'), \
                 patch.object(self.task, '_entry_box', return_value=entry), \
                 patch.object(self.task, 'click_box') as click_mock, \
                 patch.object(self.task, 'transition'), \
                 patch.object(self.task, '_wait_challenge_nodes'), \
                 patch.object(self.task, '_find_available_challenge_stage', return_value=stage), \
+                patch.object(self.task, '_challenge_click_box', return_value=click), \
                 patch.object(self.task, 'wait_feature', return_value=True), \
                 patch.object(self.task, '_optional_box', side_effect=lambda name: {'box_stage_detail_quick_battle': quick,
                                                                                     'box_stage_detail_battle': battle}.get(name)), \
@@ -1012,26 +1019,59 @@ class TestEventTask(_DebugOffTestCase):
                 patch.object(self.task, '_close_stage_detail') as close_mock, \
                 patch.object(self.task, '_ensure_event_menu') as back_mock:
             self.task._flow_challenge()
-        click_mock.assert_any_call(stage, after_sleep=2)  # 仍点了关卡标记进详情页。
+        click_mock.assert_any_call(click, after_sleep=2)  # 仍点了左移后的关卡点击框进详情页。
         close_mock.assert_called_once_with(to_screen='event_challenge_page')  # 关详情页回挑战页。
         back_mock.assert_called_once()  # 回菜单。
 
-    def test_flow_challenge_stage_click_lands_not_on_detail(self):
-        # 点关卡标记后未进详情页（异常落点）：告警 + 兜底回菜单，不做任何战斗。
+    def test_flow_challenge_retries_stage_click_then_enters_detail(self):
+        # 首次点击没打开详情页（点空）：补点一次，第二次进入详情页后照常走战斗分支。
+        from src.tasks.EventTask import _CHALLENGE_CLICK_ATTEMPTS
         entry, stage = self._challenge_entry(), self._challenge_stage()
+        quick, click = self._challenge_quick_box(), self._challenge_stage_click(stage)
         with patch.object(self.task, '_nav_to_event_main'), \
                 patch.object(self.task, '_entry_box', return_value=entry), \
-                patch.object(self.task, 'click_box'), \
+                patch.object(self.task, 'click_box') as click_mock, \
                 patch.object(self.task, 'transition'), \
                 patch.object(self.task, '_wait_challenge_nodes'), \
                 patch.object(self.task, '_find_available_challenge_stage', return_value=stage), \
-                patch.object(self.task, 'wait_feature', return_value=False), \
+                patch.object(self.task, '_challenge_click_box', return_value=click) as offset_mock, \
+                patch.object(self.task, 'is_screen', return_value=True) as screen_mock, \
+                patch.object(self.task, 'wait_feature', side_effect=[False, True]) as wait_mock, \
+                patch.object(self.task, '_optional_box', return_value=quick), \
+                patch.object(self.task, 'is_feature_enabled', return_value=True), \
+                patch.object(self.task, '_run_quick_battle') as quick_mock, \
+                patch.object(self.task, '_detail_page_open', return_value=True), \
+                patch.object(self.task, '_close_stage_detail'), \
+                patch.object(self.task, 'log_warning') as warn_mock, \
+                patch.object(self.task, '_ensure_event_menu'):
+            self.task._flow_challenge()
+        self.assertEqual(_CHALLENGE_CLICK_ATTEMPTS, click_mock.call_count)  # 失败后重试一次。
+        self.assertEqual(_CHALLENGE_CLICK_ATTEMPTS, offset_mock.call_count)  # 每次点击都重新取随机偏移。
+        self.assertEqual(2, wait_mock.call_count)  # 每次点击后各等一次详情页。
+        screen_mock.assert_any_call('event_challenge_page')  # 失败时记「是否仍在挑战页」便于定位原因。
+        warn_mock.assert_not_called()  # 第二次进入详情页，不算失败。
+        quick_mock.assert_called_once()  # 进详情页后照常走后续分支。
+
+    def test_flow_challenge_stage_click_lands_not_on_detail(self):
+        # 两次点击都没进详情页（异常落点）：告警 + 兜底回菜单，不做任何战斗。
+        from src.tasks.EventTask import _CHALLENGE_CLICK_ATTEMPTS
+        entry, stage = self._challenge_entry(), self._challenge_stage()
+        with patch.object(self.task, '_nav_to_event_main'), \
+                patch.object(self.task, '_entry_box', return_value=entry), \
+                patch.object(self.task, 'click_box') as click_mock, \
+                patch.object(self.task, 'transition'), \
+                patch.object(self.task, '_wait_challenge_nodes'), \
+                patch.object(self.task, '_find_available_challenge_stage', return_value=stage), \
+                patch.object(self.task, 'wait_feature', return_value=False) as wait_mock, \
+                patch.object(self.task, 'is_screen', return_value=True), \
                 patch.object(self.task, 'log_warning') as warn_mock, \
                 patch.object(self.task, '_run_quick_battle', side_effect=AssertionError('未进详情页不应战斗')), \
                 patch.object(self.task, '_detail_page_open', side_effect=AssertionError('未进详情页不应判详情页')), \
                 patch.object(self.task, '_ensure_event_menu') as back_mock:
             self.task._flow_challenge()
-        warn_mock.assert_called_once()
+        self.assertEqual(_CHALLENGE_CLICK_ATTEMPTS, click_mock.call_count)  # 两次都点空。
+        self.assertEqual(_CHALLENGE_CLICK_ATTEMPTS, wait_mock.call_count)  # 两次都等满窗口。
+        warn_mock.assert_called_once()  # 用尽尝试次数才告警。
         back_mock.assert_called_once()  # 兜底回菜单页。
 
     def test_find_available_challenge_stage_picks_bottom_most_enabled(self):
@@ -1065,8 +1105,30 @@ class TestEventTask(_DebugOffTestCase):
                 patch.object(self.task, 'find_feature', side_effect=ValueError('missing')):
             self.assertIsNone(self.task._find_available_challenge_stage())
 
+    def test_challenge_click_box_shifts_left_by_random_offset_in_range(self):
+        # 标记贴行右边缘：点击框沿 X 轴左移区间内的随机偏移，落回行主体；尺寸/置信度/名称不变。
+        from src.tasks.EventTask import _CHALLENGE_CLICK_X_OFFSET
+        stage = self._challenge_stage()
+        with patch.object(type(self.task), 'width', new_callable=PropertyMock, return_value=2560), \
+                patch('src.tasks.EventTask.random.randint', return_value=250) as randint_mock:
+            click = self.task._challenge_click_box(stage)
+        self.assertEqual((int(2560 * _CHALLENGE_CLICK_X_OFFSET[0]), int(2560 * _CHALLENGE_CLICK_X_OFFSET[1])),
+                         randint_mock.call_args.args)  # 左移量在区间内随机取（占屏宽比例换算成像素）。
+        self.assertEqual(Box(stage.x - 250, stage.y, stage.width, stage.height, confidence=1,
+                             name='event_challenge_stage'), click)
+
+    def test_challenge_click_box_offset_degrades_when_screen_too_narrow(self):
+        # 分辨率极小时区间换算成同一像素：退化为定值，不抛异常。
+        stage = self._challenge_stage()
+        with patch.object(type(self.task), 'width', new_callable=PropertyMock, return_value=8), \
+                patch('src.tasks.EventTask.random.randint', side_effect=AssertionError('区间退化不应取随机')):
+            click = self.task._challenge_click_box(stage)
+        self.assertEqual(Box(stage.x, stage.y, stage.width, stage.height, confidence=1,
+                             name='event_challenge_stage'), click)  # 左移量为 0。
+
     def test_wait_challenge_nodes_polls_until_rendered(self):
-        # 过场动画吸收：等关卡节点渲染出来才继续（清单区域 + 特征名 + 到达窗口都传给轮询）。
+        # 过场动画吸收：等关卡节点渲染出来再多等一会才继续（区域 + 特征名 + 到达窗口 + 停稳窗口都传给轮询）。
+        from src.tasks.EventTask import _CHALLENGE_PAGE_SETTLE, _CHALLENGE_STAGE_FEATURE, _SD_ARRIVE_TIMEOUT
         list_box = Box(1580, 509, 66, 788, confidence=1, name='box_event_challenge_stage_list')
         node = self._challenge_stage()
 
@@ -1078,9 +1140,9 @@ class TestEventTask(_DebugOffTestCase):
                 patch.object(self.task, 'wait_until', side_effect=run_condition) as wait_mock, \
                 patch.object(self.task, 'log_warning') as warn_mock:
             self.task._wait_challenge_nodes()
-        from src.tasks.EventTask import _CHALLENGE_STAGE_FEATURE, _SD_ARRIVE_TIMEOUT
         feature_mock.assert_called_once_with(_CHALLENGE_STAGE_FEATURE, box=list_box, limit=0, use_gray_scale=True)  # 灰度找挑战关卡标记。
         self.assertEqual(_SD_ARRIVE_TIMEOUT, wait_mock.call_args.kwargs['time_out'])  # 用共享到达窗口。
+        self.assertEqual(_CHALLENGE_PAGE_SETTLE, wait_mock.call_args.kwargs['settle_time'])  # 命中后再多等一会（行卡片入场动画）。
         warn_mock.assert_not_called()  # 已渲染不再告警。
 
     def test_wait_challenge_nodes_skips_without_region(self):
@@ -1486,6 +1548,29 @@ class TestEventTask(_DebugOffTestCase):
         self.assertEqual(700 - 60, found.y)  # 上移 0.06 × 1000 = 60px。
         self.assertEqual((60, 30, 20), (found.x, found.width, found.height))  # 水平与尺寸不变。
         self.assertEqual(700, hit.y)  # 原命中框不被就地改写（同帧 OCR 结果被多处复用）。
+
+    def test_entry_box_shifts_mission_click_up_for_extra_region(self):
+        # 大活动专属区命中：文字在图标下方，点击框沿 Y 轴上移 0.033 屏高落到图标上。
+        region = Box(2418, 248, 141, 142, confidence=1, name='box_event_menu_mission')
+        hit = Box(2474, 700, 52, 33, confidence=1, name='任务')
+        with patch.object(self.task, '_optional_box', return_value=region), \
+                patch.object(self.task, '_menu_boxes', return_value=[]), \
+                patch.object(self.task, 'ocr', return_value=[hit]), \
+                _fixed_height(self.task, 1000):
+            found = self.task._entry_box('任务')
+        self.assertEqual(700 - 33, found.y)  # 上移 0.033 × 1000 = 33px。
+        self.assertEqual((2474, 52, 33), (found.x, found.width, found.height))  # 水平与尺寸不变。
+        self.assertEqual(700, hit.y)  # 原命中框不被就地改写（同帧 OCR 结果被多处复用）。
+
+    def test_entry_box_keeps_small_event_mission_click_box(self):
+        # 小活动同名入口在菜单带里、文字就在按钮上：点文字本身，不跟着专属区偏移。
+        menu = Box(0, 0, 100, 50, confidence=1, name='band')
+        hit = Box(60, 700, 30, 20, confidence=1, name='任务')
+        with patch.object(self.task, '_menu_boxes', return_value=[menu]), \
+                patch.object(self.task, 'ocr', return_value=[hit]), \
+                _fixed_height(self.task, 1000):
+            found = self.task._entry_box('任务')
+        self.assertIs(hit, found)  # 菜单带命中不做任何修正。
 
     def test_entry_box_keeps_story_entry_click_box(self):
         # STORY II/I 命中框即点击框：无 Y 轴偏移。

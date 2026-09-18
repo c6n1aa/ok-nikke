@@ -110,6 +110,33 @@ class TestRenderBody(unittest.TestCase):
         self.assertIn('[v0.2.0...v0.3.0](https://github.com/o/r/compare/v0.2.0...v0.3.0)', body)
 
 
+class TestRenderChangelog(unittest.TestCase):
+    """只输出「更新日志」正文（deploy 写 changelog/<tag>.md 用）。"""
+
+    def render(self, commits, **kwargs):
+        options = dict(tag='v0.3.0', prev_tag='v0.2.0')
+        options.update(kwargs)
+        return release_notes.render_changelog(commits, **options)
+
+    def test_section_without_headings_or_links(self):
+        text = self.render([commit('feat(i18n): add Japanese locale')])
+        self.assertIn('#### 新功能', text)
+        self.assertIn('- **i18n**: add Japanese locale', text)
+        self.assertNotIn('### 更新日志', text)
+        self.assertNotIn('下载说明', text)
+
+    def test_handwritten_wins_and_no_launcher_hint(self):
+        text = self.render([commit('feat(a): x')], handwritten='- 手写条目', launcher_hint=True)
+        self.assertEqual('- 手写条目', text)
+
+    def test_launcher_hint_is_appended_as_a_bullet(self):
+        text = self.render([commit('feat(a): x')], launcher_hint=True)
+        self.assertIn(f'- {release_notes.LAUNCHER_HINT}', text)
+
+    def test_first_release(self):
+        self.assertEqual('首个版本发布。', self.render([], prev_tag=None))
+
+
 class TestGitBacked(unittest.TestCase):
 
     def setUp(self):
@@ -150,6 +177,38 @@ class TestGitBacked(unittest.TestCase):
         self.assertIn('- **b**: second', body)
         self.assertIn('请重新下载完整便携包', body)
         self.assertIn('**完整变更记录**', body)
+
+    def test_changelog_is_generated_before_the_tag_exists(self):
+        """deploy 在打 tag 之前生成 changelog/<tag>.md：区间终点退化为 HEAD。"""
+        self.commit_all('feat(a): first')
+        self.git('tag', '-a', 'v0.1.0', '-m', 'v0.1.0')
+        (self.root / 'launcher').mkdir()
+        (self.root / 'launcher' / 'launcher.c').write_text('int main(void) { return 0; }\n', encoding='utf-8')
+        self.git('add', 'launcher/launcher.c')
+        self.commit_all('fix(b): second')
+
+        self.assertEqual('HEAD', release_notes.resolve_end_ref(self.root, 'v0.2.0'))
+        self.assertEqual('v0.1.0', release_notes.resolve_end_ref(self.root, 'v0.1.0'))
+
+        text = release_notes.build_changelog(self.root, 'v0.2.0')
+        self.assertIn('- **b**: second', text)
+        self.assertIn(f'- {release_notes.LAUNCHER_HINT}', text)
+        self.assertNotIn('### 更新日志', text)
+
+        # 打完 tag 后（CI 视角）生成结果必须一致
+        self.git('tag', '-a', 'v0.2.0', '-m', 'v0.2.0')
+        self.assertEqual(text, release_notes.build_changelog(self.root, 'v0.2.0'))
+
+    def test_cli_changelog_only_creates_the_directory(self):
+        self.commit_all('feat(a): first')
+        self.git('tag', '-a', 'v0.1.0', '-m', 'v0.1.0')
+        self.commit_all('fix(b): second')
+        out = self.root / 'changelog' / 'v0.2.0.md'
+        release_notes.main(['--root', str(self.root), '--tag', 'v0.2.0',
+                            '--changelog-only', '--out', str(out)])
+        text = out.read_text(encoding='utf-8')
+        self.assertIn('- **b**: second', text)
+        self.assertNotIn('下载说明', text)
 
     def test_handwritten_file_overrides_git_log(self):
         self.commit_all('feat(a): first')

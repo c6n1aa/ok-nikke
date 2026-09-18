@@ -23,11 +23,18 @@ The `windows` section:
 | Key | Current value | Description |
 | --- | --- | --- |
 | `exe` | `['nikke.exe']` | Game process name; the launcher starts or matches the window by it |
-| `interaction` | `[SyntheticTouch, 'Pynput', 'PyDirect', 'Genshin']` | Input methods and priority; `SyntheticTouch` uses a synthetic touch pointer (WM_POINTER) to bypass the game's input filtering, clicks in the background without stealing foreground, keyboard unsupported; `Genshin` posts window messages; `Pynput`/`PyDirect` need the window foreground |
+| `interaction` | `[SyntheticTouch]` | Input methods and priority; `SyntheticTouch` uses a synthetic touch pointer (WM_POINTER) to bypass the game's input filtering, requires the game window in the foreground, keyboard unsupported |
 | `capture_method` | `['WGC', 'BitBlt_RenderFull', 'BitBlt']` | Capture methods and priority; WGC first to support background capture |
 | `require_bg` | `True` | Require background capture capability |
 | `check_hdr` / `force_no_hdr` | `False` | Prompt for / forbid running with AutoHDR |
 | `start_timeout` | `120` | Launcher timeout waiting for the game to be ready |
+
+`SyntheticTouch` (synthetic touch pointer) limitations and system requirements:
+
+- **System requirement**: Windows 10 1809 or later — the synthetic pointer APIs (`CreateSyntheticPointerDevice` / `InjectSyntheticPointerInput`) were introduced in this version.
+- **Mouse/touch only**: keyboard (`send_key`, etc.) and the scroll wheel are not implemented; `scroll` is approximated by a touch drag.
+- **Hit-testing follows desktop Z-order**: a click is lost when the target point is covered by another window, so the game window is brought to the foreground before each click — it must be in the foreground and not minimized.
+- **Uses the `WM_POINTER` message path**: only works for games that accept pointer/touch input; games that only read traditional mouse messages are not supported.
 
 ## Recognition
 

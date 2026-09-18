@@ -160,7 +160,7 @@ def interaction_requires_foreground(interaction=None):
         interaction_type = interaction if isinstance(interaction, type) else type(interaction)
         from src.win_input import SyntheticTouch  # 延迟导入，按当前交互方式判断是否依赖前台。
         if issubclass(interaction_type, SyntheticTouch):
-            return False  # 合成触控走 WM_POINTER，注入前自行置前，不依赖前台激活。
+            return True  # 合成触控命中认 Z 序，点击前把游戏窗口置前，需要窗口位于前台。
         from ok.device.interaction_methods import (ForegroundPostMessageInteraction, GenshinInteraction,
                                                    PostMessageInteraction, PyDirectInteraction, PynputInteraction)
         if issubclass(interaction_type, (PynputInteraction, PyDirectInteraction, ForegroundPostMessageInteraction)):

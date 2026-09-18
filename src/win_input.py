@@ -54,8 +54,8 @@ ANCHOR_ALPHA = 1  # alpha 为 0 时命中穿透，取最小可见值
 ANCHOR_POINTER_ID = 1
 CONTACT_POINTER_ID = 2
 
-TICK_SECONDS = 0.012  # 注入帧间隔；超过约 400ms 不提交新帧会被系统回收接触点
-HOLD_KEEPALIVE_SECONDS = 0.1  # 按住期间无新命令时，保持注入 update 的间隔
+HOLD_KEEPALIVE_SECONDS = 0.1  # 按住期间无新命令时的保活注入间隔；超过约 400ms 不提交新帧会被系统回收接触点
+HOLD_TIMEOUT_SECONDS = 5  # 按住超过该秒数无新命令则自动释放，避免任务暂停时残留按住状态
 
 # 窗口样式
 WS_POPUP = 0x80000000
@@ -188,8 +188,9 @@ class _WNDCLASSEXW(ctypes.Structure):
 # ---------------------------------------------------------------------------
 # API 声明（显式声明 restype/argtypes，避免 64 位句柄/指针被截断）
 # ---------------------------------------------------------------------------
-_user32 = ctypes.windll.user32
-_kernel32 = ctypes.windll.kernel32
+# use_last_error=True：保住 GetLastError，ctypes.get_last_error() 才能取到 API 真实错误码
+_user32 = ctypes.WinDLL('user32', use_last_error=True)
+_kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
 
 _user32.CreateSyntheticPointerDevice.restype = wintypes.HANDLE
 _user32.CreateSyntheticPointerDevice.argtypes = [wintypes.UINT, wintypes.ULONG, wintypes.UINT]
@@ -274,6 +275,8 @@ def _bring_to_front(hwnd):
     if not hwnd:
         return
     try:
+        if win32gui.GetForegroundWindow() == hwnd:
+            return  # 已在前台，跳过后续置前流程
         if win32gui.IsIconic(hwnd):
             win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
         win32gui.ShowWindow(hwnd, win32con.SW_SHOW)
@@ -331,22 +334,24 @@ class SyntheticTouch(BaseInteraction):
 
     def click(self, x=-1, y=-1, move_back=False, name=None, down_time=0.05, move=True, key="left"):
         if key != "left":
-            logger.warning(f'AnchoredTouch only supports left click, got key={key}')
+            logger.warning(f'SyntheticTouch only supports left click, got key={key}')
             return
         if x == -1 or y == -1:
-            logger.warning('AnchoredTouch requires explicit coordinates, ignored click without position')
+            logger.warning('SyntheticTouch requires explicit coordinates, ignored click without position')
             return
         jx = x + random.randint(-self.CLICK_JITTER, self.CLICK_JITTER)
         jy = y + random.randint(-self.CLICK_JITTER, self.CLICK_JITTER)
         if not self.mouse_down(jx, jy, name=name):
             return
-        time.sleep(max(down_time, 0.05))
+        time.sleep(max(down_time, 0.05) + random.uniform(0, 0.02))  # 按住时长微随机，避免固定时长指纹
         self.mouse_up()
 
     def swipe(self, from_x, from_y, to_x, to_y, duration, settle_time=0):
         if not self.mouse_down(from_x, from_y):
             return
-        steps = max(1, int(duration / 0.01))
+        # duration 单位是毫秒。步数=duration/100、每步 10ms，与框架 pynput/post_message 同口径，
+        # 实际耗时约为 duration 的 1/10，即所有滑动手势偏快。
+        steps = max(1, int(duration / 100))
         for i in range(1, steps + 1):
             x = round(from_x + (to_x - from_x) * i / steps)
             y = round(from_y + (to_y - from_y) * i / steps)
@@ -357,25 +362,30 @@ class SyntheticTouch(BaseInteraction):
             time.sleep(settle_time)
 
     def scroll(self, x, y, scroll_amount):
-        # 触控拖动近似滚轮：向上滚（scroll_amount>0）等效手指向下拖
-        direction = -1 if scroll_amount > 0 else 1
+        # 触控拖动近似滚轮：滚轮向上（scroll_amount>0）等效手指向下拖
+        if scroll_amount == 0:
+            return
+        direction = 1 if scroll_amount > 0 else -1
         distance = 200
-        self.swipe(x, y, x, y + direction * distance, duration=0.3)
+        self.swipe(x, y, x, y + direction * distance, duration=300)  # swipe 的 duration 单位是毫秒
 
     def move(self, x, y):
-        if not self._holding:
+        if not self._holding or x == -1 or y == -1:
             return
         self._submit(_Command("move", *self._to_screen_inject(x, y)))
 
     def mouse_down(self, x=-1, y=-1, name=None, key="left"):
         if key != "left":
-            logger.warning(f'AnchoredTouch only supports left button, got key={key}')
+            logger.warning(f'SyntheticTouch only supports left button, got key={key}')
             return False
         if x == -1 or y == -1:
-            logger.warning('AnchoredTouch requires explicit coordinates, ignored mouse_down without position')
+            logger.warning('SyntheticTouch requires explicit coordinates, ignored mouse_down without position')
             return False
         if not self._ensure_worker():
             return False
+        if self._holding:
+            # 已按住时重复按下：先抬掉旧接触点，同一 pointerId 重复 DOWN 会被系统拒绝
+            self._submit(_Command("up"))
         _bring_to_front(self.hwnd_window.hwnd if self.hwnd_window else 0)
         self._submit(_Command("down", *self._to_screen_inject(x, y)))
         self._holding = True
@@ -391,25 +401,28 @@ class SyntheticTouch(BaseInteraction):
 
     # 键盘未实现，一律 no-op 并告警
     def send_key(self, key, down_time=0.02):
-        logger.warning(f'AnchoredTouch does not support keyboard, ignored key={key}')
+        logger.warning(f'SyntheticTouch does not support keyboard, ignored key={key}')
 
     def send_key_down(self, key):
-        logger.warning(f'AnchoredTouch does not support keyboard, ignored key={key}')
+        logger.warning(f'SyntheticTouch does not support keyboard, ignored key={key}')
 
     def send_key_up(self, key):
-        logger.warning(f'AnchoredTouch does not support keyboard, ignored key={key}')
+        logger.warning(f'SyntheticTouch does not support keyboard, ignored key={key}')
 
     def input_text(self, text):
-        logger.warning(f'AnchoredTouch does not support keyboard, ignored input_text')
+        logger.warning(f'SyntheticTouch does not support keyboard, ignored input_text')
 
     def back(self):
-        logger.warning('AnchoredTouch does not support keyboard, ignored back')
+        logger.warning('SyntheticTouch does not support keyboard, ignored back')
 
     def on_run(self):
         if self.hwnd_window and getattr(self.hwnd_window, 'hwnd', 0):
             _bring_to_front(self.hwnd_window.hwnd)
 
     def on_destroy(self):
+        if self._holding:
+            self._submit(_Command("up"))  # 销毁前补发 UP，游戏侧收到配对的抬起
+            self._holding = False
         self._stop_event.set()
         if self._worker is not None:
             self._worker.join(timeout=2)
@@ -420,14 +433,17 @@ class SyntheticTouch(BaseInteraction):
     def _to_screen_inject(self, x, y):
         """把画面相对坐标转为注入坐标（屏幕绝对坐标减虚拟屏幕原点）。"""
         abs_x, abs_y = self.capture.get_abs_cords(x, y) if x != -1 and y != -1 else (0, 0)
-        return _to_inject_coord(abs_x, abs_y)
+        # get_abs_cords 可能返回浮点（OCR/模板中心点、DPI 缩放换算），而 _POINT/_RECT
+        # 字段是 LONG，赋浮点会抛 TypeError，这里统一取整
+        return _to_inject_coord(int(round(abs_x)), int(round(abs_y)))
 
     def _submit(self, cmd):
-        if not self._ready:
-            logger.warning('AnchoredTouch worker not ready, drop command')
+        if not self._ready or self._worker is None or not self._worker.is_alive():
+            logger.warning(f'SyntheticTouch worker not ready, drop {cmd.action} command')
             return
         self._queue.put(cmd)
-        cmd.done.wait(timeout=3)
+        if not cmd.done.wait(timeout=3):
+            logger.warning(f'SyntheticTouch {cmd.action} timed out after 3s, worker may be stuck')
 
     def _ensure_worker(self):
         if self._ready:
@@ -442,7 +458,7 @@ class SyntheticTouch(BaseInteraction):
             logger.error('synthetic pointer injection unavailable, Windows 10 1809+ required')
             self._setup_failed = True
             return False
-        self._worker = threading.Thread(target=self._worker_main, name="anchored-touch", daemon=True)
+        self._worker = threading.Thread(target=self._worker_main, name="synthetic-touch", daemon=True)
         self._worker.start()
         # 等待 worker 完成初始化（最多 3 秒）
         deadline = time.monotonic() + 3
@@ -458,30 +474,54 @@ class SyntheticTouch(BaseInteraction):
         try:
             self._setup_device()
         except Exception as e:
-            logger.error(f'AnchoredTouch setup failed', e)
+            logger.error(f'SyntheticTouch setup failed', e)
             self._setup_failed = True
             return
         self._ready = True
         last_keepalive = time.monotonic()
-        while not self._stop_event.is_set():
-            _pump_messages()
-            try:
-                while True:
-                    cmd = self._queue.get_nowait()
+        last_command = time.monotonic()
+        try:
+            while not self._stop_event.is_set():
+                _pump_messages()
+                # 阻塞等第一条命令：put 立即唤醒 worker，消除旧 5ms 轮询对注入节奏的抖动；
+                # 空闲时最多等一个保活周期再醒来做保活/超时检查。
+                try:
+                    cmd = self._queue.get(timeout=HOLD_KEEPALIVE_SECONDS)
+                except queue.Empty:
+                    cmd = None
+                if cmd is not None:
                     self._execute(cmd)
                     cmd.done.set()
-            except queue.Empty:
-                pass
-            if self._holding and time.monotonic() - last_keepalive > HOLD_KEEPALIVE_SECONDS:
-                self._inject_hold_update()
-                last_keepalive = time.monotonic()
-            time.sleep(0.005)
-        self._teardown_device()
+                    if cmd.action in ("down", "move"):
+                        last_command = last_keepalive = time.monotonic()
+                    # 同一唤醒内排空积压命令，避免一条命令一次阻塞等待的节流。
+                    while True:
+                        try:
+                            cmd = self._queue.get_nowait()
+                        except queue.Empty:
+                            break
+                        self._execute(cmd)
+                        cmd.done.set()
+                        if cmd.action in ("down", "move"):
+                            last_command = last_keepalive = time.monotonic()
+                if self._holding and time.monotonic() - last_command > HOLD_TIMEOUT_SECONDS:
+                    self._release_hold()  # 任务暂停/卡住时自动释放，避免残留按住状态
+                    self._holding = False
+                    continue
+                if self._holding and time.monotonic() - last_keepalive > HOLD_KEEPALIVE_SECONDS:
+                    self._inject_hold_update()
+                    last_keepalive = time.monotonic()
+        except Exception as e:
+            # 不清 _setup_failed：崩溃后 teardown 已收尾，下次 _ensure_worker 可重建 worker
+            logger.error('SyntheticTouch worker crashed', e)
+        finally:
+            self._ready = False
+            self._teardown_device()
 
     def _setup_device(self):
         # 锚点窗口放在主屏四角之一，避开目标窗口
         ox, oy = self._choose_anchor_origin()
-        self._class_name = f"PyAnchoredTouch_{id(self)}"
+        self._class_name = f"PySyntheticTouch_{id(self)}"
         wc = _WNDCLASSEXW()
         wc.cbSize = ctypes.sizeof(_WNDCLASSEXW)
         wc.lpfnWndProc = _anchor_wnd_proc
@@ -507,7 +547,7 @@ class SyntheticTouch(BaseInteraction):
         self._device = _user32.CreateSyntheticPointerDevice(PT_TOUCH, 2, POINTER_FEEDBACK_NONE)
         if not self._device:
             raise RuntimeError(f'CreateSyntheticPointerDevice failed: {ctypes.get_last_error()}')
-        logger.info(f'AnchoredTouch ready, anchor at {self._anchor_inject_pos}')
+        logger.info(f'SyntheticTouch ready, anchor at {self._anchor_inject_pos}')
 
     def _teardown_device(self):
         if self._device:
@@ -582,9 +622,13 @@ class SyntheticTouch(BaseInteraction):
                 self._make_touch_info(CONTACT_POINTER_ID, cmd.x, cmd.y, FLAG_UPDATE),
             ])
         elif cmd.action == "up":
-            cx, cy = self._contact_pos
-            self._inject_frame([self._make_touch_info(CONTACT_POINTER_ID, cx, cy, FLAG_UP)])
-            self._inject_frame([self._make_touch_info(ANCHOR_POINTER_ID, ax, ay, FLAG_UP)])
+            self._release_hold()
+
+    def _release_hold(self):
+        ax, ay = self._anchor_inject_pos
+        cx, cy = self._contact_pos
+        self._inject_frame([self._make_touch_info(CONTACT_POINTER_ID, cx, cy, FLAG_UP)])
+        self._inject_frame([self._make_touch_info(ANCHOR_POINTER_ID, ax, ay, FLAG_UP)])
 
     def _inject_hold_update(self):
         ax, ay = self._anchor_inject_pos

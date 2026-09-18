@@ -13,7 +13,9 @@
    因此 MainWindow 的「30 秒自动检查 + 导航徽标」逻辑原样可用，无需再补 MainWindow。
 2. `get_startup_version_change` → 基于 `version.txt` / `version.txt.prev` 的实现，
    让「已更新 vX → vY」提示在去掉 pyappify 环境变量后继续可用（首次调用即消费掉 prev 文件，
-   避免每次启动都弹）。正文不显示更新内容，空正文由 `_patch_empty_changelog` 收起，避免留白。
+   避免每次启动都弹）。卡片正文是本次更新的**更新说明**：读包内 `changelog/<tag>.md`
+   （随 tag 提交，CNB 镜像由 CI 补写，纯本地读取、不联网）；没有该文件时正文留空，
+   由 `_patch_empty_changelog` 把整张卡片收起，避免留白。
 """
 
 from __future__ import annotations
@@ -58,10 +60,13 @@ def _get_startup_version_change(pyappify_module=None):
     change = pending_version_change()
     if not change:
         return None
+    notes = update_config.read_release_notes(change['to_version'])
+    if not notes:
+        logger.info(f'no local release notes for {change["to_version"]} (changelog/<tag>.md)')
     return StartupVersionChange(
         title=f'{change["action"].capitalize()} success '
               f'{change["from_version"]} -> {change["to_version"]}',
-        content='',  # 不显示更新内容：卡片只留标题，空正文由 _patch_empty_changelog 收起
+        content=notes,  # 空正文由 _patch_empty_changelog 把整张卡片收起
         action=change['action'],
         from_version=change['from_version'],
         to_version=change['to_version'],
@@ -89,10 +94,9 @@ def _patch_startup_version_change():
 def _patch_empty_changelog():
     """「更新成功 / 降级成功」卡片正文为空时，把整张卡片收掉。
 
-    我们不显示更新内容（pyappify 时代由启动器的 update_note 提供），但**只隐藏正文 label
-    是不够的**：AboutTab 用 add_card 把正文包进一张 Card，隐藏 label 后界面里仍会留一个空框
-    （已实测）。所以这里两件事一起做：换掉 ChangeLogView（空文本时自身隐藏）+ 包装
-    AboutTab.add_card（正文为空则把外层 Card 一并隐藏）。只影响「关于」页，不动 ok 源码。
+    正文是本次更新的更新说明（本地 `changelog/<tag>.md`），没有该文件时为空；**只隐藏正文
+    label 是不够的**：AboutTab 用 add_card 把正文包进一张 Card，隐藏 label 后界面里仍会留一个
+    空框（已实测），所以外层 Card 要一起隐藏。只影响「关于」页，不动 ok 源码。
     """
     import ok.ui.qt.about.AboutTab as about_tab_module
 

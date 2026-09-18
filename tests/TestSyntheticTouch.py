@@ -2,7 +2,7 @@
 """src/win_input.py 合成触控指针输入后端的纯逻辑单元测试。
 
 不触碰真实环境（不创建合成设备、不注入、不抓窗口），只测坐标转换、锚点位置选择、
-触摸序列状态机与键盘 no-op。真实注入验证见 dev_tools/anchored_touch.py。
+触摸序列状态机与键盘 no-op。真实注入验证见 dev_tools/synthetic_touch.py。
 """
 
 import os
@@ -49,11 +49,13 @@ class TestKeyboardNoop(unittest.TestCase):
 
     def test_keyboard_methods_do_not_raise(self):
         # 键盘未实现，这些方法只记录告警，不应抛异常或触发任何输入
-        self.at.send_key('esc')
-        self.at.send_key_down('esc')
-        self.at.send_key_up('esc')
-        self.at.input_text('abc')
-        self.at.back()
+        with mock.patch.object(win_input.logger, 'warning') as warn_mock:  # 拦截告警避免测试噪音。
+            self.at.send_key('esc')
+            self.at.send_key_down('esc')
+            self.at.send_key_up('esc')
+            self.at.input_text('abc')
+            self.at.back()
+        self.assertEqual(5, warn_mock.call_count)  # 五个键盘方法各只告警一次，且未注入任何输入。
 
     def test_mouse_down_without_position_is_ignored(self):
         # 触控无「当前位置」概念，缺坐标时直接拒绝，不注入 (0,0)
@@ -79,6 +81,112 @@ class TestClickJitter(unittest.TestCase):
         at.mouse_down = mock.Mock()
         at.click(-1, -1)
         at.mouse_down.assert_not_called()
+
+
+class TestSwipeDuration(unittest.TestCase):
+
+    def test_swipe_duration_is_milliseconds(self):
+        at = SyntheticTouch(capture=mock.Mock(), hwnd_window=mock.Mock())
+        at.mouse_down = mock.Mock(return_value=True)
+        at.mouse_up = mock.Mock()
+        at.move = mock.Mock()
+        with mock.patch('src.win_input.time.sleep'):
+            at.swipe(0, 0, 0, 400, duration=400)
+        self.assertEqual(at.move.call_count, 4)  # duration=400ms → 4 步
+        at.mouse_down.assert_called_once_with(0, 0)
+        at.mouse_up.assert_called_once()
+
+
+class TestClickDownTime(unittest.TestCase):
+
+    def test_click_down_time_has_small_random(self):
+        at = SyntheticTouch(capture=mock.Mock(), hwnd_window=mock.Mock())
+        at.mouse_down = mock.Mock(return_value=True)
+        at.mouse_up = mock.Mock()
+        with mock.patch('src.win_input.time.sleep') as sleep_mock:
+            with mock.patch('src.win_input.random.uniform', return_value=0.01):
+                at.click(100, 200, down_time=0.05)
+        sleep_mock.assert_called_once()
+        self.assertAlmostEqual(sleep_mock.call_args.args[0], 0.06)
+
+
+class TestScroll(unittest.TestCase):
+
+    def _at(self):
+        at = SyntheticTouch(capture=mock.Mock(), hwnd_window=mock.Mock())
+        at.swipe = mock.Mock()
+        return at
+
+    def test_scroll_up_drags_down_with_ms_duration(self):
+        # scroll_amount>0 = 滚轮向上，触控等效手指向下拖；swipe 的 duration 单位是毫秒
+        at = self._at()
+        at.scroll(100, 200, 1)
+        at.swipe.assert_called_once_with(100, 200, 100, 400, duration=300)
+
+    def test_scroll_down_drags_up(self):
+        at = self._at()
+        at.scroll(100, 200, -1)
+        at.swipe.assert_called_once_with(100, 200, 100, 0, duration=300)
+
+    def test_scroll_zero_amount_is_noop(self):
+        at = self._at()
+        at.scroll(100, 200, 0)
+        at.swipe.assert_not_called()
+
+
+class TestMouseDownReentry(unittest.TestCase):
+
+    def test_second_mouse_down_releases_first(self):
+        # 已按住时重复按下：先补 UP 再按新点，同一 pointerId 重复 DOWN 会被系统拒绝
+        at = SyntheticTouch(capture=mock.Mock(), hwnd_window=mock.Mock())
+        at.capture.get_abs_cords.return_value = (100, 200)
+        at._ready = True
+        at._worker = mock.Mock()
+        at._worker.is_alive.return_value = True
+        submitted = []
+        at._submit = lambda cmd: submitted.append(cmd.action)
+        with mock.patch.object(win_input, '_bring_to_front'):
+            self.assertTrue(at.mouse_down(100, 200))
+            self.assertTrue(at.mouse_down(110, 210))
+        self.assertEqual(submitted, ['down', 'up', 'down'])
+
+
+class TestSubmitGuard(unittest.TestCase):
+
+    def test_submit_drops_command_when_worker_dead(self):
+        at = SyntheticTouch(capture=mock.Mock(), hwnd_window=mock.Mock())
+        at._ready = True
+        at._worker = mock.Mock()
+        at._worker.is_alive.return_value = False
+        cmd = _Command("move", 1, 2)
+        at._submit(cmd)
+        self.assertFalse(cmd.done.is_set())
+
+    def test_move_without_position_is_ignored(self):
+        at = SyntheticTouch(capture=mock.Mock(), hwnd_window=mock.Mock())
+        at._holding = True
+        at._submit = mock.Mock()
+        at.move(-1, -1)
+        at._submit.assert_not_called()
+
+
+class TestOnDestroy(unittest.TestCase):
+
+    def test_destroy_releases_hold(self):
+        at = SyntheticTouch(capture=mock.Mock(), hwnd_window=mock.Mock())
+        at._holding = True
+        submitted = []
+        at._submit = lambda cmd: submitted.append(cmd.action)
+        at.on_destroy()
+        self.assertEqual(submitted, ['up'])
+        self.assertFalse(at._holding)
+
+    def test_destroy_without_hold_only_stops_worker(self):
+        at = SyntheticTouch(capture=mock.Mock(), hwnd_window=mock.Mock())
+        at._submit = mock.Mock()
+        at.on_destroy()
+        at._submit.assert_not_called()
+        self.assertTrue(at._stop_event.is_set())
 
 
 class TestTouchStateMachine(unittest.TestCase):

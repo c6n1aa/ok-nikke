@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
-"""更新源配置 + 「检查/执行更新」的薄封装（无 UI，无新依赖）。
+"""更新源配置 + 「检查/执行更新/读更新说明」的薄封装（无 UI，无新依赖）。
 
 设计要点：
 - 配置读写 `configs/update.json`，与根目录 `update.py` **共用同一份文件与字段名**；
 - 检查更新 / 执行更新一律通过子进程调用根目录 `update.py`，UI 里不写任何 git/pip 逻辑，
   保证「唯一实现」在 update.py（这也是为什么本模块只是薄封装）；
+- 更新说明只读本地 `changelog/<tag>.md`（随 tag 提交的文件），不联网；
 - `update.py` 是零第三方依赖的脚本，因此这里只 import 标准库 + 可选地 import 它复用常量。
 """
 
@@ -70,6 +71,16 @@ UPDATE_LAUNCH_TIMEOUT = 30
 MAX_TAGS = 30
 # 「关于」卡片版本下拉最多列几个正式版（tag 多了下拉会过长）
 MAX_VERSION_OPTIONS = 5
+
+# Release 正文按节排列（见 .github/scripts/release_notes.py），更新说明只取「更新日志」一节
+_CHANGELOG_HEADING_RE = re.compile(r'^###\s*更新日志\s*$', re.MULTILINE)
+_SECTION_HEADING_RE = re.compile(r'^###\s', re.MULTILINE)
+_MARKDOWN_LINK_RE = re.compile(r'\[([^\]]*)\]\([^)]*\)')
+
+# 本地更新说明：随 tag 提交的 changelog/<tag>.md（手写更新日志；CNB 镜像里由 CI 额外补一份
+# 生成的 Release 正文）。更新完成后目标 tag 的代码就在本地，可离线读，不必访问 GitHub。
+LOCAL_NOTES_DIR = 'changelog'
+_TAG_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]*\Z')
 
 
 def package_root() -> str:
@@ -273,6 +284,54 @@ def list_remote_tags(root: str = None, timeout: int = LIST_TAGS_TIMEOUT):
         detail = (completed.stderr or b'').decode('utf-8', 'replace').strip()
         return [], detail.splitlines()[-1] if detail else f'退出码 {completed.returncode}'
     return parse_tags(completed.stdout.decode('utf-8', 'replace')), ''
+
+
+def release_notes_text(body: str) -> str:
+    """Release 正文 → 卡片正文：只取「更新日志」一节，markdown 转纯文本。
+
+    卡片正文是纯文本 label（框架 ChangeLogView），所以 `#### 标题`/`- 条目`/链接都要转写；
+    没有「更新日志」标题时（手写 Release）整段都当正文，总比什么都不显示好。
+    """
+    text = str(body or '').replace('\r\n', '\n').replace('\r', '\n').lstrip('\ufeff')
+    match = _CHANGELOG_HEADING_RE.search(text)
+    if match:
+        rest = text[match.end():]
+        end = _SECTION_HEADING_RE.search(rest)
+        text = rest[:end.start()] if end else rest
+    lines = []
+    for raw in text.split('\n'):
+        line = raw.strip()
+        if not line:
+            lines.append('')
+            continue
+        line = _MARKDOWN_LINK_RE.sub(r'\1', line).replace('**', '').replace('`', '')
+        if line.startswith('#'):
+            line = f'【{line.lstrip("#").strip()}】'
+        elif line[:2] in ('- ', '* '):
+            line = f'• {line[2:].strip()}'
+        elif line.startswith('>'):
+            line = line.lstrip('> ').strip()
+        lines.append(line)
+    return re.sub(r'\n{3,}', '\n\n', '\n'.join(lines)).strip()
+
+
+def read_release_notes(tag: str, root: str = None) -> str:
+    """读该版本的更新说明：本地 `changelog/<tag>.md` → 卡片纯文本；没有或读不到返回空串。
+
+    更新/降级完成后目标 tag 的代码就在本地，所以这是纯本地读取、不联网；CNB 镜像没有 Release，
+    由 CI 在同步镜像时用生成的 Release 正文补写这个文件（见 .github/workflows/build.yml）。
+    tag 非法（空、带路径分隔符等）时直接返回空串，避免拼出包外路径。
+    """
+    tag = str(tag or '').strip()
+    if not _TAG_RE.match(tag):
+        return ''
+    path = os.path.join(root or package_root(), LOCAL_NOTES_DIR, f'{tag}.md')
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            text = f.read()
+    except OSError:
+        return ''
+    return release_notes_text(text)
 
 
 def build_update_command(target: str, root: str = None, wait_pid: int = 0) -> list:

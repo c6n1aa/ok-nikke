@@ -23,11 +23,18 @@
 | 键 | 当前值 | 说明 |
 | --- | --- | --- |
 | `exe` | `['nikke.exe']` | 游戏进程名，启动器据此拉起或匹配窗口 |
-| `interaction` | `[SyntheticTouch, 'Pynput', 'PyDirect', 'Genshin']` | 输入方式及优先级；`SyntheticTouch` 走合成触控指针（WM_POINTER）绕开游戏输入过滤、可后台点击且不抢前台、键盘未实现；`Genshin` 走窗口消息；`Pynput`/`PyDirect` 需窗口前台 |
+| `interaction` | `[SyntheticTouch]` | 输入方式及优先级；`SyntheticTouch` 走合成触控指针（WM_POINTER）绕开游戏输入过滤，需要游戏窗口位于前台，键盘未实现 |
 | `capture_method` | `['WGC', 'BitBlt_RenderFull', 'BitBlt']` | 截图方式及优先级，WGC 优先以支持后台运行 |
 | `require_bg` | `True` | 要求后台截图能力 |
 | `check_hdr` / `force_no_hdr` | `False` | AutoHDR 时是否提示/禁止运行 |
 | `start_timeout` | `120` | 启动器等待游戏就绪的超时 |
+
+`SyntheticTouch`（合成触控指针）的限制与系统要求：
+
+- **系统要求**：Windows 10 1809 或更高，合成指针 API（`CreateSyntheticPointerDevice` / `InjectSyntheticPointerInput`）在此版本引入。
+- **仅鼠标/触控**：不实现键盘（`send_key` 等）与滚轮，`scroll` 用触控拖动近似。
+- **命中判定认桌面 Z 序**：目标点被其他窗口遮挡时点击无效，故每次点击前把游戏窗口提到前台，需要窗口位于前台且不可最小化。
+- **走 `WM_POINTER` 消息路径**：仅对接受指针/触控输入的游戏有效，只认传统鼠标消息的游戏不适用。
 
 ## 识别相关
 

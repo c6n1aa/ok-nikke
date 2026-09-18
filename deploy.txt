@@ -4,6 +4,9 @@
 # 它会删除「包里被跟踪、但目标树里没有」的文件 —— 漏在这份清单外的文件会在
 # 从 CNB 更新后从用户包里消失（而走 GitHub 更新则不会），造成两棵树不一致。
 # 只有确实不希望出现在镜像里的文件（如已废弃的 .update_repo_gitignore）才可省略。
+#
+# 例外：changelog/<tag>.md 在镜像里由 CI 用生成的 Release 正文补写（镜像没有 Release，
+# 应用内「更新成功」卡片要能离线读到更新说明），所以镜像树会比 GitHub 的 tag 树多这一份文件。
 .github
 .agents
 .gitignore

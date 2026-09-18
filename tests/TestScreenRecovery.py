@@ -24,7 +24,8 @@ class TestScreenRecovery(TaskTestCase):
 
     def test_global_screens_registry_matches_migrated_specs(self):
         # 集中式注册表收录全部界面：9 个迁移自任务 __init__、3 个竞技场界面、商店/招募/方舟排名子页面、
-        # 4 个拦截战界面、5 个前哨基地界面、活动列表页/活动主页/活动关卡页/活动挑战页，外加冷启动正向锚点 login_page。
+        # 4 个拦截战界面、5 个前哨基地界面、活动列表页/活动主页/活动关卡页/活动挑战页、
+        # 付费商店两个礼包子页面，外加冷启动正向锚点 login_page。
         # 顺序即 SCREENS 注册顺序（login_page 紧随 lobby）。
         expected = {
             "lobby": {"features": ["ark", "lobby"]},
@@ -33,6 +34,9 @@ class TestScreenRecovery(TaskTestCase):
             "tribe_tower": {"features": ["tribe_tower_mark"]},
             "simulation_room": {"any_features": ["simulation_mark", "simulation_overclock_update"]},
             "shop": {"keywords": [_keyword("百货商店")], "ocr_box": "box_sub_pages_title"},
+            "cash_shop_limited_time_page": {"features": ["cash_shop_limited_time_package"]},
+            "cash_shop_ordinary_page": {"features": ["cash_shop_ordinary_package"],
+                                        "absent": ["cash_shop_limited_time_package"]},
             "cash_shop": {"keywords": [_keyword("付费商店")], "ocr_box": "box_sub_pages_title"},
             "recruit_page": {"keywords": [_keyword("招募队员")], "ocr_box": "box_sub_pages_title"},
             "coop_page": {"features": ["coop_page"]},
@@ -376,7 +380,15 @@ class TestScreenRecovery(TaskTestCase):
 
     def test_dismiss_all_popups_no_popup_returns_true(self):
         # 没有弹窗可关且无完成条件时，等待直到超时后返回 True（与 close_overlay 语义一致）。
-        with patch.object(self.task, "_try_close_one_popup", return_value=False) as close_mock:
+        now = [0.0]  # 受控时钟，避免 time_out=2 变成真实空等 2 秒。
+
+        def fake_sleep(_seconds=0):
+            now[0] += 1  # 每轮等待推进 1 秒，与实现的 sleep(1) 节奏一致。
+
+        with patch.object(self.task, "_try_close_one_popup", return_value=False) as close_mock, \
+                patch.object(self.task, "sleep", side_effect=fake_sleep), \
+                patch.object(self.task, "next_frame"), \
+                patch("src.tasks.base._popups.time.time", side_effect=lambda: now[0]):
             result = self.task.dismiss_all_popups(time_out=2)
         self.assertTrue(result)
         self.assertEqual(2, close_mock.call_count)  # 每轮检查一次，等满 time_out 秒。

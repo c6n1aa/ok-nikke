@@ -44,7 +44,7 @@ Notes:
 
 - **Administrator privileges are required**: if the game runs as administrator, the automation app needs the same privilege level, otherwise capture or input may not work.
 - The game must run at a 16:9 resolution of at least 1600×900.
-- Input methods: `Pynput`/`PyDirect` need the game window in the foreground; `Genshin` clicks in the background (moves the real cursor and briefly blocks input).
+- Input method: `SyntheticTouch` uses a synthetic touch pointer (WM_POINTER) to bypass the game's input filtering and requires the game window in the foreground.
 - See the documentation [Quick start](docs/en/getting-started.md) for more usage details and common issues.
 
 ## 📝 TODO

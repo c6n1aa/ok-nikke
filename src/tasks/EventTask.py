@@ -1,3 +1,4 @@
+import random  # 随机模块，挑战关卡点击落点在区间内随机取偏移（避免每次点同一像素）。
 import re  # 正则模块，入口关键词用 OCR 部分匹配（忽略大小写）。
 
 import cv2  # OpenCV，列表滚动前后像素对比判到底/到顶。
@@ -19,15 +20,15 @@ _MENU_BAND_BOXES = (
     "box_event_menu_band_small",  # 小活动主页四周文字按钮区（挑战/任务/商店/记录保管所 + ENTER）。
 )
 
-_MAX_CARDS = 8  # 列表最多遍历的滚动位置数（卡片数不定，用带上限的循环防死循环）。
+_MAX_CARDS = 10  # 列表最多遍历的滚动位置数（卡片数不定，用带上限的循环防死循环）。
 
 # 列表滚动手势与到底判据常量（实机按滚动步长精确性微调）。
-_SCROLL_SWIPE_DURATION = 0.5  # 滚动手势时长（秒）。
+_SCROLL_SWIPE_DURATION = 2  # 滚动手势 duration 参数（swipe 步数 = duration/100，与框架 pynput/post_message 同口径；2 即 1 步快速甩动）。
 _SCROLL_AFTER_SLEEP = 1.5  # 滚动后动画停稳等待（秒）。
-_SCROLL_TOP_MAX_SWIPES = 5  # 归一化到顶部的最多下滑次数（防死循环）。
+_SCROLL_TOP_MAX_SWIPES = 8  # 归一化到顶部的最多下滑次数（防死循环）。
 _SCROLL_UNCHANGED_RATIO = 0.02  # 列表区滚动前后像素差异比例阈值：低于视为画面无变化（到底/到顶）。
-_SWIPE_START_RATIO = 0.8  # 滚动手势起点（占滚动区高度比例）：活动列表页默认自上而下 0.8 → 0.2。
-_SWIPE_END_RATIO = 0.2  # 滚动手势终点（占滚动区高度比例）。
+_SWIPE_START_RATIO = 0.8  # 滚动手势起点（占滚动区高度比例）。
+_SWIPE_END_RATIO = 0.55  # 滚动手势终点（占滚动区高度比例）。
 _STAGE_SWIPE_START_RATIO = 2 / 3  # 关卡列表滚动手势起点：从区域内垂直 2/3 处开始。
 _STAGE_SCAN_MAX_SCROLLS = 6  # 关卡列表跨屏扫描的最多下滚次数（防死循环）。
 
@@ -64,6 +65,13 @@ _SWEEP_CLOSE_FEATURE = "stage_detail_close"  # 关卡详情页右上关闭按钮
 # 判据全用 coco 特征（关卡标记 + 列表区），可用性（非灰白）用 is_feature_enabled 判态。
 _CHALLENGE_LIST_BOX = "box_event_challenge_stage_list"  # 挑战关卡列表区域（关卡标记的搜索/定位范围）。
 _CHALLENGE_STAGE_FEATURE = "event_challenge_stage"  # 单个挑战关卡标记（可点击 + 判态；自下而上取第一个可用）。
+# 关卡标记点击框沿 X 轴的左移量范围（占屏宽比例）：标记是行右端的像素点装饰、命中框贴行右边缘
+# （dev_tools/event/event_challenge.png 实测标记 (1600,565,25,42)，行主体左边界约在屏宽 0.34 处），
+# 直接点标记会落在行右边缘上，左移后落进行主体（0.06~0.12 → 2560 下 154~307px，落点 x ≈ 1305~1458）。
+# 区间随机取偏移：每次落点不固定在同一像素。
+_CHALLENGE_CLICK_X_OFFSET = (0.06, 0.12)
+_CHALLENGE_CLICK_ATTEMPTS = 2  # 点关卡标记进详情页的最多尝试次数：点空（落点被遮挡/界面未响应）时重试，两次都没出来才结束。
+_CHALLENGE_PAGE_SETTLE = 2  # 挑战页节点渲染出来后再多等的时间（秒）：行卡片入场动画没走完时点击会被游戏吃掉。
 
 # 大活动子页面到达等待（秒）：点击底部菜单入口后，SD 小人先走到地点、子界面才打开（签到/挑战/剧情子页面共用同一物理量）。
 # 小活动点击入口即切页，轮询首帧就命中；大活动每期地图大小不同、小人走到地点后还有切页动画，故取统一可用上限而非逐期精确值。
@@ -142,10 +150,18 @@ _SUBFLOW_METHODS = {
 # v1 跳过的入口：探测到只记日志（小游戏留 MINIGAMES 注册表钩子）。
 _SKIPPED_ENTRIES = ("小游戏",)
 
-# 入口点击框修正：关键词（pattern.pattern）-> 沿 Y 轴的上移量（占屏高比例）。
+# 入口点击框修正：关键词（pattern.pattern）-> 沿 Y 轴的上移量（占屏高比例），作用于菜单带 / 子页面里的命中。
 # 「加成奖励妮姬」的命中文字在按钮下缘，点击落点需上移到按钮主体（小活动主页与剧情子页面同款布局，实机标定）。
 _ENTRY_CLICK_Y_OFFSET = {
     "加成": 0.06,
+}
+
+# 入口专属区（_ENTRY_EXTRA_BOXES）内的点击框修正：关键词 -> 沿 Y 轴的上移量（占屏高比例）。
+# 与上面的通用表分开：小活动同名入口落在菜单带里，是文字就在按钮上的纯文字按钮，点文字本身，不能跟着上移。
+# 大活动「任务」入口的文字在图标下方，点击落点需上移到图标（dev_tools/event/event_big_main_01.png 实测：
+# 专属区 box_event_menu_mission 内文字框中心 (2500,356)、图标中心 y≈309，上移 47px ≈ 0.033 × 1440）。
+_ENTRY_EXTRA_CLICK_Y_OFFSET = {
+    "任务": 0.033,
 }
 
 # 小游戏注册表钩子（v1 预留，未实现）：实机接入各小游戏独立流程时填充。
@@ -456,28 +472,29 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
                 boxes.append(box)  # 收集。
         return boxes  # 返回全部已解析区域。
 
-    def _entry_regions(self, label):  # 该入口的可探测区域：专属追加区（若有）在前，再回落大小活动菜单带。
-        boxes = []  # 已解析区域列表。
+    def _entry_regions(self, label):  # 该入口的可探测区域：[(区域框, 是否专属区)]，专属追加区（若有）在前，再回落大小活动菜单带。
+        regions = []  # 已解析区域列表。
         for extra in _ENTRY_EXTRA_BOXES.get(label, ()):  # 该入口的专属区域（如大活动「任务」不在菜单带内）。
             box = self._optional_box(extra)  # 区域框（特征缺失返回 None）。
             if box is not None:  # 区域有效。
-                boxes.append(box)  # 收集。
-        return boxes + self._menu_boxes()  # 专属区优先，菜单带兜底（小活动入口仍在菜单带内）。
+                regions.append((box, True))  # 标记专属区：点击框修正按专属区表算（小活动同关键词入口在菜单带里）。
+        return regions + [(box, False) for box in self._menu_boxes()]  # 专属区优先，菜单带兜底（小活动入口仍在菜单带内）。
 
     def _entry_box(self, label, patterns=None):  # 按关键词顺序定位入口点击框（patterns 缺省取 _ENTRIES[label]）；未命中返回 None。
         patterns = _ENTRIES.get(label) if patterns is None else patterns  # 显式传入时只按这些关键词探测（STORY 候选逐个回落用）。
         if not patterns:  # 未知入口。
             return None  # 无法定位。
-        for menu_box in self._entry_regions(label):  # 逐区（专属区 + 大小活动菜单带各一区）。
-            boxes = self.ocr(box=menu_box)  # 该区域一次 OCR（不按关键词过滤，供多关键词复用）。
+        for region, extra in self._entry_regions(label):  # 逐区（专属区 + 大小活动菜单带各一区）。
+            boxes = self.ocr(box=region)  # 该区域一次 OCR（不按关键词过滤，供多关键词复用）。
             for pattern in patterns:  # 按优先级逐个关键词过滤（STORY II 先于 STORY I）。
                 matched = find_boxes_by_name(boxes, self.fix_match_regex([pattern]))  # 与 ocr(match=...) 相同的部分匹配语义。
                 if matched:  # 命中该关键词。
-                    return self._entry_click_box(matched[0], pattern)  # 命中文本框按关键词补偏移后作为点击框。
+                    return self._entry_click_box(matched[0], pattern, extra)  # 命中文本框按命中区域补偏移后作为点击框。
         return None  # 全部关键词未命中。
 
-    def _entry_click_box(self, hit, pattern):  # 入口命中框 -> 点击框：按关键词沿 Y 轴上移（命中文字可能落在按钮边缘）。
-        offset = _ENTRY_CLICK_Y_OFFSET.get(pattern.pattern, 0)  # 该关键词的上移量（占屏高比例），缺省不修正。
+    def _entry_click_box(self, hit, pattern, extra=False):  # 入口命中框 -> 点击框：按命中区域沿 Y 轴上移（命中文字可能落在图标/按钮边缘）。
+        offsets = _ENTRY_EXTRA_CLICK_Y_OFFSET if extra else _ENTRY_CLICK_Y_OFFSET  # 专属区命中查专属区表，其余查通用表。
+        offset = offsets.get(pattern.pattern, 0)  # 该关键词的上移量（占屏高比例），缺省不修正。
         if offset <= 0:  # 无需修正。
             return hit  # 命中框本身即点击框。
         return Box(hit.x, hit.y - int(self.height * offset), hit.width, hit.height,  # 同尺寸上移，不改写原命中框。
@@ -506,8 +523,8 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
         if not boxes:  # 全部入口区域都未标注进 coco。
             self.log_warning(f"入口区域特征均未标注: {_MENU_BAND_BOXES}")  # 记录缺失，便于排查。
             return False  # 未命中。
-        for menu_box in boxes:  # 逐区探测（专属区 + 大小活动菜单带范围不同）。
-            if self.ocr(box=menu_box, match=list(patterns)):  # 区域内 OCR 部分匹配任一关键词（首区命中即短路）。
+        for region, _ in boxes:  # 逐区探测（专属区 + 大小活动菜单带范围不同）。
+            if self.ocr(box=region, match=list(patterns)):  # 区域内 OCR 部分匹配任一关键词（首区命中即短路）。
                 return True  # 命中即返回，无需查其余区域。
         return False  # 未命中。
 
@@ -925,14 +942,23 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
         self.log_info("挑战列表全部关卡标记均为灰白禁用态（今日次数已用完）")  # 记录无可打原因。
         return None  # 无可用关卡。
 
-    def _wait_challenge_nodes(self, time_out=_SD_ARRIVE_TIMEOUT):  # 挑战页过场动画：等关卡节点渲染出来（标题先于节点出现）。
+    def _challenge_click_box(self, stage):  # 关卡标记 -> 点击框：标记贴行右边缘，沿 X 轴随机左移落进行主体。
+        low = int(self.width * _CHALLENGE_CLICK_X_OFFSET[0])  # 左移量下限（像素）。
+        high = int(self.width * _CHALLENGE_CLICK_X_OFFSET[1])  # 左移量上限（像素）。
+        offset = random.randint(low, high) if high > low else low  # 区间随机取偏移（分辨率过小时退化为定值）。
+        box = Box(stage.x - offset, stage.y, stage.width, stage.height,  # 同尺寸左移，不改写原命中框。
+                  confidence=stage.confidence, name=stage.name)
+        self.log_debug(f"挑战关卡点击框左移 {offset}px：{stage} -> {box}")  # 偏移量便于实机校准落点。
+        return box  # 返回落入行主体的点击框。
+
+    def _wait_challenge_nodes(self, time_out=_SD_ARRIVE_TIMEOUT):  # 挑战页过场动画：等关卡节点渲染出来，再多等一会（标题先于节点出现）。
         list_box = self._optional_box(_CHALLENGE_LIST_BOX)  # 挑战关卡列表区域（搜索范围）。
         if list_box is None:  # 区域未标注。
             return  # 交 _find_available_challenge_stage 记日志兜底。
         try:  # 关卡标记特征可能尚未标注进 coco。
             ready = self.wait_until(lambda: bool(self.find_feature(_CHALLENGE_STAGE_FEATURE, box=list_box, limit=0,
                                                                     use_gray_scale=True)),
-                                    time_out=time_out, settle_time=0)  # 轮询等节点渲染（灰度匹配）。
+                                    time_out=time_out, settle_time=_CHALLENGE_PAGE_SETTLE)  # 轮询等节点渲染（灰度匹配）。
         except ValueError:  # 特征缺失。
             ready = False
         if not ready:  # 节点未在窗口内渲染完成。
@@ -1034,9 +1060,16 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
         if stage is None:  # 无可用关卡（今日次数已用完/列表未标注）：无需进详情页，直接返回菜单页。
             self._ensure_event_menu()  # 点返回键回活动菜单页。
             return  # 结束挑战流程。
-        self.click_box(stage, after_sleep=2)  # 点关卡标记进入关卡详情页。
-        if not self.wait_feature(_SWEEP_CLOSE_FEATURE, time_out=_STAGE_ENTER_TIMEOUT, raise_if_not_found=False):  # 等详情页就位（右上关闭按钮特征）。
-            self.log_warning("点开挑战关卡后未进入详情页，结束挑战")  # 记录异常落点（正常应进详情页）。
+        for attempt in range(1, _CHALLENGE_CLICK_ATTEMPTS + 1):  # 点空时重试（落点每次重新随机取，两次落点不重合）。
+            self.click_box(self._challenge_click_box(stage), after_sleep=2)  # 点关卡标记（左移入行主体）进入关卡详情页。
+            if self.wait_feature(_SWEEP_CLOSE_FEATURE, time_out=_STAGE_ENTER_TIMEOUT, raise_if_not_found=False):  # 等详情页就位（右上关闭按钮特征）。
+                break  # 详情页已就位，继续详情页内的战斗分支。
+            if attempt < _CHALLENGE_CLICK_ATTEMPTS:  # 还有剩余尝试次数。
+                # 仍在挑战页 = 点击被吃掉/落点无效；已离开挑战页 = 页面开了但关闭按钮特征没认出来（改调 _STAGE_ENTER_TIMEOUT）。
+                self.log_info(f"第 {attempt} 次点击挑战关卡未进入详情页"
+                              f"（仍在挑战页={self.is_screen('event_challenge_page')}），重试")  # 记录重试原因与落点状态。
+        else:  # 尝试次数用尽仍未进入详情页（正常应进详情页）。
+            self.log_warning(f"点击挑战关卡 {_CHALLENGE_CLICK_ATTEMPTS} 次均未进入详情页，结束挑战")  # 记录异常落点供排查。
             self._ensure_event_menu()  # 兜底回菜单页。
             return  # 结束挑战流程。
         quick_box = self._optional_box(_SWEEP_QUICK_BOX)  # 详情页「快速战斗」区域。

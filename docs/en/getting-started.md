@@ -19,7 +19,7 @@
 - **Global server** users can set the launcher path via the settings view and afterwards start the game directly from inside the app.
 - **Administrator privileges are required**: if the game runs as administrator, the automation app needs the same privilege level, otherwise capture or input may not work.
 - The game must run at a 16:9 resolution of at least 1600×900.
-- Input methods: `Pynput`/`PyDirect` need the game window in the foreground; `Genshin` clicks in the background (moves the real cursor and briefly blocks input).
+- Input method: `SyntheticTouch` uses a synthetic touch pointer (WM_POINTER) to bypass the game's input filtering and requires the game window in the foreground.
 - Task switches and settings are all selected in the main window; the app tracks daily/weekly completion and skips already finished tasks.
 
 ## In-App Updates

@@ -610,14 +610,32 @@ class TestGlobalsStartupRefresh(unittest.TestCase):
     """应用启动钩子：测试运行器下不启动；正常启动（含 debug）时起后台线程调 refresh（被 mock，不触网）。"""
 
     def _run_hook(self, exit_event, is_test=True):
+        """驱动启动钩子：后台线程被包成可 join 的形式，保证 patch 生命周期覆盖线程全程。
+
+        若线程在 patch 撤除后才执行，就会落到真实的 refresh（联网 + 落盘缓存），
+        因此这里必须等线程真正结束后再出 with，而不是轮询「refresh 是否已被调用」。
+        """
+        created = []  # 本次创建的线程包装（测试运行器分支不创建线程）。
+        real_thread_class = threading.Thread  # 先取出真实类，避免被下面的 threading.Thread 替换影响。
+
+        class _JoinableThread:  # 与 threading.Thread 同签名的最小替身，只暴露启动钩子用到的成员。
+            def __init__(self, *args, **kwargs):
+                self.thread = real_thread_class(*args, **kwargs)  # 仍创建真实线程，行为不变。
+                created.append(self)
+
+            def start(self):
+                self.thread.start()
+
+            def join(self, timeout=None):
+                self.thread.join(timeout)
+
         with patch.object(event_calendar, 'refresh') as refresh_mock, \
                 patch.object(event_calendar, 'load_snapshot', return_value=None), \
+                patch.object(app_globals.threading, 'Thread', _JoinableThread), \
                 patch.object(app_globals, '_is_test_runner', return_value=is_test):
             app_globals._start_event_refresh(exit_event)
-            for _ in range(50):  # 等后台线程跑起来（最多约 0.5s）。
-                if refresh_mock.called or is_test:
-                    break
-                time.sleep(0.01)
+            for wrapper in created:  # 等线程结束再撤 patch，线程不再有机会调用真实 refresh。
+                wrapper.join(timeout=2)
         return refresh_mock
 
     def test_is_test_runner_detected_in_test_process(self):

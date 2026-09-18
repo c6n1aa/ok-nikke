@@ -46,6 +46,11 @@ SCREENS = {
     # 模拟室：超频更新弹窗会遮住室徽 simulation_mark，故把该弹窗也列为判据（命中即已进入）。
     "simulation_room": {"any_features": ["simulation_mark", "simulation_overclock_update"]},
     "shop": {"keywords": [_keyword("百货商店")], "ocr_box": "box_sub_pages_title"},
+    # 付费商店内的两个礼包子页面：页面标题特征互相误命中（普通页标记在限时页上实测 0.862 > 阈值），
+    # 故用 absent 消歧；置于 cash_shop 之前，使 current_screen() 优先报出更细的子页面。
+    "cash_shop_limited_time_page": {"features": ["cash_shop_limited_time_package"]},
+    "cash_shop_ordinary_page": {"features": ["cash_shop_ordinary_package"],
+                                "absent": ["cash_shop_limited_time_package"]},
     "cash_shop": {"keywords": [_keyword("付费商店")], "ocr_box": "box_sub_pages_title"},
     "recruit_page": {"keywords": [_keyword("招募队员")], "ocr_box": "box_sub_pages_title"},
     "coop_page": {"features": ["coop_page"]},

@@ -21,10 +21,11 @@ class TestScreenRegistryIntegrity(unittest.TestCase):
         return {category["name"] for category in coco.get("categories", [])}
 
     def test_registry_references_exist_in_coco(self):
-        # 收集全部界面的 features/any_features 元素与字符串形式 ocr_box/feature_box（coco 区域特征名）。
+        # 收集全部界面的 features/any_features/absent 元素与字符串形式 ocr_box/feature_box（coco 区域特征名）。
         references = {}  # 界面名 -> 该界面引用的特征名集合。
         for name, spec in SCREENS.items():
-            refs = set(spec.get("features") or []) | set(spec.get("any_features") or [])
+            refs = (set(spec.get("features") or []) | set(spec.get("any_features") or [])
+                    | set(spec.get("absent") or []))
             for key in ("ocr_box", "feature_box"):  # 字符串形式的区域特征名同样视为 coco 引用。
                 box = spec.get(key)
                 if isinstance(box, str):
