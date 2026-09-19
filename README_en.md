@@ -48,14 +48,12 @@ The official notice dated 2026/09/16:
 >
 > In particular, repeated circumvention of relevant restrictions or continuing the same behavior will be considered aggravating circumstances.
 
-**Be aware: using this software carries the risk of account restriction or ban, with penalties of up to 10 years. Evaluate the risk yourself before deciding to use it.**
-
 **By using this software, you acknowledge that you have read, understood, and agreed to the above, and voluntarily assume all potential risks.**
 
 ## 🚀 Quick Start
 
 1. Download the portable package `ok-nikke-win32-portable.zip` from [GitHub Releases](https://github.com/c6n1aa/ok-nikke/releases) and extract it to an English path.
-2. Run `ok-nikke.exe` as administrator.
+2. Run `ok-nikke.exe` (administrator privileges are required; it elevates automatically).
 3. Start the game.
 4. Open the "Daily settings" view and toggle or configure the tasks to run.
 ![daily_config.png](docs/images/daily_config.png)
@@ -64,9 +62,9 @@ The official notice dated 2026/09/16:
 
 Notes:
 
-- **Administrator privileges are required**: if the game runs as administrator, the automation app needs the same privilege level, otherwise capture or input may not work.
 - The game must run at a 16:9 resolution of at least 1600×900.
 - Input method: `SyntheticTouch` uses a synthetic touch pointer (WM_POINTER) to bypass the game's input filtering and requires the game window in the foreground.
+- While a task runs, the app pauses automatically when the game window loses focus or is not in the foreground, and resumes when it comes back.
 - See the documentation [Quick start](docs/en/getting-started.md) for more usage details and common issues.
 
 ## 📝 TODO
@@ -87,7 +85,9 @@ Notes:
 | Outpost | Dispatch / advise / brief encounters |
 | Ark | Manufacturer towers / simulation room / interception / arena |
 | Raid | Limited-time challenges (co-op / solo raid) |
-| Event | Generic handling of limited-time events (check-in stamp / story push + sweep / challenge) |
+| Event | Generic handling of limited-time events (check-in stamp / story push (BETA) + sweep / challenge) |
+
+Except for "Daily", every task above can be run individually from the "Tasks" view. You can also enable them in the "Daily settings" and let "Daily" orchestrate them into a single queue that runs in order.
 
 ## 🔧 Troubleshooting
 
@@ -98,6 +98,7 @@ If you run into problems, check the following steps one by one before asking:
 3. **Display settings**:
    - Turn off Windows Auto HDR.
    - Graphics quality: the higher the better.
+   - Close other software that adds overlay layers to the game (e.g. MSI Afterburner, GamePP).
 4. **Game language**: Simplified Chinese is preferred.
 5. **App version**: make sure you are using the latest version.
 6. **Ask for help**: if none of the above solves your problem, submit a detailed bug report via a GitHub ISSUE or community channels.

@@ -6,11 +6,10 @@ ok-nikke 是基于 [ok-script](https://github.com/ok-oldking/ok-script) 的《�
 
 ## 功能
 
-- **输入方式**：`SyntheticTouch` 走合成触控指针（WM_POINTER）绕开游戏输入过滤，需要游戏窗口位于前台。截图优先使用 WGC 后台捕获。
+- **输入方式**：`SyntheticTouch` 走合成触控指针（WM_POINTER）绕开游戏输入过滤，需要游戏窗口位于前台。截图优先使用 WGC 后台捕获。任务运行期间游戏窗口失焦或不在前台会自动暂停，切回后继续。
 - **图像识别**：OpenCV 模板匹配（COCO 标注管理素材）结合 onnxocr（PaddleOCR v5 + OpenVINO）识别文字与按钮。
 - **分辨率自适应**：支持 16:9（最低 1600×900），素材以 2560×1440 为基准，按当前分辨率自动缩放匹配。
 - **完成状态**：按日/周记录任务完成情况，避免重复执行。
-- **失败恢复**：流程卡住时自动清理弹窗、返回大厅重试，无需人工干预。
 
 ## 已实现任务
 
@@ -25,16 +24,11 @@ ok-nikke 是基于 [ok-script](https://github.com/ok-oldking/ok-script) 的《�
 | 前哨基地 | 派遣 / 咨询 / 突发剧情 |
 | 方舟 | 企业塔 / 模拟室 / 拦截战 / 竞技场 |
 | Raid | 限时挑战（协同作战 / 个人突袭） |
-| 活动 | 限时活动通用处理（签到印章 / 剧情推图+扫荡 / 挑战） |
+| 活动 | 限时活动通用处理（签到印章 / 剧情推图(BETA)+扫荡 / 挑战） |
+
+除「日常」外，每个任务都可在“任务”界面单独运行；也可先在“日常设置”里开启，再由「日常」编排进一条队列依次执行。
 
 ## 从这里开始
 
 - 只想使用：按[快速开始](getting-started.md)下载便携包运行，遇到问题先看其中的「常见问题」。
 - 参与开发：从[开发环境](development.md)开始（源码运行与测试），再按需阅读[应用配置](configuration.md)、[任务开发](tasks.md)、[界面识别与失败恢复](screen-and-recovery.md)、[任务简报模板](task_brief_template.md)、[打包与发布](release.md)与[文档网站](documentation.md)。
-
-## 继续阅读（ok-script 上游文档）
-
-- [游戏自动化入门](https://github.com/ok-oldking/ok-script/blob/master/docs/intro_to_automation/README.md)
-- [快速开始](https://github.com/ok-oldking/ok-script/blob/master/docs/quick_start/README.md)
-- [进阶使用](https://github.com/ok-oldking/ok-script/blob/master/docs/after_quick_start/README.md)
-- [API 文档](https://github.com/ok-oldking/ok-script/blob/master/docs/api_doc/README.md)
