@@ -3447,12 +3447,12 @@
             "image_id": 84,
             "category_id": 225,
             "bbox": [
-                2516,
-                1311,
-                33,
-                34
+                2504,
+                1296,
+                55,
+                58
             ],
-            "area": 1122,
+            "area": 3190,
             "iscrowd": 0
         },
         {
@@ -4891,7 +4891,7 @@
         },
         {
             "id": 225,
-            "name": "advise_blooper_new",
+            "name": "advise_blooper_badge",
             "supercategory": ""
         },
         {
