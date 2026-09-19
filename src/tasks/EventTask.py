@@ -9,6 +9,7 @@ from ok.task.exceptions import WaitFailedException  # 返回大厅失败等流�
 
 from src import event_calendar  # 官方活动日历缓存 + 活动图行匹配（纯本地读取，刷新是其唯一联网入口）。
 from src import event_stage  # 活动关卡页 OCR 解析（纯逻辑：编号/状态/序列）。
+from src import log_fields  # 日志字段取值词表（单一数据源）。
 from src.tasks.NikkeBaseTask import NikkeBaseTask  # 项目基类，所有任务统一继承它。
 
 # 大厅右侧「活动」入口图标特征（已标注进 coco）。
@@ -224,25 +225,25 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
     # ---- 入口编排 ----
 
     def run(self):  # 任务执行入口：完成状态短路 → 接管（已在活动内）/大厅闸门+列表遍历 → 统一返回大厅收尾。
-        self.log_info("活动任务开始")  # 记录任务开始。
         if self.is_done("event", "day"):  # 本周期内已完成则直接跳过（放最前，避免无谓地动游戏窗口）。
-            self.log_info("今日活动已完成，跳过")  # 记录跳过原因。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_ALREADY_DONE}")  # 记录跳过原因。
             return  # 结束任务。
         if self._probe_event_context():  # 用户已手动进入活动（主页或关卡页/详情页）：就地接管，省去「回大厅再重进」。
-            self.log_info("已在活动内，就地接管处理")  # 记录接管分支。
+            self.log_info(f"event={log_fields.EVENT_START} mode=takeover")  # 记录接管分支。
             if not self.try_step(self._takeover_event, name="活动接管", raise_on_fail=False):  # 接管流程用恢复协议包裹。
-                self.log_warning("活动接管处理多次失败，本周期不标记完成")  # 记录失败原因。
+                self.log_warning(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_RETRIES_EXHAUSTED}")  # 记录失败原因。
                 return  # 不标记完成，下次可重试。
         else:  # 正常路径：先就位大厅，再遍历活动列表。
+            self.log_info(f"event={log_fields.EVENT_START} mode=list")  # 记录正常路径开始。
             if not self.ensure_screen("lobby", raise_on_fail=False):  # 就位游戏大厅（幂等闸门：含冷启动引导与弹窗清理），失败则中止。
-                self.log_error("未能进入游戏大厅，中止活动任务")  # 记录中止原因。
+                self.log_error(f"event={log_fields.EVENT_ABORT} reason={log_fields.REASON_LOBBY_NOT_FOUND}")  # 记录中止原因。
                 return  # 结束任务。
             if not self.try_step(self._process_event_list, name="活动列表处理", raise_on_fail=False):  # 列表处理整体流程以大厅为起点，用恢复协议包裹。
-                self.log_warning("活动列表处理多次失败，本周期不标记完成")  # 记录失败原因。
+                self.log_warning(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_RETRIES_EXHAUSTED}")  # 记录失败原因。
                 return  # 不标记完成，下次可重试。
         self.mark_done("event", "day")  # 记录本周期已完成（全部卡片处理成功才落盘，失败在上一分支已返回）。
         self._exit_to_lobby()  # 统一返回大厅收尾（基类幂等实现）。
-        self.log_info("活动任务完成")  # 记录任务完成。
+        self.log_info(f"event={log_fields.EVENT_END} result={log_fields.RESULT_SUCCESS}")  # 记录任务完成。
 
     def _probe_event_main(self):  # 探测当前是否处于活动主页。
         return self.is_screen("event_main")  # 单帧判定（进入后的动画容忍由 _enter_and_probe 的轮询负责）。
@@ -286,13 +287,13 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
     def _process_event_list(self):  # 活动列表处理主循环：大厅→列表页→逐位置滚动→banner 定位剧情活动并进入处理，最后返回大厅。
         events = self._pending_events()  # 待处理剧情活动（日历快照取最新 2 个）。
         if not events:  # 无活动图/日历数据时无法定位，直接结束。
-            self.log_info("无待处理剧情活动（日历无数据），结束列表处理")  # 记录结束原因。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason=no_pending_events")  # 记录结束原因。
             return  # 结束列表处理（由 run 统一收尾）。
         processed = set()  # 本运行内已处理的活动 key（双活动去重，不落持久状态）。
         unmatched = {event.key for event in events}  # 本运行尚未匹配到卡片的活动（遍历结束仍在 = 列表里没有）。
         for step in range(_MAX_CARDS):  # 带上限的滚动位置遍历。
             if not self._reposition_list(step):  # 进入列表页并滚动到第 step 位；到底返回 False 退出。
-                self.log_info("列表已滚动到底，退出遍历")  # 记录到底。
+                self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_LIST_BOTTOM}")  # 记录到底。
                 break  # 退出循环。
             for event in events:  # 扫描全部待处理活动（find_event_row 按 banner 匹配，未命中 = 该位置无此活动）。
                 if event.key in processed:  # 已处理过则跳过。
@@ -310,12 +311,12 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
                 if not unmatched:  # 剩余待处理活动都已定位处理，没有第二张卡要扫，无需再进列表点 event_icon。
                     break  # 退出内层；外层随后依据 unmatched 为空提前结束。
                 if not self._reposition_list(step):  # 返回大厅后重进列表并滚回本位置，继续扫描同位置剩余活动。
-                    self.log_info("列表已滚动到底，退出遍历")  # 记录到底。
+                    self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_LIST_BOTTOM}")  # 记录到底。
                     break  # 退出内层扫描。
             if not unmatched:  # 全部待处理活动均已定位处理，无需再往下滚动找卡片。
                 break  # 提前结束遍历。
         for key in unmatched:  # 全部位置扫完仍未匹配到卡片：活动未上架/已下架，或保底包已过期。
-            self.log_warning(f"活动 {key} 在列表页未匹配到卡片（未上架/已下架，或保底包已过期）")  # 记录便于排查。
+            self.log_warning(f"event={log_fields.EVENT_SKIP} reason=card_not_found event_key={key}")  # 记录便于排查。
         self._exit_to_lobby()  # 收尾返回大厅（run 里还会再幂等确认一次）。
 
     def _reposition_list(self, step):  # 进入列表页并滚动到第 step 个位置，返回是否定位成功（到底返回 False）。
@@ -398,7 +399,7 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
     def _find_event_row(self, event):  # 用官方活动图在列表内 banner 匹配定位该活动所在行，返回行 Box 或 None。
         path = event_calendar.local_banner_path(event.key, event.url)  # 本地活动图路径（cache -> 保底包，纯本地）。
         if path is None:  # 无本地活动图（断网且不在保底包）。
-            self.log_warning(f"活动「{event.display_name}」无本地活动图，无法定位")  # 记录跳过原因。
+            self.log_warning(f"event={log_fields.EVENT_SKIP} reason=no_banner event_key={event.key}")  # 记录跳过原因。
             return None  # 视为该活动当前不可定位。
         return self.find_event_row(event.display_name, path)  # 在 box_event_banner_area 内匹配该活动行。
 
@@ -412,9 +413,9 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
             pre_action=lambda: self.dismiss_all_popups(wait_for_popup=False, time_out=2),  # 期间清理入场遮罩。
         )
         if not entered:  # 超时未确认到活动主页 = 抽卡/登录奖励等非活动条目。
-            self.log_info("未进入活动（抽卡/登录奖励等非活动条目）")  # 记录未确认原因。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason=not_an_event")  # 记录未确认原因。
             return False  # 由调用方决定退回大厅或抛异常。
-        self.log_info("已进入活动主页，等待菜单栏就绪")  # 记录进入确认与后续等待。
+        self.log_info(f"event={log_fields.EVENT_END} result={log_fields.RESULT_SUCCESS} name=enter_event")  # 记录进入确认与后续等待。
         self._wait_menu_ready()  # 等菜单栏渲染并停稳再探测（标题先于菜单出现，过早探测会误判子流程全跳过）。
         return True  # 已确认为活动主页。
 
@@ -456,13 +457,13 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
     def _run_event_subflows(self):  # 在活动主页内逐入口探测并执行已开启的子流程（大小活动差异由「探测不到即跳过」吸收）。
         for label in _SUBFLOW_ORDER:  # 按 _SUBFLOW_ORDER 顺序分派。
             if not self.is_screen("event_main"):  # 上一子流程中途恢复回了大厅/别的页面：菜单带与入口都不在，继续探测只会误判。
-                self.log_warning(f"执行 {label} 前不在活动主页，中止剩余子流程")  # 记录中止原因（正常收尾由 run 统一负责）。
+                self.log_warning(f"event={log_fields.EVENT_ABORT} reason=not_on_event_main label={label}")  # 记录中止原因（正常收尾由 run 统一负责）。
                 return  # 中止剩余子流程，避免在错误页面上继续探测。
             getattr(self, _SUBFLOW_METHODS[label])()  # 调用 _do_* 入口方法（内部做开关/探测/try_step）。
         for label in _SKIPPED_ENTRIES:  # v1 跳过的入口：仅探测并记录，不执行。
             if self._probe_entry(label):  # 探测到该入口。
                 # 小游戏后续接入 MINIGAMES 注册表分派。
-                self.log_info(f"探测到 {label}，v1 暂不支持，跳过")  # 记录跳过。
+                self.log_info(f"event={log_fields.EVENT_SKIP} reason=unsupported label={label}")  # 记录跳过。
 
     def _menu_boxes(self):  # 解析出当前可用的菜单栏 OCR 区域（大小活动菜单带各自一区，缺失跳过）。
         boxes = []  # 已解析区域列表。
@@ -530,53 +531,53 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
 
     def _do_checkin(self):  # 签到子流程：开关 → 探测 → try_step（仅大活动有签到印章入口）。
         if not self.config.get("签到"):  # 用户未启用签到子流程。
-            self.log_info("签到未开启，跳过")  # 记录跳过原因。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_DISABLED} name=checkin")  # 记录跳过原因。
             return  # 结束本子流程。
         if not self._probe_entry("签到"):  # 探测不到 = 当期小活动无此功能入口。
-            self.log_info("未探测到签到入口（小活动无此功能），跳过")  # 记录跳过原因。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_ENTRY_MISSING} name=checkin")  # 记录跳过原因。
             return  # 结束本子流程。
         if not self.try_step(self._flow_checkin, name="签到", raise_on_fail=False):  # 签到整体流程用恢复协议包裹（自足重入）。
-            self.log_warning("签到子流程多次失败，跳过")  # 记录失败原因。
+            self.log_warning(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_RETRIES_EXHAUSTED} name=checkin")  # 记录失败原因。
 
     def _do_story(self):  # 剧情子流程：开关（剧情/扫荡任一开启）→ 探测（STORY II/I/加成 任一）→ try_step。
         if not self.config.get("剧情") and not self.config.get("扫荡"):  # 推图与扫荡都未开启。
-            self.log_info("剧情与扫荡均未开启，跳过")  # 记录跳过原因。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_DISABLED} name=story")  # 记录跳过原因。
             return  # 结束本子流程。
         if not self._probe_entry("剧情"):  # 探测不到剧情入口。
-            self.log_info("未探测到剧情入口，跳过")  # 记录跳过原因。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_ENTRY_MISSING} name=story")  # 记录跳过原因。
             return  # 结束本子流程。
         if not self.try_step(self._flow_story, name="剧情", raise_on_fail=False):  # 剧情整体流程（含扫荡）用恢复协议包裹。
-            self.log_warning("剧情子流程多次失败，跳过")  # 记录失败原因。
+            self.log_warning(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_RETRIES_EXHAUSTED} name=story")  # 记录失败原因。
 
     def _do_challenge(self):  # 挑战子流程：开关 → 探测 → try_step。
         if not self.config.get("挑战"):  # 用户未启用挑战子流程。
-            self.log_info("挑战未开启，跳过")  # 记录跳过原因。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_DISABLED} name=challenge")  # 记录跳过原因。
             return  # 结束本子流程。
         if not self._probe_entry("挑战"):  # 探测不到挑战入口。
-            self.log_info("未探测到挑战入口，跳过")  # 记录跳过原因。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_ENTRY_MISSING} name=challenge")  # 记录跳过原因。
             return  # 结束本子流程。
         if not self.try_step(self._flow_challenge, name="挑战", raise_on_fail=False):  # 挑战整体流程用恢复协议包裹。
-            self.log_warning("挑战子流程多次失败，跳过")  # 记录失败原因。
+            self.log_warning(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_RETRIES_EXHAUSTED} name=challenge")  # 记录失败原因。
 
     def _do_mission(self):  # 任务子流程：开关 → 探测（大活动专属区 / 小活动菜单带）→ try_step。
         if not self.config.get("任务"):  # 用户未启用任务子流程。
-            self.log_info("任务未开启，跳过")  # 记录跳过原因。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_DISABLED} name=mission")  # 记录跳过原因。
             return  # 结束本子流程。
         if not self._probe_entry("任务"):  # 探测不到 = 当期活动无任务入口（大活动入口在 box_event_menu_mission 区）。
-            self.log_info("未探测到任务入口，跳过")  # 记录跳过原因。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_ENTRY_MISSING} name=mission")  # 记录跳过原因。
             return  # 结束本子流程。
         if not self.try_step(self._flow_mission, name="任务", raise_on_fail=False):  # 任务整体流程用恢复协议包裹。
-            self.log_warning("任务子流程多次失败，跳过")  # 记录失败原因。
+            self.log_warning(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_RETRIES_EXHAUSTED} name=mission")  # 记录失败原因。
 
     def _do_shop(self):  # 商店子流程：开关（默认关闭）→ 探测 → try_step（非幂等流程，留 v1.5）。
         if not self.config.get("商店"):  # 用户未启用商店子流程（v1 默认关闭）。
-            self.log_info("商店未开启，跳过")  # 记录跳过原因。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_DISABLED} name=shop")  # 记录跳过原因。
             return  # 结束本子流程。
         if not self._probe_entry("商店"):  # 探测不到商店入口。
-            self.log_info("未探测到商店入口，跳过")  # 记录跳过原因。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_ENTRY_MISSING} name=shop")  # 记录跳过原因。
             return  # 结束本子流程。
         if not self.try_step(self._flow_shop, name="商店", raise_on_fail=False):  # 商店整体流程用恢复协议包裹。
-            self.log_warning("商店子流程多次失败，跳过")  # 记录失败原因。
+            self.log_warning(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_RETRIES_EXHAUSTED} name=shop")  # 记录失败原因。
 
     def _flow_checkin(self):  # 签到印章流程（自足重入）：进签到界面 → 等 SD 小人到达 → 全部领取 → 点返回回活动菜单页。
         # 仅大活动有签到入口（_do_checkin 已按「签到印章」关键词探测）；签到是独立整页界面（非模态窗），
@@ -590,7 +591,7 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
         # 仍在菜单页 = 未走到签到地点、切页失败，告警后直接回菜单页跳过领取。
         if not self.wait_until(lambda: not self.is_screen("event_main"),  # 轮询等菜单页消失 = 已切到签到页。
                                time_out=_SD_ARRIVE_TIMEOUT, settle_time=0):  # 到达等待窗口（切页即返回）。
-            self.log_warning("签到页未在预期时间内切换（仍在活动菜单页），跳过领取")  # 记录跳过原因。
+            self.log_warning(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_TIMEOUT} name=checkin")  # 记录跳过原因。
             self._ensure_event_menu()  # 兜底回菜单页。
             return  # 结束签到流程。
         # 已切到签到页：等「全部领取」出现后判态领取（奖励界面与切页近乎同步，仍轮询容忍盖章动画）。
@@ -599,12 +600,11 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
             claim = self._find_claim_all()  # 「全部领取」按钮文字框。
             if self.is_feature_enabled(self._claim_button_box(claim)):  # 外扩取到按钮底色判态：彩色 = 仍有可领奖励。
                 self.click_box(claim, after_sleep=1)  # 点击全部领取。
-                self.log_info("已点击签到印章「全部领取」")  # 记录动作。
                 self._close_claim_overlay()  # 领取后弹出奖励遮罩（盖住界面），复用登录奖励同一套遮罩清理。
             else:  # 按钮灰白 = 无可领奖励（今日已领完）。
-                self.log_info("签到奖励无可领取（按钮灰白，可能今日已领取）")  # 记录状态。
+                self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_NO_REWARD} name=checkin")  # 记录状态。
         else:  # 已切页但未识别到「全部领取」。
-            self.log_warning("签到奖励界面未在预期时间内出现（已切页但未识别到「全部领取」），跳过领取")  # 记录跳过原因。
+            self.log_warning(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_NOT_FOUND} name=checkin")  # 记录跳过原因。
         # 签到是独立整页界面（非模态窗）：点返回键回活动菜单页（已在菜单页则 no-op）。
         # 注意：不要用 dismiss_all_popups —— 签到界面「全部领取」与登录奖励面板判据同字，
         # 会被 _close_daily_login_popup 误认成登录奖励面板重复点击（其消歧只认 mission_page）。
@@ -781,7 +781,7 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
         """
         if not self.wait_until(lambda: self.is_screen("conversation") or self._in_battle_page(),  # 剧情界面出现，或已直接进入战斗（无剧情）。
                                time_out=time_out, settle_time=0):  # 两信号都在场即返回，无需稳定窗口。
-            self.log_warning("未识别到剧情界面与战斗界面，按无剧情继续")  # 交由后续战斗等待兜底。
+            self.log_warning(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_NOT_FOUND} name=story_dialog")  # 交由后续战斗等待兜底。
             return False  # 未处理剧情。
         if not self.is_screen("conversation"):  # 已进入战斗界面 = 本次无剧情。
             return False  # 无事可做。
@@ -791,7 +791,7 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
             self.wait_click_feature("conversation_skip", box=self._optional_box("box_conversation_icon"),  # 在对话图标区识别跳过按钮。
                                     raise_if_not_found=True, after_sleep=2)  # 特征缺失抛异常由 try_step 恢复。
         self.dismiss_all_popups(wait_for_popup=False, time_out=5)  # 剧情结束可能弹奖励/好感遮罩，先清掉再继续。
-        self.log_info("已跳过剧情对话")  # 记录跳过。
+        self.log_info(f"event={log_fields.EVENT_SKIP} reason=story_skipped")  # 记录跳过。
         return True  # 已处理剧情。
 
     def _detail_page_open(self):  # 关卡详情页是否就位（右上关闭按钮特征；特征缺失按未就位）。
@@ -807,40 +807,39 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
     def _push_stages(self, target):  # 连续推图链：点目标关（详情页判「战斗」可用则点击）→ 逐场战斗（结算「下一关」可用则续战，跳到门票耗尽）→ 回关卡页。
         self.click_box(self._row_box(target), after_sleep=2)  # 点击目标关卡行进入关卡（可能先播剧情）。
         if not self._stage_flow_entered():  # 点开后仍停在关卡列表 = 该关已通关且不可重复挑战（只弹提示、不进详情页）。
-            self.log_info(f"{target.stage_id} 点开后仍停在关卡列表（已通关不可重复挑战），推图结束")  # 记录结束原因。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason=stage_cleared stage={target.stage_id}")  # 记录结束原因。
             return  # 结束推图（仍在列表页，无需收尾动作）。
         if self._detail_page_open():  # 点开的是关卡详情页 = 未开战：按「战斗」按钮判态决定点击或收尾。
             battle_box = self._optional_box(_STAGE_DETAIL_BATTLE_BOX)  # 详情页「战斗」区域（缺失按不可点）。
             if battle_box is None:  # 区域特征解析不出来（coco 缺失/加载失败）。
-                self.log_warning(f"缺少区域特征 {_STAGE_DETAIL_BATTLE_BOX}，推图结束")  # 记录跳过原因。
+                self.log_warning(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_BOX_MISSING} box={_STAGE_DETAIL_BATTLE_BOX}")  # 记录跳过原因。
                 self._close_stage_detail()  # 关详情页回关卡列表。
                 return  # 结束推图。
             if not self.is_feature_enabled(battle_box):  # 灰白禁用：该关不可推（门票耗尽等）。
-                self.log_info(f"{target.stage_id} 详情页「战斗」为灰白禁用态（门票耗尽等），推图结束")  # 记录结束原因。
+                self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_CAPPED} stage={target.stage_id}")  # 记录结束原因。
                 self._close_stage_detail()  # 关详情页回关卡列表。
                 return  # 结束推图。
-            self.log_info(f"{target.stage_id} 详情页「战斗」可用，点击进入战斗")  # 记录推进（可能先播剧情）。
-            self.click_box(battle_box, after_sleep=2)  # 点「战斗」进入战斗链。
+            self.click_box(battle_box, after_sleep=2)  # 点「战斗」进入战斗链（可能先播剧情）。
         for _ in range(_STORY_MAX_BATTLES):  # 连续战斗安全上限（正常由门票耗尽自然结束）。
             self._skip_story_if_present()  # 进关卡/进下一关可能先播剧情：识别并点跳过。
             result, confirm_box = self.wait_battle_finish(time_out=_STORY_BATTLE_TIMEOUT)  # 节流等待战斗结束，只检测不点击。
             if result is None:  # 等待战斗结束超时。
                 raise WaitFailedException("等待活动关卡战斗结束超时")  # 抛异常由 try_step 恢复。
             if result == "failed":  # 战斗失败（门票已消耗，不再续战）。
-                self.log_warning("活动关卡战斗失败")  # 记录失败供排查。
+                self.log_warning(f"event={log_fields.EVENT_FAIL} reason={log_fields.REASON_BATTLE_FAILED}")  # 记录失败供排查。
                 self.click_box(confirm_box, after_sleep=_BATTLE_AFTER_SLEEP)  # 点击失败返回按钮。
                 self._skip_story_if_present()  # 返回时也可能先播剧情。
                 break  # 结束推图。
             next_box = self._optional_box("box_battle_finish_next_stage")  # 结算界面右下角「下一关」区域（缺失按不可用）。
             if next_box is not None and self.is_feature_enabled(next_box):  # 彩色高亮 = 还有门票可续战。
-                self.log_info("结算界面「下一关」可用，继续推进")  # 记录续战。
+                self.log_info(f"event={log_fields.EVENT_ROUND} name=next_stage stage={target.stage_id}")  # 记录续战。
                 self.click_box(next_box, after_sleep=_BATTLE_AFTER_SLEEP)  # 点击下一关，回到循环头部等待下一场。
                 continue  # 续战。
             self.click_box(confirm_box, after_sleep=_BATTLE_AFTER_SLEEP)  # 「下一关」不可用 = 门票耗尽，点击结算返回按钮。
             self._skip_story_if_present()  # 返回时也可能先播剧情。
             break  # 推图结束。
         else:  # 循环用尽仍未自然结束 = 异常状态。
-            self.log_warning(f"连续战斗达到上限 {_STORY_MAX_BATTLES} 场，停止推图")  # 提示异常，交界面断言兜底。
+            self.log_warning(f"event={log_fields.EVENT_ABORT} reason={log_fields.REASON_CAPPED} limit={_STORY_MAX_BATTLES} name=push_stages")  # 提示异常，交界面断言兜底。
         self.assert_screen("event_stage_page", time_out=15)  # 确认已回到活动关卡界面（剧情跳过后的落点）。
 
     def _progress_target(self):  # 推图目标：先认当前屏（进关卡页游戏会自动定位到当前进度关），解析不出才回退跨屏扫描。
@@ -851,7 +850,7 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
             return target  # 直接使用。
         if rows:  # 当前屏解析出了行但没有可打的 = 已全通（进度关之后的行都是锁定行，没有编号）。
             return None  # 无需再扫全列表。
-        self.log_info("当前屏未解析出关卡行，回退为跨屏扫描")  # 记录兜底原因（OCR 漏检/页面未就绪）。
+        self.log_info(f"event={log_fields.EVENT_SKIP} reason=no_rows fallback=scan")  # 记录兜底原因（OCR 漏检/页面未就绪）。
         return event_stage.progress_target(self._scan_stage_rows())  # 兜底：扫全列表再取目标。
 
     def _locate_stage_row(self, stage_id):  # 查找指定关卡行并返回（行框对应当前屏幕，可直接点击）；未找到返回 None。
@@ -881,31 +880,31 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
         for round_index in range(1, _SWEEP_MAX_ROUNDS + 1):  # 带上限防死循环（次数拉满后正常一轮即耗尽）。
             row = self._locate_stage_row(stage_id)  # 逐屏定位配置关卡（行框对应当前屏幕）。
             if row is None:  # 当期列表没有该关卡 = 该关尚未通关/未开放（不是识别失败），不做任何降级替代。
-                self.log_warning(f"列表中没有可扫荡关卡 {stage_id}（尚未通关/未开放），跳过扫荡")  # 记录跳过原因。
+                self.log_warning(f"event={log_fields.EVENT_SKIP} reason=stage_missing stage={stage_id}")  # 记录跳过原因。
                 return  # 结束扫荡。
             # 行状态只记日志、不作门槛：已通关标记（√ / CLEAR / REPEAT）可能漏检，
             # 能否扫荡一律以关卡详情页的「快速战斗」判态为准（门票用光时详情页仍可打开）。
             self.log_debug(f"关卡 {stage_id} 列表行状态 {row.status}（仅供参考，不作门槛）")  # 行状态便于校准。
             self.click_box(self._row_box(row), after_sleep=2)  # 点关卡行进入关卡详情页。
             if not self.wait_feature(_SWEEP_CLOSE_FEATURE, time_out=_STAGE_ENTER_TIMEOUT, raise_if_not_found=False):  # 等详情页就位（右上关闭按钮特征）。
-                self.log_info(f"{stage_id} 点开后未进入关卡详情页（已通关但不可重复挑战会弹提示、停在列表），跳过扫荡")  # 记录跳过原因。
+                self.log_info(f"event={log_fields.EVENT_SKIP} reason=detail_not_open stage={stage_id}")  # 记录跳过原因。
                 return  # 仍在关卡列表页：无需关页，直接结束扫荡（交由调用方回菜单页）。
             quick_box = self._optional_box(_SWEEP_QUICK_BOX)  # 「快速战斗」区域。
             if quick_box is None:  # 区域特征解析不出来（coco 缺失/加载失败）——与「按钮不可用」是两种问题，分开记日志。
-                self.log_warning(f"缺少区域特征 {_SWEEP_QUICK_BOX}，跳过扫荡")  # 记录跳过原因。
+                self.log_warning(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_BOX_MISSING} box={_SWEEP_QUICK_BOX}")  # 记录跳过原因。
                 self._close_stage_detail()  # 关闭详情页回列表。
                 return  # 结束扫荡。
             enabled = self.is_feature_enabled(quick_box)  # 色彩判态：彩色=可用，灰白=禁用。
             self.log_debug(f"{stage_id}「快速战斗」区域 {quick_box}，色彩判态 {enabled}")  # 判态明细便于实机校准。
             if not enabled:  # 灰白禁用：门票已被推图耗尽，或该关当前不可重复挑战。
-                self.log_info(f"{stage_id}「快速战斗」为灰白禁用态（与剧情共用门票，可能已被推图耗尽；或该关不可重复挑战），扫荡结束")  # 记录结束原因。
+                self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_CAPPED} stage={stage_id}")  # 记录结束原因。
                 self._close_stage_detail()  # 关闭详情页回列表。
                 return  # 结束扫荡。
             self._run_quick_battle(quick_box, label=f"扫荡 {stage_id} 第 {round_index} 轮")  # 快速战斗链（拉满 → 开始 → 等结算 → 点确认）。
             if self._detail_page_open():  # 结算关闭后落回关卡详情页（扫荡页面的默认落点）。
                 self._close_stage_detail()  # 先关详情页退回活动关卡列表，下一轮重新定位关卡行。
             self.assert_screen("event_stage_page", time_out=15)  # 确认已回到活动关卡列表界面。
-        self.log_warning(f"扫荡达到轮次上限 {_SWEEP_MAX_ROUNDS} 轮，结束")  # 上限兜底（异常状态）。
+        self.log_warning(f"event={log_fields.EVENT_ABORT} reason={log_fields.REASON_CAPPED} limit={_SWEEP_MAX_ROUNDS} name=sweep")  # 上限兜底（异常状态）。
 
     def _run_quick_battle(self, quick_box, label="快速战斗"):  # 详情页「快速战斗」链：点按钮 → 次数弹窗拉满 → 开始 → 等结算 → 点结算确认。返回结算结果。
         self.click_box(quick_box, after_sleep=1)  # 点「快速战斗」，弹出次数选择弹窗（与个人突袭同款 UI）。
@@ -913,14 +912,13 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
         max_btn = self.find_one(_SWEEP_MAX_FEATURE)  # 次数「拉满」按钮（弹窗可能已默认最大值）。
         if max_btn is not None:  # 识别到拉满按钮。
             self.click_box(max_btn, after_sleep=1)  # 点拉满剩余次数（默认取最大）。
-            self.log_info(f"{label}次数弹窗：已点「拉满」，按最大次数开始")  # 记录拉满命中，便于核对每次消耗。
         else:  # 未识别到拉满按钮。
-            self.log_info(f"{label}次数弹窗：未识别到「拉满」按钮，按弹窗默认次数开始")  # 记录兜底路径（可能每次只消耗 1 次）。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason=max_missing label={label}")  # 记录兜底路径（可能每次只消耗 1 次）。
         self.click_box(_SWEEP_START_BOX, after_sleep=1)  # 点开始：快速战斗直接跳结算画面，不进战斗界面。
         result, confirm_box = self.wait_battle_finish(time_out=_SWEEP_BATTLE_TIMEOUT)  # 节流等待快速战斗结算画面（只检测不点击）。
         if confirm_box is None:  # 未识别到结算画面。
             raise WaitFailedException("未识别到快速战斗结算画面")  # 抛异常由 try_step 恢复。
-        self.log_info(f"{label}快速战斗结束（{result}）")  # 记录结算结果。
+        self.log_info(f"event={log_fields.EVENT_END} result={result} name=quick_battle label={label}")  # 记录结算结果。
         self.click_box(confirm_box, after_sleep=2)  # 点结算确认关闭结果画面。
         return result  # 返回结算结果供调用方记录。
 
@@ -937,9 +935,9 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
         self.log_debug(f"挑战关卡标记命中 {len(stages)} 个：{[(s.x, s.y) for s in stages]}")  # 命中明细便于实机校准。
         for stage in sorted(stages, key=lambda item: item.y, reverse=True):  # 自下而上（y 由大到小）逐个判态。
             if self.is_feature_enabled(stage):  # 非灰白 = 可用关卡。
-                self.log_info(f"挑战选中可用关卡标记 {stage}")  # 记录选中目标。
+                self.log_info(f"event={log_fields.EVENT_SELECT} name=challenge_stage stage={stage}")  # 记录选中目标。
                 return stage  # 返回第一个可用的（自下而上最近）。
-        self.log_info("挑战列表全部关卡标记均为灰白禁用态（今日次数已用完）")  # 记录无可打原因。
+        self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_CAPPED} name=challenge")  # 记录无可打原因。
         return None  # 无可用关卡。
 
     def _challenge_click_box(self, stage):  # 关卡标记 -> 点击框：标记贴行右边缘，沿 X 轴随机左移落进行主体。
@@ -975,7 +973,7 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
         if self.config.get("剧情"):  # 推图开关（与扫荡独立，任一开启都进关卡页）。
             target = self._progress_target()  # 目标 = 最下面的可打行（进页面即自动定位到当前进度关，先认当前屏）。
             if target is None:  # 无可打关卡：当前进度之后都是锁定行 = 已全通（或本期还没开放新关）。
-                self.log_info("无可打的剧情关卡（已全通或尚未开放），推图结束")  # 记录结束原因。
+                self.log_info(f"event={log_fields.EVENT_SKIP} reason=no_stage name=push_stages")  # 记录结束原因。
             else:  # 有可打关卡。
                 self._push_stages(target)  # 点行进入连续战斗链，结束落回关卡页。
         if self.config.get("扫荡"):  # 扫荡开关：对配置的可重复关卡快速战斗。
@@ -1021,7 +1019,7 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
         # 点它不会切页；只认第一个命中框会让「锁一个入口」拖垮整条剧情链（含 STORY I 的推图与扫荡）。
         for entry_box in self._story_entry_boxes():  # 候选按优先级：STORY II → STORY I。
             if self._entry_locked(entry_box):  # 亮度前置判断：整行灰暗 = 锁定入口，跳过省掉一次 _SD_ARRIVE_TIMEOUT 空等。
-                self.log_info(f"{entry_box.name} 亮度判据为锁定态（整行灰暗），跳过并尝试下一个剧情入口")  # 记录跳过原因。
+                self.log_info(f"event={log_fields.EVENT_SKIP} reason=entry_locked entry={entry_box.name}")  # 记录跳过原因。
                 continue  # 下一个候选。
             if self._try_enter_story_sub_page(entry_box):  # 点开并等剧情子页面就位。
                 return  # 已进入剧情子页面。
@@ -1036,7 +1034,7 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
         ready = self.wait_until(lambda: self._story_sub_entry_ready(),  # 轮询等剧情入口出现（每轮取新帧）。
                                 time_out=_SD_ARRIVE_TIMEOUT, settle_time=1.5)  # 命中后再稳定 1.5s，吸收切页动画里按钮仍位移的过渡期。
         if not ready:  # 窗口内未出现剧情子页面入口 = 该章节未开放/不可用。
-            self.log_warning(f"{entry_box.name} 点开后未进入剧情子页面（章节未开放/不可用）")  # 记录回落原因。
+            self.log_warning(f"event={log_fields.EVENT_SKIP} reason=sub_page_not_open entry={entry_box.name}")  # 记录回落原因。
         return ready  # 交由调用方决定回落下一个入口。
 
     def _story_sub_entry_ready(self):  # 剧情子页面就位判据：出现小活动同款剧情入口（STORY I/II 入口只在大活动菜单页）。
@@ -1066,10 +1064,10 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
                 break  # 详情页已就位，继续详情页内的战斗分支。
             if attempt < _CHALLENGE_CLICK_ATTEMPTS:  # 还有剩余尝试次数。
                 # 仍在挑战页 = 点击被吃掉/落点无效；已离开挑战页 = 页面开了但关闭按钮特征没认出来（改调 _STAGE_ENTER_TIMEOUT）。
-                self.log_info(f"第 {attempt} 次点击挑战关卡未进入详情页"
-                              f"（仍在挑战页={self.is_screen('event_challenge_page')}），重试")  # 记录重试原因与落点状态。
+                self.log_warning(f"event={log_fields.EVENT_FAIL} name=challenge_click attempt={attempt} "
+                                 f"on_challenge_page={self.is_screen('event_challenge_page')}")  # 记录重试原因与落点状态。
         else:  # 尝试次数用尽仍未进入详情页（正常应进详情页）。
-            self.log_warning(f"点击挑战关卡 {_CHALLENGE_CLICK_ATTEMPTS} 次均未进入详情页，结束挑战")  # 记录异常落点供排查。
+            self.log_warning(f"event={log_fields.EVENT_ABORT} reason={log_fields.REASON_RETRIES_EXHAUSTED} name=challenge_click attempts={_CHALLENGE_CLICK_ATTEMPTS}")  # 记录异常落点供排查。
             self._ensure_event_menu()  # 兜底回菜单页。
             return  # 结束挑战流程。
         quick_box = self._optional_box(_SWEEP_QUICK_BOX)  # 详情页「快速战斗」区域。
@@ -1083,10 +1081,10 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
                 result, confirm_box = self.wait_battle_finish(time_out=_STORY_BATTLE_TIMEOUT)  # 节流等待战斗结束（只检测不点击）。
                 if result is None:  # 等待战斗结束超时。
                     raise WaitFailedException("等待挑战关卡战斗结束超时")  # 抛异常由 try_step 恢复。
-                self.log_info(f"挑战战斗结束（{result}）")  # 记录结算结果。
+                self.log_info(f"event={log_fields.EVENT_END} result={result} name=challenge_battle")  # 记录结算结果。
                 self.click_box(confirm_box, after_sleep=_BATTLE_AFTER_SLEEP)  # 点结算返回键（回详情页或挑战页）。
             else:  # 快速战斗与普通战斗都不可用 = 当天已挑战过、没有次数。
-                self.log_info("挑战快速战斗与普通战斗均不可用（今日已挑战/次数已用完），结束挑战")  # 记录结束原因。
+                self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_CAPPED} name=challenge")  # 记录结束原因。
         # 收尾：结算后可能落回详情页，则先关详情页；再点返回键回活动菜单页（挑战页/详情页返回键逐期不同，走三层兜底）。
         if self._detail_page_open():  # 仍在关卡详情页（快速/普通战斗后常见落点）。
             self._close_stage_detail(to_screen="event_challenge_page")  # 关详情页回挑战页。
@@ -1103,14 +1101,14 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
         self.click_box(entry, after_sleep=2)  # 点击入口弹出任务弹窗（模态框，不注册为界面）。
         if not self.wait_until(self._mission_popup_ready,  # 轮询等弹窗就位（大活动认栏目图标，小活动认副标题）。
                                time_out=_MISSION_READY_TIMEOUT, settle_time=1.5):  # 命中后再稳定 1.5s，吸收弹窗开启动画。
-            self.log_warning("任务弹窗未在预期时间内出现，跳过领取")  # 记录跳过原因（弹窗未开则无需关闭）。
+            self.log_warning(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_NOT_FOUND} name=mission")  # 记录跳过原因（弹窗未开则无需关闭）。
             return  # 结束任务流程（仍在活动菜单页）。
         self._claim_mission_pages()  # 大活动两个栏目各领一轮，小活动单页领一轮。
         # 领取按钮灰白后点面板外空白关闭弹窗：确认回到活动菜单页即完成（模态框点空白等价点遮罩，对皮肤免疫）。
         if self.close_popup_by_blank(lambda: self.is_screen("event_main"), time_out=5):  # 关不掉时补点（默认次数）。
-            self.log_info("任务奖励领取完成，已回到活动菜单页")  # 记录完成。
+            self.log_info(f"event={log_fields.EVENT_END} result={log_fields.RESULT_SUCCESS} name=mission")  # 记录完成。
         else:  # 补点耗尽仍未确认关闭。
-            self.log_warning("点击空白未能关闭任务弹窗")  # 记录失败（弹窗遮挡会让后续子流程探测跳过）。
+            self.log_warning(f"event={log_fields.EVENT_FAIL} name=mission_close")  # 记录失败（弹窗遮挡会让后续子流程探测跳过）。
 
     def _mission_popup_ready(self):  # 弹窗就位判据：大活动两个栏目都定位到，或小活动副标题关键词命中。
         if self._mission_tabs() is not None:  # 大活动两栏目弹窗：栏目出现即弹窗已打开。
@@ -1157,7 +1155,7 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
                                   time_out=_MISSION_TAB_SWITCH_TIMEOUT, settle_time=0)  # 瞬态判据不额外稳定等待。
         if not current:  # 超时未确认切换。
             return None  # 由调用方决定降级处理。
-        self.log_info(f"任务弹窗栏目已切换：{previous} → {current}")  # 记录切换前后的页面状态。
+        self.log_info(f"event={log_fields.EVENT_SELECT} name=mission_tab previous={previous} current={current}")  # 记录切换前后的页面状态。
         return current  # 返回切换后的副标题文字。
 
     def _claim_mission_pages(self):  # 任务奖励领取编排：大活动两栏目各领一轮（先成就后每日任务），小活动单页领一轮。
@@ -1168,17 +1166,17 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
             return  # 结束领取。
         state = self._mission_subtitle_text()  # 记录点开时的页面状态（默认停在「每日任务」页）。
         if state is None:  # 副标题未识别到（区域未标注 / 渲染异常）：不冒险切换，只领当前页。
-            self.log_warning("未识别到任务弹窗副标题，仅领取当前栏目")  # 记录降级原因。
+            self.log_warning(f"event={log_fields.EVENT_SKIP} reason=subtitle_missing name=mission")  # 记录降级原因。
             self._claim_mission_rewards()  # 只领当前页。
             return  # 结束领取。
         state = self._switch_mission_tab(tabs["challenge"], state)  # 切到「成就」栏目。
         if state is None:  # 切换未确认。
-            self.log_warning("任务弹窗未切换到「成就」栏目，仅领取当前栏目")  # 记录降级原因。
+            self.log_warning(f"event={log_fields.EVENT_SKIP} reason=tab_switch_failed tab=challenge")  # 记录降级原因。
             self._claim_mission_rewards()  # 只领当前页。
             return  # 结束领取。
         self._claim_mission_rewards()  # 成就栏目：循环领到「全部领取」灰白。
         if self._switch_mission_tab(tabs["daily"], state) is None:  # 切回「每日任务」栏目未确认。
-            self.log_warning("任务弹窗未切换回「每日任务」栏目，结束领取")  # 记录结束原因（成就栏目已领完）。
+            self.log_warning(f"event={log_fields.EVENT_ABORT} reason=tab_switch_failed tab=daily")  # 记录结束原因（成就栏目已领完）。
             return  # 结束领取。
         self._claim_mission_rewards()  # 每日任务栏目：循环领到「全部领取」灰白。
 
@@ -1194,15 +1192,14 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
         for _ in range(_MISSION_CLAIM_MAX_CLICKS):  # 次数上限保护：点击未生效时不再无限循环。
             claim = self._find_claim_all()  # 弹窗底部「全部领取」文字（与签到印章同一判据文字与搜索区域）。
             if claim is None:  # 文字消失（弹窗已被关掉或页面结构变化）。
-                self.log_warning("未识别到任务弹窗「全部领取」，停止领取")  # 记录异常供排查。
+                self.log_warning(f"event={log_fields.EVENT_ABORT} reason={log_fields.REASON_NOT_FOUND} name=mission_claim")  # 记录异常供排查。
                 return  # 结束领取。
             if not self.is_feature_enabled(self._claim_button_box(claim)):  # 外扩取到按钮底色判态：灰白 = 已无可领奖励。
-                self.log_info("任务奖励已无可领取（「全部领取」为灰白态）")  # 记录结束状态。
+                self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_NO_REWARD} name=mission")  # 记录结束状态。
                 return  # 结束领取。
             self.click_box(claim, after_sleep=1)  # 点击全部领取（一次性领取当前全部可领档位）。
-            self.log_info("已点击任务弹窗「全部领取」")  # 记录动作。
             self._close_claim_overlay()  # 领取后可能弹奖励遮罩（复用登录奖励同一套遮罩清理）。
-        self.log_warning(f"任务奖励领取点击达到上限 {_MISSION_CLAIM_MAX_CLICKS}，停止领取")  # 上限耗尽仍未收敛，记录异常。
+        self.log_warning(f"event={log_fields.EVENT_ABORT} reason={log_fields.REASON_CAPPED} limit={_MISSION_CLAIM_MAX_CLICKS} name=mission_claim")  # 上限耗尽仍未收敛，记录异常。
 
     def _flow_shop(self):  # 商店流程（自足重入）：购买活动商店商品。实机未标定前占位，非幂等流程留 v1.5。
         self.log_info("商店流程占位：TODO 实机标定商店页判据")  # 记录占位。

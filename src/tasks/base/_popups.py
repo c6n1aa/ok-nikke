@@ -5,6 +5,8 @@ import time  # 时间模块，处理弹窗清理等待与超时。
 from ok.feature.Box import Box  # 检测框对象，用于构造关闭按钮/领取按钮的搜索区域。
 from ok.task.exceptions import TaskDisabledException, WaitFailedException  # 任务被停止与等待失败异常。
 
+from src import log_fields  # 日志字段取值词表（单一数据源）。
+
 
 class PopupsMixin:
     """弹窗/遮罩统一清理：公告横幅、卢比限时特卖、登录奖励面板与各类领奖遮罩。
@@ -79,7 +81,6 @@ class PopupsMixin:
         if confirm is None:  # 文字命中但确认按钮未识别到。
             return False  # 本轮不点击，交由下一轮重试。
         self.click_box(confirm, after_sleep=1)  # 点击确认选中服务器。
-        self.log_info("已确认服务器选择。")  # 记录动作。
         return True  # 返回已处理。
 
     def _close_notice_popup(self):
@@ -108,7 +109,6 @@ class PopupsMixin:
         if close is None:  # 找不到关闭按钮（可能不是公告弹窗）。
             return False  # 返回未命中，跳过本轮关闭。
         self.click_box(close, after_sleep=1)  # 点击关闭按钮并等待弹窗关闭动画完成。
-        self.log_info("已关闭公告/活动弹窗。")  # 记录关闭动作。
         return True  # 返回成功，供上层继续检测大厅。
 
     def _close_rupee_flash_sale_popup(self):
@@ -121,12 +121,10 @@ class PopupsMixin:
         confirm = self.find_one("rupee_flash_sale_close_confirm")  # 优先识别详情弹窗的关闭确认按钮。
         if confirm is not None:  # 详情弹窗已打开。
             self.click_box(confirm, after_sleep=1)  # 点击关闭确认按钮关闭详情弹窗。
-            self.log_info("已关闭卢比限时特卖弹窗。")  # 记录关闭动作。
             return True  # 返回已处理。
         banner = self.find_one("rupee_flash_sale")  # 识别限时特卖入口横幅。
         if banner is not None:  # 入口横幅存在。
             self.click_box(banner, after_sleep=1)  # 点击横幅打开详情弹窗，下一轮再关闭。
-            self.log_info("已点击卢比限时特卖入口。")  # 记录点击动作。
             return True  # 返回已处理。
         return False  # 当前帧无卢比限时特卖相关界面。
 
@@ -174,7 +172,6 @@ class PopupsMixin:
             return False  # 返回未处理。
         if self.is_feature_enabled(self._daily_login_button_box(claim)):  # 底色彩色 = 仍有可领奖励。
             self.click_box(claim, after_sleep=1)  # 点击领取。
-            self.log_info("已点击登录奖励全部领取。")  # 记录动作。
             # 领取后弹出奖励遮罩（盖住面板）：等待并关闭，避免遮罩残留或下一轮误点面板的关闭按钮。
             self.close_overlay(
                 keywords=(self._MASK_CLAIM_PATTERN, self._MASK_ANYWHERE_PATTERN, self._CLICK_TO_PROCEED_PATTERN),
@@ -182,9 +179,9 @@ class PopupsMixin:
             )
             return True  # 返回已处理。
         if not self.close_popup_by_blank(lambda: self._find_daily_login_claim_all() is None):  # 无可领（按钮灰白）：点空白关闭，按「全部领取」文字消失确认关闭。
-            self.log_warning("点击空白未能关闭登录奖励弹窗。")  # 记录失败（面板可能已自行关闭或点击被吞）。
+            self.log_warning(f"event={log_fields.EVENT_FAIL} name=close_daily_login")  # 记录失败（面板可能已自行关闭或点击被吞）。
             return False  # 返回未处理。
-        self.log_info("已关闭登录奖励弹窗。")  # 记录动作。
+        self.log_info(f"event={log_fields.EVENT_END} result={log_fields.RESULT_SUCCESS} name=close_daily_login")  # 记录关闭完成。
         return True  # 返回已处理。
 
     def close_overlay(self, keywords=None, time_out=5, after_sleep=1, max_clicks=3,
@@ -216,21 +213,20 @@ class PopupsMixin:
             boxes = self.ocr(x=1 / 3, y=0.6, to_x=2 / 3, to_y=1, match=list(keywords))  # 在中下部区域 OCR 匹配关键词，覆盖位于 rel_y≈0.64 的“点击领取奖励”。
             if boxes:  # 当前仍有遮罩按钮。
                 if clicks >= max_clicks:  # 超过最大连续点击次数。
-                    self.log_warning(f"遮罩点击 {max_clicks} 次仍存在，停止。")  # 记录异常并停止，避免死循环。
+                    self.log_warning(f"event={log_fields.EVENT_ABORT} reason={log_fields.REASON_CAPPED} limit={max_clicks}")  # 记录异常并停止，避免死循环。
                     break  # 退出循环。
                 self.click_box(boxes[0], after_sleep=after_sleep)  # 点击第一个匹配框并等待弹窗响应。
-                self.log_info(f"点击遮罩按钮: {keywords}")  # 记录本次点击。
                 clicked = True  # 标记已点击过。
                 clicks += 1  # 点击次数加一。
                 continue  # 继续检测下一个弹窗或确认已关闭。
             if clicked:  # 点过且当前无遮罩，说明弹窗已关闭。
-                self.log_info("遮罩已全部关闭。")  # 记录全部关闭完成。
+                self.log_info(f"event={log_fields.EVENT_END} result={log_fields.RESULT_SUCCESS} name=close_overlay")  # 记录全部关闭完成。
                 return True  # 关闭成功，立即返回。
             self.sleep(1)  # 遮罩尚未出现，等待 1 秒后重试直到超时。
         if not clicked:  # 全程未出现遮罩。
             if require_click:  # 明确要求至少关闭一次但未点到。
                 raise WaitFailedException(f"未找到遮罩按钮 {keywords}，未能关闭弹窗。")  # 抛出等待失败异常，便于上层 try_step 捕获重试。
-            self.log_info("未出现遮罩，跳过。")  # 记录超时未出现。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_NOT_FOUND} name=close_overlay")  # 记录超时未出现。
         return clicked  # 超时或点满次数后返回当前状态。
 
     def _try_close_one_popup(self, after_sleep=1):
@@ -262,7 +258,6 @@ class PopupsMixin:
             return False  # 本帧无遮罩可关。
         if boxes:  # 存在遮罩按钮。
             self.click_box(boxes[0], after_sleep=after_sleep)  # 点击关闭遮罩。
-            self.log_info("点击遮罩按钮关闭弹窗。")  # 记录关闭动作。
             return True  # 已关闭一个遮罩。
         try:  # 登录奖励面板含 OCR 与模板匹配，异常同样不应中断统一清理。
             if self._close_daily_login_popup():  # 位于遮罩之下，故排在遮罩之后处理。
@@ -301,7 +296,7 @@ class PopupsMixin:
         while time.time() - start < time_out:  # 循环直到超时。
             passes += 1  # 轮数加一。
             if passes > max_passes:  # 超过轮次上限。
-                self.log_warning(f"清理弹窗达到轮次上限（{max_passes}），停止。")  # 记录异常并停止。
+                self.log_warning(f"event={log_fields.EVENT_ABORT} reason={log_fields.REASON_CAPPED} limit={max_passes} name=dismiss_all_popups")  # 记录异常并停止。
                 return False  # 返回失败。
             if self._try_close_one_popup(after_sleep=after_sleep):  # 关掉了一个弹窗。
                 closed_any = True  # 标记已关闭过弹窗。
@@ -323,7 +318,7 @@ class PopupsMixin:
                 return True  # 无需清理，立即返回。
             self.sleep(1)  # 弹窗可能尚未出现（点击后延迟），等待出现。
         if closed_any:  # 超时但关闭过弹窗，仍有弹窗残留。
-            self.log_warning(f"清理弹窗超时（{time_out}秒）。")  # 记录超时。
+            self.log_warning(f"event={log_fields.EVENT_ABORT} reason={log_fields.REASON_TIMEOUT} time_out={time_out} name=dismiss_all_popups")  # 记录超时。
             return False  # 返回失败。
-        self.log_info("未发现弹窗，无需清理。")  # 超时未出现任何弹窗。
+        self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_NOT_FOUND} name=dismiss_all_popups")  # 超时未出现任何弹窗。
         return True  # 视为清理完成。

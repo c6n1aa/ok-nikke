@@ -4,6 +4,7 @@ import time  # 时间模块，处理战斗结束等待与超时。
 from ok.feature.Box import find_boxes_by_name  # 按名过滤 OCR 框，复刻 ocr(match=...) 的过滤语义。
 from ok.task.exceptions import TaskDisabledException  # 战斗等待中被用户停止时需原样传播的中断异常。
 
+from src import log_fields  # 日志字段取值词表（单一数据源）。
 from src.screens import INTERRUPTS  # 中断哨兵清单（断线/维护/登录过期弹窗特征）。
 from src.tasks.base._exceptions import InterruptedByDialogException  # 长等待命中致命中断弹窗时抛出。
 
@@ -54,32 +55,32 @@ class BattleMixin:
             self.log_debug(f"战斗轮询第 {polls} 次（每 {check_interval} 秒一帧），已耗时 {time.time() - (deadline - time_out):.0f} 秒。")  # debug 日志确认轮询节奏。
             if self._hit_interrupt() is not None:  # 先查中断哨兵：断线/维护/登录过期弹窗会让后续匹配全部落空，快速失败优于空转等满超时。
                 self.save_failure_screenshot("interrupt")  # 保存中断现场截图便于排查。
-                self.log_warning("检测到致命中断弹窗，中止长等待。")  # 记录中断原因。
+                self.log_warning(f"event={log_fields.EVENT_ABORT} reason=interrupt name=wait_battle_finish")  # 记录中断原因。
                 raise InterruptedByDialogException("long wait interrupted by dialog")  # 由 try_step 按等待失败恢复。
             # 胜利判定主路径：对 box_battle_finish_text 区域 OCR 识别 ESC 确认文字。
             text_box = self._battle_finish_text_box()  # 获取结算文字区域框（coco 坐标区域，按当前分辨率缩放；特征缺失为 None）。
             if text_box is not None and self._esc_visible(text_box):  # 该区域命中 ESC 文字，判定正常结束。
                 confirm = self._stabilize_battle_finish_box(text_box, settle_time=settle_time)  # 等结算动画收尾后复识别确认仍在结算界面，返回统一可点击区域框。
-                self.log_info("检测到战斗胜利结算界面。")  # 记录正常结束。
+                self.log_info(f"event={log_fields.EVENT_END} result={log_fields.RESULT_SUCCESS} name=wait_battle_finish")  # 记录正常结束。
                 return "success", confirm  # 返回结果与确认按钮框，由调用方决定后续动作。
             # OCR 未命中兜底：在结算右下区查找 battle_finish_statistics，命中即判胜利。
             # 返回的可点击框仍统一为 box_battle_finish_text 区域：statistics 仅做检测，不做可点击框。
             statistics = self.find_one("battle_finish_statistics", box="box_battle_finish_bottom_right")  # 限定在右下角结算信息区匹配统计文字特征，避免全屏误命中。
             if statistics is not None:  # OCR 未命中但 statistics 兜底命中，判定为战斗胜利。
                 confirm = self._stabilize_battle_finish_box(text_box if text_box is not None else statistics, settle_time=settle_time)  # 等结算动画收尾后复识别确认，返回统一可点击区域框。
-                self.log_info("检测到战斗胜利结算界面（statistics 兜底）。")  # 记录经兜底判定的正常结束。
+                self.log_info(f"event={log_fields.EVENT_END} result={log_fields.RESULT_SUCCESS} name=wait_battle_finish fallback=statistics")  # 记录经兜底判定的正常结束。
                 return "success", confirm  # 返回结果与确认按钮框，由调用方决定后续动作。
             failed = self.find_one("battle_finish_failed")  # 单帧匹配战斗失败特征。
             failed_back = self.find_one("battle_finish_failed_back")  # 单帧匹配失败返回按钮特征。
             if failed is not None and failed_back is not None:  # 战斗失败。
                 failed_back = self._stabilize_battle_finish_box(failed_back, failed=True, settle_time=settle_time)  # 同样等稳定后重新定位失败返回按钮。
-                self.log_info("检测到战斗失败结算界面。")  # 记录失败结束。
+                self.log_info(f"event={log_fields.EVENT_END} result={log_fields.RESULT_FAILED} name=wait_battle_finish")  # 记录失败结束。
                 return "failed", failed_back  # 返回结果与返回按钮框，由调用方决定后续动作。
             if not auto_checked and self._in_battle_page():  # 结算判定都未命中且识别到暂停按钮=确已进入自动战斗界面（快速战斗无战斗界面，不会走到这里）。
                 auto_checked = True  # 置位标记：整个等待流程内只开启一次。
                 self._enable_battle_auto_once()  # 开启自动瞄准/自动爆裂（内部吞异常，失败也不影响继续等待战斗结束）。
         self.save_failure_screenshot("wait_battle_finish")  # 超时保存现场截图便于排查。
-        self.log_warning(f"等待战斗结束超时（{time_out}秒）。")  # 记录超时原因。
+        self.log_warning(f"event={log_fields.EVENT_ABORT} reason={log_fields.REASON_TIMEOUT} name=wait_battle_finish time_out={time_out}")  # 记录超时原因。
         return None, None  # 返回超时结果。
 
     def _in_battle_page(self) -> bool:

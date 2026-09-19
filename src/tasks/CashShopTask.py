@@ -2,6 +2,7 @@ import re  # 正则模块，用于 OCR 文字的部分匹配。
 
 from ok.task.exceptions import WaitFailedException  # 框架等待失败异常，子流程断言失败时抛出由 try_step 捕获。
 
+from src import log_fields  # 日志字段取值词表（单一数据源）。
 from src.tasks.NikkeBaseTask import NikkeBaseTask  # 项目基类，所有任务统一继承它。
 
 
@@ -31,7 +32,7 @@ class CashShopTask(NikkeBaseTask):  # 付费商店免费礼包领取任务，继
 
     def _switch_nav(self, screen_name, feature_name):  # 幂等切换左侧导航到目标礼包页。
         if self.is_screen(screen_name):  # 已在目标页：页签处于高亮态、模板匹配不到，直接跳过点击。
-            self.log_info(f"已在{screen_name}，跳过导航点击。")  # 记录跳过原因。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason=already_there screen={screen_name}")  # 记录跳过原因。
             return  # 结束切换。
         nav_box = self.get_box_by_name("box_cash_shop_nav_bar")  # 获取导航栏标注区域。
         self.wait_click_feature(feature_name, box=nav_box, time_out=10, raise_if_not_found=True, after_sleep=1)  # 在导航栏内查找并点击目标导航项。
@@ -45,9 +46,8 @@ class CashShopTask(NikkeBaseTask):  # 付费商店免费礼包领取任务，继
         if free_box:  # 识别到免费按钮。
             self.click_box(free_box[0], after_sleep=1)  # 点击免费按钮购买礼包。
             self.dismiss_all_popups(time_out=10)  # 处理购买后出现的遮罩层（默认等待弹窗出现）。
-            self.log_info("已领取 STEP UP 免费礼包。")  # 记录领取成功。
         else:  # 未识别到免费按钮（已领取或不可用）。
-            self.log_info("STEP UP 免费礼包已领取，跳过。")  # 记录跳过原因。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason=already_claimed pack=stepup")  # 记录跳过原因。
         self.mark_done("cash_shop_stepup", "day")  # 标记 STEP UP 本日已完成。
 
     def _do_ordinary_packs(self):  # 每日/每周/每月免费礼包：普通礼包页 → 逐页签领取。
@@ -58,16 +58,15 @@ class CashShopTask(NikkeBaseTask):  # 付费商店免费礼包领取任务，继
                 continue  # 处理下一个页签。
             tab = self.wait_click_ocr(box=tab_bar, match=re.compile(keyword, re.IGNORECASE), time_out=10, raise_if_not_found=False, after_sleep=1)  # OCR 识别并点击当前页签。
             if tab is None:  # 当前页签不存在。
-                self.log_warning(f"未找到{keyword}页签，跳过。")  # 记录跳过原因。
+                self.log_warning(f"event={log_fields.EVENT_SKIP} reason=tab_missing tab={keyword}")  # 记录跳过原因。
                 continue  # 处理下一个页签。
             sold_out = self.wait_feature("cash_shop_free_package_sold_out", time_out=5, raise_if_not_found=False)  # 判断免费礼包是否售罄。
             if sold_out is None:  # 未售罄，可购买。
                 buy_box = self.get_box_by_name("cash_shop_free_package_sold_out")  # 获取售罄标签标注区域作为购买按钮位置。
                 self.click_box(buy_box, after_sleep=1)  # 点击购买免费礼包。
                 self.dismiss_all_popups(time_out=10)  # 处理购买后出现的遮罩层（默认等待弹窗出现）。
-                self.log_info(f"已领取{keyword}免费礼包。")  # 记录领取成功。
             else:  # 已售罄。
-                self.log_info(f"{keyword}免费礼包已售罄，跳过。")  # 记录跳过原因。
+                self.log_info(f"event={log_fields.EVENT_SKIP} reason=sold_out tab={keyword}")  # 记录跳过原因。
             self.mark_done(done_key, period)  # 标记当前页签本周期已完成。
 
     # ---- 合并子流程（re-entrant，由 try_step 包裹）----
@@ -84,22 +83,23 @@ class CashShopTask(NikkeBaseTask):  # 付费商店免费礼包领取任务，继
             try:  # 单流程失败不中断整体。
                 self._do_stepup_pack()  # 领取 STEP UP 免费礼包。
             except WaitFailedException as e:  # STEP UP 领取失败。
-                self.log_warning(f"STEP UP 免费礼包领取失败，跳过（当前界面 {self.current_screen()}）：{e}")  # 记录失败现场并继续后续礼包。
+                self.log_warning(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_FAILED} pack=stepup screen={self.current_screen()} error={e}")  # 记录失败现场并继续后续礼包。
         try:  # 普通礼包失败不中断整体。
             self._do_ordinary_packs()  # 领取每日/每周/每月免费礼包。
         except WaitFailedException as e:  # 普通礼包领取失败。
-            self.log_warning(f"每日/每周/每月免费礼包领取失败，跳过（当前界面 {self.current_screen()}）：{e}")  # 记录失败现场并继续。
+            self.log_warning(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_FAILED} pack=ordinary screen={self.current_screen()} error={e}")  # 记录失败现场并继续。
         self._exit_to_lobby()  # 统一退出回大厅。
 
     # ---- run 入口 ----
 
     def run(self):  # 任务执行入口，一次进店连续领取全部免费礼包。
-        self.log_info("付费商店任务开始。")  # 记录任务开始。
+        if not self._has_pending_packs():  # 全部免费礼包本周期已完成（无副作用，先判完成）。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_ALREADY_DONE}")  # 记录跳过。
+            return  # 结束本次执行。
         if not self.ensure_screen("lobby", raise_on_fail=False):  # 启动后就位游戏大厅（幂等闸门：含冷启动引导与弹窗清理），失败则中止。
-            self.log_error("未能进入游戏大厅，中止付费商店任务。")  # 记录失败原因。
+            self.log_error(f"event={log_fields.EVENT_ABORT} reason={log_fields.REASON_LOBBY_NOT_FOUND}")  # 记录失败原因。
             return  # 结束本次执行。
-        if not self._has_pending_packs():  # 全部免费礼包本周期已完成。
-            self.log_info("付费商店免费礼包均已完成，跳过。")  # 记录跳过。
+        if not self.try_step(self._combined_step, name="付费商店", raise_on_fail=False):  # 合并子流程：进店→STEP UP→普通礼包→统一退出，失败不中断。
+            self.log_warning(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_RETRIES_EXHAUSTED}")  # 记录失败原因。
             return  # 结束本次执行。
-        self.try_step(self._combined_step, name="付费商店", raise_on_fail=False)  # 合并子流程：进店→STEP UP→普通礼包→统一退出，失败不中断。
-        self.log_info("付费商店任务完成。")  # 记录任务完成。
+        self.log_info(f"event={log_fields.EVENT_END} result={log_fields.RESULT_SUCCESS}")  # 记录任务完成。

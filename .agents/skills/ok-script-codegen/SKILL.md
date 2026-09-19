@@ -31,8 +31,18 @@ Use the official API document as the source of truth when API details are needed
 - Use `click_relative(x, y)` for approximate click positions.
 - Use `click_box(box)` when OCR or template matching returns a box.
 - Do not call `self.ensure_in_front()` unless the user explicitly asks to bring the window to the foreground.
-- Use `self.log_info(...)`, `self.log_warning(...)`, and `self.info_set(...)` for progress and visible status.
+- Use `self.log_info(...)`, `self.log_warning(...)`, and `self.info_set(...)` for progress and visible status, following the "Logging Rules" section below.
 - Use OpenCV only when it is necessary. Do not add external libraries unless the user explicitly requests them.
+
+## Logging Rules
+
+- Emit structured logs: space-separated `key=value` fields, with the field keys written inline at the call site (`step=`, `event=`, `reason=`, `result=`, `key=`, `period=`) and the values taken from the project vocabulary instead of literals. In this project the vocabulary is `src/log_fields.py` (single source of truth): `from src import log_fields`, then `event={log_fields.EVENT_START}`.
+- Task identity is carried by the logger's class-name prefix. Never repeat the task name inside a field.
+- Do not log a click. The framework's `click` / `click_box` / `wait_click_feature` / `wait_click_ocr` already emit `left_click <name> (x, y)` whenever a `name` (or `box.name`) is present. Add a log line only when it carries a fact the framework cannot know — a decision basis, a selected target, a measured value.
+- Step boundaries (`start` / `end` / `fail` / `abort`) are emitted once by the project's `try_step`, which binds the step name to `self._active_step`. Reference `self._active_step` at inner call sites; never define a step-name literal.
+- Keep fine-grained diagnostics (missing feature, OCR parse detail, layout calibration) as concise prose. Use the vocabulary only for lifecycle, selection (`event=select`), result (`result=success|failed`), and cross-task `reason=` facts; task-private reasons stay local.
+- `event=` values: `start` / `end` / `skip` / `fail` / `abort` / `round` / `select`. `result=` values: `success` / `failed`. General `reason=` values: `already_done`, `disabled`, `lobby_not_found`, `retries_exhausted`, `capped`, `timeout`, `entry_missing`, `no_reward`, `battle_failed`, and the rest of `log_fields`.
+- Use `self.info_set(...)` / `self.info_incr(...)` for structured status shown in the GUI, and `self.log_*` for the log stream.
 
 ## Code Comment Rule
 
@@ -47,11 +57,15 @@ Example:
 ```python
 import re  # 导入正则模块，用于 OCR 文本的部分匹配。
 
+from src import log_fields  # 日志字段取值词表（单一数据源）。
+
 def run(self):  # 定义任务运行入口。
-    self.log_info("开始执行任务")  # 记录任务开始执行。
+    self.log_info(f"event={log_fields.EVENT_START}")  # 记录任务开始（任务身份由 logger 类名前缀承担）。
     start_button = self.wait_ocr(match="开始", time_out=5)  # 等待 OCR 精确匹配“开始”按钮。
     if start_button:  # 如果找到了开始按钮，就继续执行点击。
-        self.click_box(start_button, after_sleep=0.5)  # 点击找到的按钮，并等待界面刷新。
+        self.click_box(start_button, after_sleep=0.5)  # 点击找到的按钮，并等待界面刷新；点击由框架自动记录。
+    else:  # 未找到开始按钮。
+        self.log_warning(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_NOT_FOUND}")  # 记录跳过原因。
 ```
 
 ## Frame Refresh Rules
@@ -103,10 +117,10 @@ When screenshots are attached:
 
 ## Error Handling
 
-- Use `raise_if_not_found=False` for optional waits, then check the result and log a warning.
+- Use `raise_if_not_found=False` for optional waits, then check the result and log a structured skip (`event=skip reason=...`).
 - Use `raise_if_not_found=True` only when failure should stop the task.
-- If task failure should not crash the task, call `self.log_warning(...)` and `return`.
-- Use `try/except` only around meaningful failure boundaries, and log with `self.log_error(...)`.
+- If task failure should not crash the task, log a structured skip with `self.log_warning(...)` and `return`.
+- Use `try/except` only around meaningful failure boundaries, and log with `self.log_error(...)` including `event=fail|abort` and a `reason=` value.
 - Do not write an infinite loop unless the user explicitly requests continuous automation.
 - If a loop is requested, use `while True:` with `self.sleep(...)` inside the loop and no `self.exit_is_set()`.
 
@@ -133,3 +147,4 @@ Before answering, verify:
 - OCR uses lists for multiple targets when possible.
 - Regex is used for partial text matching.
 - Template usage is clearly marked as requiring manual annotation unless the user gave an existing template name.
+- Logs are structured `key=value`, use the project vocabulary (`src/log_fields.py`) rather than literal values, and do not restate framework auto-logged clicks.

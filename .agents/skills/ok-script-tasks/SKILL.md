@@ -27,6 +27,7 @@ When more detail is needed, read:
    `name`, `description`, `default_config`, `config_description`, `config_type`, `supported_languages`, icons, grouping, and scheduling flags.
 4. Implement `run()` with small, observable steps.
    Use `self.log_info`, `self.log_warning`, `self.info_set`, `self.wait_until`, `self.next_frame`, `self.sleep`, `self.click_relative`, `self.find_one`, `self.wait_click_feature`, `self.ocr`, and `self.wait_ocr` instead of ad hoc polling or direct device calls.
+   Emit structured `key=value` logs: field keys inline, values from the project vocabulary (in this project `src/log_fields.py`). See "Logging" below.
 5. Register the task according to the project style:
    built-in config list, `ok_tasks` custom task folder, or imported script package.
 6. If the project uses gettext catalogs, sync task translations with `$ok-script-i18n`.
@@ -42,6 +43,19 @@ Support English and Chinese in both code review and generated code.
 - Include both English and Chinese OCR match text when the UI may appear in either language.
 - Use `supported_languages` only to hide a task in unsupported locales. Common locale names are `en_US`, `zh_CN`, `zh_TW`, `ja_JP`, `ko_KR`, and `es_ES`.
 - Do not hard-code assumptions from the source project used to study `ok-script` unless the target project explicitly uses them.
+
+## Logging
+
+Use structured, greppable logs: space-separated `key=value` fields, field keys written inline at the call site, and field values taken from a shared vocabulary module instead of literals.
+
+- In this project the vocabulary is `src/log_fields.py` (single source of truth): `from src import log_fields`, then `event={log_fields.EVENT_START}`, `reason={log_fields.REASON_ALREADY_DONE}`.
+- Task identity is carried by the logger's class-name prefix (`Logger.get_logger(self.__class__.__name__)`); never repeat the task name in a field.
+- Do not log a click. The framework's `click` / `click_box` / `wait_click_feature` / `wait_click_ocr` already emit `left_click <name> (x, y)` when a `name` (or `box.name`) is present. Log only facts the framework cannot know (decision basis, selected target, measured value).
+- Step boundaries (`start` / `end` / `fail` / `abort`) are emitted once by the project's `try_step`, which binds the step name to `self._active_step`; reference that attribute at inner call sites rather than defining step-name literals.
+- `event=`: `start` / `end` / `skip` / `fail` / `abort` / `round` / `select`. `result=`: `success` / `failed`. `reason=`: cross-task values such as `already_done`, `disabled`, `lobby_not_found`, `retries_exhausted`, `capped`, `timeout`, `entry_missing`, `no_reward`, `battle_failed`. Task-private reasons stay local (e.g. `reason=no_gift_available`).
+- Keep fine-grained diagnostics (missing feature, OCR parse detail, calibration) as concise prose; reserve the vocabulary for lifecycle, selection, result, and reasons.
+- `self.info_set(...)` / `self.info_incr(...)` are the structured status channel shown in the GUI; `self.log_*` writes the log stream.
+- If the target project has no vocabulary module, keep a module-level string-constant table (not a class or enum) and apply the same key=value discipline.
 
 ## Essential Rules
 

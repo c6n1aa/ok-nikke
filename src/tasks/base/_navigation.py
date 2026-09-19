@@ -3,6 +3,7 @@ import time  # 时间模块，处理导航等待与超时。
 
 from ok.task.exceptions import TaskDisabledException, WaitFailedException  # 任务被停止与等待失败异常。
 
+from src import log_fields  # 日志字段取值词表（单一数据源）。
 from src.screens import LOGIN_PAGE_PATTERN  # 登录页 TOUCH TO CONTINUE 正则与 login_page 判定同源（TOUCH\s+TO\s+CONTINUE，容忍 OCR 空白抖动）。
 
 
@@ -10,6 +11,7 @@ class NavigationMixin:
     """守卫式导航 + 失败恢复 + 冷启动引导：大厅就位、入口转换、回大厅与单步恢复协议。"""
 
     _BACK_TEXT = re.compile("返回")  # 返回按钮文字，OCR 兜底用。
+    _active_step = None  # 当前 try_step 的步骤标识；步骤内日志用 self._active_step 取步骤名，无需各自复述。
 
     def wait_for_lobby(self, time_out=120, raise_if_not_found=True):
         """等待游戏大厅出现，通过识别大厅中的方舟按钮(ark)判断是否已进入游戏大厅。
@@ -62,9 +64,9 @@ class NavigationMixin:
             if self.wait_for_lobby(time_out=10, raise_if_not_found=False):  # 已确认回到大厅。
                 return  # 成功收尾。
             if attempt == 0:  # 首轮未确认：点击可能被延迟弹出的遮罩吞掉。
-                self.log_warning("返回大厅未确认，清理弹窗后重试")  # 暴露遮罩吞点击的异常路径。
+                self.log_warning(f"event={log_fields.EVENT_FAIL} reason=lobby_not_confirmed")  # 暴露遮罩吞点击的异常路径。
                 self.dismiss_all_popups(wait_for_popup=False, time_out=5)  # 清理遮罩后进入补点轮。
-        self.log_warning("返回大厅两轮仍未确认，交由上层恢复兜底")  # 保持静默语义，但留下诊断日志。
+        self.log_warning(f"event={log_fields.EVENT_ABORT} reason=lobby_not_confirmed")  # 保持静默语义，但留下诊断日志。
 
     def _click_enter_game(self):
         """在 coco 特征 box_enter_game 区域内 OCR 识别 TOUCH TO CONTINUE 并点击进入游戏，返回是否点击。"""
@@ -78,28 +80,27 @@ class NavigationMixin:
         if not matches:  # 当前帧未识别到目标文字。
             return False
         self.click_box(matches[0], after_sleep=1)  # 点击进入游戏按钮（命中识别框中心）并等待响应。
-        self.log_info("已点击 TOUCH TO CONTINUE 进入游戏。")  # 记录点击动作。
         return True  # 返回成功。
 
     def wait_until_lobby_after_start(self, time_out=180):
         """点击任务开始后确保进入游戏大厅：已在大厅直接返回 True；否则循环关闭公告/活动弹窗并点击 TOUCH TO CONTINUE，直到确认大厅或超时。"""
         if self.is_screen("lobby"):  # 单帧检测当前是否已在大厅。
-            self.log_info("已在大厅，跳过游戏启动流程。")  # 记录无需等待。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_IN_LOBBY}")  # 记录无需等待。
             return True
-        self.log_info("游戏尚未进入大厅，开始等待加载完成。")  # 记录开始等待。
+        self.log_info(f"event={log_fields.EVENT_START} time_out={time_out}")  # 记录开始等待。
         deadline = time.time() + time_out  # 记录整体超时时刻。
         while time.time() < deadline:  # 循环直到超时。
             self.next_frame()  # 刷新一帧，避免使用旧帧。
             if self.is_screen("lobby"):  # 当前帧已进入大厅（可能在弹窗遮挡下提前出现）。
                 self.sleep(1)  # 等待大厅界面完全加载，避免漏关延迟弹出的弹窗。
                 self.dismiss_all_popups(clear_condition=lambda: self.is_screen("lobby"), time_out=10)  # 统一清理进入游戏后可能残留的公告/活动弹窗。
-                self.log_info("已进入游戏大厅。")  # 记录到达大厅。
+                self.log_info(f"event={log_fields.EVENT_END} result={log_fields.RESULT_SUCCESS}")  # 记录到达大厅。
                 return True
             self.dismiss_all_popups(wait_for_popup=False, time_out=10)  # 统一清理 loading 阶段可能弹出的公告/活动弹窗与领取奖励遮罩，无弹窗时立即返回。
             self._click_enter_game()  # 识别并点击 TOUCH TO CONTINUE 进入游戏。
             self.sleep(1)  # 等待界面变化后进入下一轮。
         self.save_failure_screenshot("wait_until_lobby_after_start")  # 超时保存现场截图便于排查。
-        self.log_warning(f"等待进入游戏大厅超时（{time_out}秒）。")  # 记录超时原因。
+        self.log_warning(f"event={log_fields.EVENT_ABORT} reason={log_fields.REASON_TIMEOUT} time_out={time_out}")  # 记录超时原因。
         return False  # 返回失败，由调用方决定是否中止后续流程。
 
     def _back_through_screens(self, *screens):
@@ -151,10 +152,10 @@ class NavigationMixin:
             remain = max(1, int(deadline - time.time()))  # 确认等待不超过总预算剩余。
             if self.wait_screen(to_screen, time_out=min(wait_confirm, remain)):
                 return True  # 已进入目标界面。
-            self.log_info(f"transition: {to_screen} 未确认（第 {attempt + 1} 次尝试），原地重试。")
+            self.log_info(f"event={log_fields.EVENT_FAIL} to_screen={to_screen} attempt={attempt + 1}")  # 未确认进入目标界面，原地重试。
         self.save_failure_screenshot(to_screen)  # 重试耗尽，保存失败现场截图。
         current = self.current_screen()  # 识别当前界面作为异常上下文。
-        self.log_warning(f"界面转换失败: 目标 {to_screen}，当前 {current}")  # 记录失败。
+        self.log_warning(f"event={log_fields.EVENT_ABORT} reason=transition_failed to_screen={to_screen} current={current}")  # 记录失败。
         raise WaitFailedException(f"transition to {to_screen} failed (current: {current})")
 
     def ensure_screen(self, name: str, wait_enter=5, entry=None, raise_on_fail=True, **transition_kwargs) -> bool:
@@ -278,25 +279,32 @@ class NavigationMixin:
         Returns:
             True 成功；False 失败且 raise_on_fail=False。
         """
-        tag = name or getattr(step_fn, "__name__", "step")  # 步骤标识，用于日志与截图。
-        for attempt in range(1, retries + 2):  # 首次执行加上重试次数。
-            try:
-                step_fn()  # 执行步骤。
-                return True  # 成功直接返回。
-            except WaitFailedException as e:  # 仅捕获等待失败类异常。
-                self.save_failure_screenshot(tag)  # 保存失败现场截图。
-                self.log_warning(f"步骤 {tag} 第 {attempt}/{retries + 1} 次失败: {e}")  # 记录本次失败。
-                if attempt > retries:  # 已用完全部尝试次数。
-                    break  # 结束重试循环。
-                if recover:  # 需要恢复后再重试。
-                    if not self._recover_to_lobby():  # 恢复回大厅失败。
-                        self.log_warning(f"步骤 {tag} 恢复回大厅失败，放弃重试。")  # 记录放弃原因。
-                        break  # 恢复失败则不再重试。
-                self.sleep(1)  # 刷新一帧后进入下次尝试。
-        if raise_on_fail:  # 配置为重试耗尽后抛异常。
-            raise WaitFailedException(f"步骤 {tag} 多次失败后放弃")  # 抛出失败异常。
-        self.log_warning(f"步骤 {tag} 失败，已跳过。")  # 记录跳过步骤。
-        return False  # 返回失败状态。
+        tag = name or getattr(step_fn, "__name__", "step")  # 步骤标识，用于日志与截图；调用方的 name 或步骤函数名即唯一来源。
+        outer_step = self._active_step  # 保存外层步骤标识：嵌套 try_step 时退出后要还原，不能一律置空。
+        self._active_step = tag  # 绑定当前步骤：步骤内部各处日志无需各自复述步骤名。
+        try:
+            self.log_info(f"step={tag} event={log_fields.EVENT_START}")  # 步骤开始（重试亦会重新进入本行）。
+            for attempt in range(1, retries + 2):  # 首次执行加上重试次数。
+                try:
+                    step_fn()  # 执行步骤。
+                    self.log_info(f"step={tag} event={log_fields.EVENT_END} result={log_fields.RESULT_SUCCESS}")  # 步骤成功结束。
+                    return True  # 成功直接返回。
+                except WaitFailedException as e:  # 仅捕获等待失败类异常。
+                    self.save_failure_screenshot(tag)  # 保存失败现场截图。
+                    self.log_warning(f"step={tag} event={log_fields.EVENT_FAIL} attempt={attempt}/{retries + 1} error={e}")  # 记录本次失败。
+                    if attempt > retries:  # 已用完全部尝试次数。
+                        break  # 结束重试循环。
+                    if recover:  # 需要恢复后再重试。
+                        if not self._recover_to_lobby():  # 恢复回大厅失败。
+                            self.log_warning(f"step={tag} event={log_fields.EVENT_ABORT} reason={log_fields.REASON_RECOVER_FAILED}")  # 记录放弃原因。
+                            break  # 恢复失败则不再重试。
+                    self.sleep(1)  # 刷新一帧后进入下次尝试。
+            if raise_on_fail:  # 配置为重试耗尽后抛异常。
+                raise WaitFailedException(f"步骤 {tag} 多次失败后放弃")  # 抛出失败异常。
+            self.log_warning(f"step={tag} event={log_fields.EVENT_ABORT} reason={log_fields.REASON_RETRIES_EXHAUSTED}")  # 记录跳过步骤。
+            return False  # 返回失败状态。
+        finally:
+            self._active_step = outer_step  # 还原外层步骤标识，支持嵌套 try_step。
 
     def save_failure_screenshot(self, tag: str):
         """保存失败现场截图到 screenshots/failure/，复用框架截图能力。"""

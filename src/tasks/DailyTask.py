@@ -2,6 +2,7 @@ import re  # 任务页副标题关键字用正则（OCR 部分匹配，忽略大
 
 from ok import og  # 导入框架全局对象。
 
+from src import log_fields  # 日志字段取值词表（单一数据源）。
 from src.tasks.HarvestTask import HarvestTask  # 导入收获子任务。
 from src.tasks.NikkeBaseTask import NikkeBaseTask  # 导入项目基类，所有任务统一继承它。
 from src.tasks.OutpostDefenseTask import OutpostDefenseTask  # 导入歼灭子任务。
@@ -95,9 +96,9 @@ class DailyTask(NikkeBaseTask):  # 定义清日常总编排的父任务类。
             # 领取后可能弹奖励遮罩盖住任务弹窗（每日/每周的第二段 + 主线/成就的一段式）：有关就关、没关不白等，
             # 以「任务弹窗重新出现」为准进入下一轮判定，避免读到遮罩帧误判。
             if not self.dismiss_all_popups(clear_condition=lambda: self.find_one("mission_page") is not None, time_out=10):
-                self.log_warning("领取后任务弹窗未重新出现，停止本轮领取。")  # 遮罩关不掉或弹窗被卡住，交由上层收尾兜底。
+                self.log_warning(f"event={log_fields.EVENT_ABORT} reason=popup_not_reopened name=claim_missions")  # 遮罩关不掉或弹窗被卡住，交由上层收尾兜底。
                 return  # 停止本轮，避免在遮罩帧上空转 20 次。
-        self.log_warning("任务领取点击达到上限，停止本轮领取。")  # 上限耗尽仍未收敛，记录异常。
+        self.log_warning(f"event={log_fields.EVENT_ABORT} reason={log_fields.REASON_CAPPED} limit={self._CLAIM_MAX_CLICKS} name=claim_missions")  # 上限耗尽仍未收敛，记录异常。
 
     def _switch_to_tab_with_red_dot(self, visited):  # 在三个徽章区域找红点，命中则点击切换并确认副标题，返回是否发生了切换。
         for keyword, badge in self._MISSION_TABS:  # 依次检查三个 tab 的徽章红点。
@@ -109,15 +110,15 @@ class DailyTask(NikkeBaseTask):  # 定义清日常总编排的父任务类。
             self.click_box(red_dot, after_sleep=1)  # 点击红点所在徽章，切换到对应 tab。
             visited.add(badge)  # 记录该 tab 已访问。
             if not self.wait_ocr(match=keyword, box=self.get_box_by_name("box_mission_subtitle"), time_out=5, raise_if_not_found=False):  # 确认副标题已切到目标 tab。
-                self.log_warning(f"切换 {badge} 后副标题未确认，跳过该 tab。")  # 点击未生效（红点误报等）时记录并继续，避免中断整个收尾流程。
+                self.log_warning(f"event={log_fields.EVENT_SKIP} reason=subtitle_not_confirmed badge={badge}")  # 点击未生效（红点误报等）时记录并继续，避免中断整个收尾流程。
                 continue  # 跳到下一个徽章，不因单个 tab 切换失败中止领取。
             return True  # 已切换到新 tab 并确认副标题。
         return False  # 三个徽章均无未访问的红点，领取收尾完成。
 
     def run(self):  # 父任务执行入口，按顺序编排子流程。
-        self.log_info("日常开始。")  # 记录父任务开始。
+        self.log_info(f"event={log_fields.EVENT_START}")  # 记录父任务开始。
         if not self.ensure_screen("lobby", raise_on_fail=False):  # 启动后就位游戏大厅（幂等闸门：含冷启动引导与弹窗清理），失败则中止后续任务。
-            self.log_error("未能进入游戏大厅，中止日常任务。")  # 记录失败原因。
+            self.log_error(f"event={log_fields.EVENT_ABORT} reason={log_fields.REASON_LOBBY_NOT_FOUND}")  # 记录失败原因。
             return  # 结束本次执行，不执行子流程。
         if self.config.get("收获"):  # 只有开关开启时才执行收获。
             harvest = self.get_task_by_class(HarvestTask)  # 获取收获子任务实例。
@@ -147,7 +148,7 @@ class DailyTask(NikkeBaseTask):  # 定义清日常总编排的父任务类。
                 if message:  # 存在战斗失败的塔。
                     self.log_info(message, notify=True)  # 在所有日常子任务执行完成后统一提醒。
         if not self.try_step(self._daily_end_flow, name="日常收尾", raise_on_fail=False):  # 收尾流程失败不回滚已完成的子任务，恢复重试耗尽后记录并跳过。
-            self.log_warning("日常收尾流程失败，已跳过。")  # 记录收尾结果，便于排查。
+            self.log_warning(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_RETRIES_EXHAUSTED}")  # 记录收尾结果，便于排查。
         if self.config.get("收获"):  # PASS 流程在收获子任务内，只有开关开启时才执行。
             harvest = self.get_task_by_class(HarvestTask)  # 获取收获子任务实例。
             if harvest is not None:  # 子任务已注册。

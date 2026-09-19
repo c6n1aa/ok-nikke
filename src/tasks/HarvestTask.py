@@ -1,6 +1,7 @@
 import re  # OCR 关键词统一编译为正则（部分匹配 + 忽略大小写）。
 
 from ok.task.exceptions import WaitFailedException  # 等待失败异常，交给 try_step 恢复回大厅重试。
+from src import log_fields  # 日志字段取值词表（单一数据源）。
 from src.tasks.NikkeBaseTask import NikkeBaseTask  # 导入项目基类，所有任务统一继承它。
 
 
@@ -38,32 +39,34 @@ class HarvestTask(NikkeBaseTask):  # 定义收获子任务类：收取友情点�
         self.run_pass()  # 收取 PASS 奖励。
 
     def run_harvest(self):  # 收获流程入口（日常编排在收尾之前调用）。
-        if self.is_done("harvest", "day"):  # 本周期内已完成则直接跳过。
-            self.log_info("今天已收获过，跳过。")  # 记录跳过原因。
+        key, period = "harvest", self.done_keys["harvest"]  # 完成状态键与周期。
+        if self.is_done(key, period):  # 本周期内已完成则直接跳过。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_ALREADY_DONE} key={key} period={period}")  # 记录跳过。
             return  # 结束本次执行。
         self.ensure_screen("lobby")  # 先就位游戏大厅（含冷启动引导与弹窗清理），避免游戏仍在加载/登录页就按大厅坐标点击；失败抛 WaitFailedException。
         if self.config.get("收获友情点"):  # 开关开启时才执行友情点流程。
             if not self.try_step(self._collect_friend, name="收获友情点", raise_on_fail=False):  # 收取友情点，弹窗未关/卡住时恢复回大厅重试。
-                self.log_warning("友情点收取失败，跳过。")  # 记录失败并跳过，不阻塞后续邮箱流程。
+                self.log_warning(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_RETRIES_EXHAUSTED}")  # 记录跳过，不阻塞后续邮箱流程。
         if self.config.get("收取邮箱"):  # 开关开启时才执行邮箱流程。
             if not self.try_step(self._collect_mailbox, name="收取邮箱", raise_on_fail=False):  # 收取邮箱，同样失败恢复重试。
-                self.log_warning("邮箱收取失败，跳过。")  # 记录失败并跳过。
-        self.mark_done("harvest", "day")  # 记录本周期已完成。
-        self.log_info("收获完成。")  # 记录子流程完成。
+                self.log_warning(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_RETRIES_EXHAUSTED}")  # 记录跳过。
+        self.mark_done(key, period)  # 记录本周期已完成。
+        self.log_info(f"event={log_fields.EVENT_END} result={log_fields.RESULT_SUCCESS} key={key} period={period}")  # 记录子流程完成。
 
     def run_pass(self):  # PASS 流程入口（日常编排在收尾之后调用）。
-        if self.is_done("pass", "day"):  # 本周期内已完成则直接跳过。
-            self.log_info("今天已收取PASS，跳过。")  # 记录跳过原因。
+        key, period = "pass", self.done_keys["pass"]  # 完成状态键与周期。
+        if self.is_done(key, period):  # 本周期内已完成则直接跳过。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_ALREADY_DONE} key={key} period={period}")  # 记录跳过。
             return  # 结束本次执行。
         if not self.ensure_screen("lobby", raise_on_fail=False):  # 先就位游戏大厅（幂等闸门：含冷启动引导与弹窗清理），失败则中止。
-            self.log_error("未能进入游戏大厅，中止PASS收取。")  # 记录失败原因。
+            self.log_error(f"event={log_fields.EVENT_ABORT} reason={log_fields.REASON_LOBBY_NOT_FOUND} key={key}")  # 记录失败原因。
             return  # 结束本次执行。
         if self.config.get("PASS"):  # 开关开启时才执行 PASS 流程。
-            self.try_step(self._combined_step, name="PASS", raise_on_fail=False)  # 打开模态窗→领取→关闭，失败恢复回大厅重试，重试耗尽不阻塞收尾。
+            if not self.try_step(self._combined_step, name="PASS", raise_on_fail=False):  # 打开模态窗→领取→关闭，失败恢复回大厅重试，重试耗尽不阻塞收尾。
+                self.log_warning(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_RETRIES_EXHAUSTED}")  # 记录跳过。
         else:  # PASS 开关关闭。
-            self.log_info("PASS 收取未开启，跳过。")  # 记录跳过原因。
-        self.mark_done("pass", "day")  # 记录本周期已完成。
-        self.log_info("PASS收取完成。")  # 记录任务完成。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_DISABLED} key={key}")  # 记录跳过原因。
+        self.mark_done(key, period)  # 记录本周期已完成。
 
     def _collect_friend(self):  # 收取友情点子流程。
         self.wait_click_feature("friend", time_out=10, raise_if_not_found=True, after_sleep=1)  # 点击好友入口进入好友页。
@@ -73,6 +76,8 @@ class HarvestTask(NikkeBaseTask):  # 定义收获子任务类：收取友情点�
             self.click_box(gift_box, after_sleep=1)  # 点击送礼按钮。
             self.wait_click_feature("friend_modal_confirm", time_out=10, raise_if_not_found=True, after_sleep=1)  # 点击确认弹窗。
             self.wait_until(lambda: not self.is_feature_enabled(gift_box), time_out=10, raise_if_not_found=True)  # 等待送礼按钮变灰禁用，即送完。
+        else:  # 送礼按钮始终未亮。
+            self.log_info(f"step={self._active_step} event={log_fields.EVENT_SKIP} reason=no_gift_available")  # 记录无友情点可送。
         self.wait_click_feature("friend_close", time_out=10, raise_if_not_found=True, after_sleep=1)  # 点击关闭按钮返回。
 
     def _collect_mailbox(self):  # 收取邮箱子流程。
@@ -83,6 +88,8 @@ class HarvestTask(NikkeBaseTask):  # 定义收获子任务类：收取友情点�
             self.click_box(claim_box, after_sleep=1)  # 点击领取奖励。
             self.dismiss_all_popups(time_out=10)  # 统一清理领取奖励弹窗，返回邮箱页（默认等待弹窗出现）。
             self.wait_until(lambda: not self.is_feature_enabled(claim_box), time_out=10, raise_if_not_found=True)  # 等待领取按钮变灰禁用，即全部领完。
+        else:  # 领取按钮始终未亮。
+            self.log_info(f"step={self._active_step} event={log_fields.EVENT_SKIP} reason={log_fields.REASON_NO_REWARD}")  # 记录无可领奖励。
         self.wait_click_feature("mailbox_close", time_out=10, raise_if_not_found=True, after_sleep=1)  # 点击关闭按钮返回。
 
     def _combined_step(self):  # 合并子流程：打开 PASS 模态窗→领取→关闭，结束回大厅。

@@ -1,5 +1,7 @@
 import time  # 时间模块，处理超时与等待。
 
+from src import log_fields  # 日志字段取值词表（单一数据源）。
+
 
 class ForegroundMixin:
     """窗口置前：前台交互方式下把游戏窗口切到前台，避免后台窗口下 pynput 点击静默失效。"""
@@ -12,16 +14,16 @@ class ForegroundMixin:
         """
         from src.patches.runtime import interaction_requires_foreground  # 延迟导入，按当前交互方式判断是否需要前台。
         if not interaction_requires_foreground():  # 可后台点击的交互方式不需要抢前台。
-            self.log_info("当前交互方式支持后台点击，跳过窗口置前。")  # 记录跳过原因。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason=background_click")  # 记录跳过原因。
             return True  # 视为窗口已就绪。
         try:
             hwnd = self.executor.device_manager.hwnd_window  # 获取游戏窗口句柄对象。
             if hwnd is not None and hwnd.hwnd:  # 窗口存在才操作。
                 if hwnd.bring_to_front():  # ok 方案成功则返回，失败返回 False。
                     return True  # ok 方案成功。
-                self.log_warning("bring_to_front returned False")  # ok 方案失败，记录原因。
+                self.log_warning(f"event={log_fields.EVENT_FAIL} name=bring_to_front")  # ok 方案失败，记录原因。
         except Exception as e:  # ok 方案抛异常时退化为手动置前。
-            self.log_warning(f"bring_to_front failed: {e}")  # 记录 ok 方案的失败原因。
+            self.log_warning(f"event={log_fields.EVENT_FAIL} name=bring_to_front error={e}")  # 记录 ok 方案的失败原因。
         return self._force_foreground()  # 使用更强的置前兜底。
 
     def _force_foreground(self):
@@ -33,7 +35,7 @@ class ForegroundMixin:
             import win32api  # 获取当前线程 ID。
             hwnd_obj = self.executor.device_manager.hwnd_window  # 获取窗口对象。
             if hwnd_obj is None or not hwnd_obj.hwnd:  # 窗口无效则直接失败。
-                self.log_warning("force_foreground: no hwnd")  # 记录窗口缺失。
+                self.log_warning(f"event={log_fields.EVENT_FAIL} name=force_foreground reason=no_hwnd")  # 记录窗口缺失。
                 return False  # 返回失败。
             hwnd = hwnd_obj.hwnd  # 获取窗口句柄。
             game_thread, _ = win32process.GetWindowThreadProcessId(hwnd)  # 游戏窗口所属线程。
@@ -55,8 +57,8 @@ class ForegroundMixin:
                     win32process.AttachThreadInput(cur_thread, game_thread, False)  # 断开线程输入连接。
             time.sleep(0.1)  # 等待系统完成焦点切换。
             ok = win32gui.GetForegroundWindow() == hwnd  # 校验切换是否成功。
-            self.log_info(f"force_foreground {'ok' if ok else 'failed'}")  # 记录切换结果。
+            self.log_info(f"event={log_fields.EVENT_END} name=force_foreground result={log_fields.RESULT_SUCCESS if ok else log_fields.RESULT_FAILED}")  # 记录切换结果。
             return ok  # 返回是否成功。
         except Exception as e:  # 任何异常都记录并返回失败。
-            self.log_warning(f"force_foreground failed: {e}")  # 记录失败原因。
+            self.log_warning(f"event={log_fields.EVENT_FAIL} name=force_foreground error={e}")  # 记录失败原因。
             return False  # 返回失败。

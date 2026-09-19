@@ -7,6 +7,7 @@ import numpy as np  # 数值计算模块，SOLD OUT 横幅带的像素统计使�
 from ok.feature.Box import Box  # 框类型，构造网格每格的匹配区域。
 from ok.task.exceptions import WaitFailedException  # 框架等待失败异常，子流程断言失败时抛出由 try_step 捕获。
 
+from src import log_fields  # 日志字段取值词表（单一数据源）。
 from src.tasks.NikkeBaseTask import NikkeBaseTask  # 项目基类，所有任务统一继承它。
 
 # 商店购买确认后的「资金不足」toast OCR 匹配模式：OCR 文本常带尾随句号（如「资金不足。」），
@@ -194,7 +195,7 @@ class ShopTask(NikkeBaseTask):  # 商店自动兑换任务，继承项目基类�
         # 「资金不足」是亚秒级瞬态 toast；框架默认 settle 要求持续命中 1 秒以上，
         # 会像赛季横幅一样「每帧命中却不返回」直至超时，把购买误判成成功，必须 settle_time=0。
         if self.wait_until(self._hit_no_currency, time_out=2, settle_time=0):  # OCR 命中资金不足提示。
-            self.log_warning("资金不足，停止当前商店购买。")  # 记录资金不足。
+            self.log_warning(f"event={log_fields.EVENT_ABORT} reason=no_currency")  # 记录资金不足。
             # 关闭购买道具弹窗才算结束：在 box_shop_buy_close 区域内找到 shop_buy_close 关闭按钮并点击。
             self.wait_click_feature("shop_buy_close", box=self.get_box_by_name("box_shop_buy_close"), time_out=3, raise_if_not_found=True, after_sleep=1)
             return False  # 返回失败，调用方据此停止当前商店。
@@ -213,7 +214,7 @@ class ShopTask(NikkeBaseTask):  # 商店自动兑换任务，继承项目基类�
         except ValueError:  # 区域缺失时转等待失败异常。
             raise WaitFailedException("box_shop_general_free 特征缺失")  # 由 try_step 捕获恢复，与 _assert_shop_title 同款兜底。
         if not self.wait_until(lambda: self.is_feature_enabled(free_box), time_out=5, raise_if_not_found=False):  # 等待区域变为高亮彩色；超时说明无免费刷新（time_out 兼容进店过场动画）。
-            self.log_info("普通商店无免费刷新机会，跳过。")  # 记录跳过原因。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason=no_free_refresh")  # 记录跳过原因。
             return  # 无免费刷新机会直接结束。
         self.click_box("box_shop_general_refresh", after_sleep=1)  # 有免费刷新机会，点击免费刷新按钮。
         if self.wait_feature("general_shop_refresh_free", time_out=5, raise_if_not_found=False) is not None:  # 判断刷新确认弹窗是否零消耗。
@@ -284,7 +285,7 @@ class ShopTask(NikkeBaseTask):  # 商店自动兑换任务，继承项目基类�
         if template is None:
             template = cv2.imread(template_path)  # 读取小图模板。
             if template is None:  # 模板缺失则跳过该商品，不报错中断。
-                self.log_warning(f"废铁图标模板缺失，跳过：{template_path}")  # 记录缺失模板。
+                self.log_warning(f"event={log_fields.EVENT_SKIP} reason=template_missing path={template_path}")  # 记录缺失模板。
                 return []
             if scale != 1:
                 interp = cv2.INTER_AREA if scale < 1 else cv2.INTER_LINEAR  # 缩小用 AREA，放大用 LINEAR。
@@ -400,32 +401,33 @@ class ShopTask(NikkeBaseTask):  # 商店自动兑换任务，继承项目基类�
                 self._do_general_shop()  # 执行普通商店购买。
                 self.mark_done("shop_general", "day")  # 成功才标记本日已完成。
             except WaitFailedException as e:  # 普通商店购买失败。
-                self.log_warning(f"普通商店失败，跳过：{e}")  # 记录失败并继续后续商店。
+                self.log_warning(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_FAILED} shop=general error={e}")  # 记录失败并继续后续商店。
         if self.config.get("竞技场商店") and not self.is_done("shop_arena", "day"):  # 竞技场商店开启且本日未完成。
             try:  # 单家失败不中断整体流程。
                 self._switch_to_arena()  # 切换到竞技场商店。
                 self._do_arena_shop()  # 执行竞技场购买。
                 self.mark_done("shop_arena", "day")  # 成功才标记本日已完成。
             except WaitFailedException as e:  # 竞技场购买失败。
-                self.log_warning(f"竞技场商店失败，跳过：{e}")  # 记录失败并继续后续商店。
+                self.log_warning(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_FAILED} shop=arena error={e}")  # 记录失败并继续后续商店。
         if self.config.get("废铁商店") and not self.is_done("shop_recycling", "week"):  # 废铁商店开启且本周未完成。
             try:  # 单家失败不中断整体流程。
                 self._switch_to_recycling()  # 切换到废铁商店。
                 self._do_recycling_shop()  # 执行废铁购买。
                 self.mark_done("shop_recycling", "week")  # 成功才标记本周已完成。
             except WaitFailedException as e:  # 废铁购买失败。
-                self.log_warning(f"废铁商店失败，跳过：{e}")  # 记录失败并继续后续商店。
+                self.log_warning(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_FAILED} shop=recycling error={e}")  # 记录失败并继续后续商店。
         self._exit_to_lobby()  # 统一退出回大厅。
 
     # ---- run 入口 ----
 
     def run(self):  # 任务执行入口，一次进店连续处理开启的商店。
-        self.log_info("商店任务开始。")  # 记录任务开始。
+        if not self._has_pending_shops():  # 没有开启且未完成的商店（默认取配置与完成状态，无副作用）。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_ALREADY_DONE}")  # 记录跳过。
+            return  # 结束本次执行。
         if not self.ensure_screen("lobby", raise_on_fail=False):  # 启动后就位游戏大厅（幂等闸门：含冷启动引导与弹窗清理），失败则中止。
-            self.log_error("未能进入游戏大厅，中止商店任务。")  # 记录失败原因。
+            self.log_error(f"event={log_fields.EVENT_ABORT} reason={log_fields.REASON_LOBBY_NOT_FOUND}")  # 记录失败原因。
             return  # 结束本次执行。
-        if not self._has_pending_shops():  # 没有开启且未完成的商店。
-            self.log_info("开启的商店均已完成，跳过。")  # 记录跳过。
+        if not self.try_step(self._combined_shop_step, name="商店", raise_on_fail=False):  # 合并子流程：进店→连续切换→统一退出，失败不中断。
+            self.log_warning(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_RETRIES_EXHAUSTED}")  # 记录失败原因。
             return  # 结束本次执行。
-        self.try_step(self._combined_shop_step, name="商店", raise_on_fail=False)  # 合并子流程：进店→连续切换→统一退出，失败不中断。
-        self.log_info("商店任务完成。")  # 记录任务完成。
+        self.log_info(f"event={log_fields.EVENT_END} result={log_fields.RESULT_SUCCESS}")  # 记录任务完成。

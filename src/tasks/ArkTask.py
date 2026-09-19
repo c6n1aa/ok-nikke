@@ -6,6 +6,7 @@ import cv2  # OpenCV，战力数字区域 OCR 前的放大预处理。
 from ok import og  # 全局单例，读取当前执行任务以判断是否由日常编排。
 from ok.task.exceptions import WaitFailedException  # 界面断言/战斗超时抛出的框架等待失败异常。
 
+from src import log_fields  # 日志字段取值词表（单一数据源）。
 from src.tasks.NikkeBaseTask import NikkeBaseTask  # 项目基类，所有任务统一继承它。
 
 # 塔号 -> 企业名，用于战斗失败时提醒用户。
@@ -134,10 +135,9 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
         })
 
     def run(self):  # 任务执行入口：先统一进入方舟，依次执行各子流程，最后返回大厅。
-        self.log_info("方舟任务开始")  # 记录任务开始。
         self.failed_towers = []  # 重置本次运行的失败塔记录，避免残留上次数据。
         if not self.try_step(self._nav_to_ark, name="进入方舟", raise_on_fail=False):  # 统一入口：确认进入方舟界面，失败则中止整个任务。
-            self.log_error("未能进入方舟界面，中止方舟任务")  # 记录中止原因。
+            self.log_error(f"event={log_fields.EVENT_ABORT} reason={log_fields.REASON_RETRIES_EXHAUSTED}")  # 记录中止原因。
             return  # 结束任务。
         self._do_tribe_tower()  # 执行企业塔子流程。
         self._do_simulation()  # 执行模拟室子流程。
@@ -152,10 +152,10 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
 
     def _do_tribe_tower(self):  # 企业塔子流程：方舟→无限之塔→逐塔挑战→返回方舟。
         if not self.config.get("企业塔"):  # 用户未启用企业塔子流程。
-            self.log_info("企业塔未开启，跳过")  # 记录跳过原因。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_DISABLED}")  # 记录跳过原因。
             return  # 结束本子流程。
         if self.is_done("tribe_tower", "day"):  # 本周期内已完成则直接跳过。
-            self.log_info("今日企业塔已完成，跳过")  # 记录跳过原因。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_ALREADY_DONE}")  # 记录跳过原因。
             return  # 结束本子流程。
         success = self.try_step(  # 企业塔整体流程以方舟为起点，用恢复协议包裹。
             lambda: self._do_tribe_tower_flow(),  # 执行企业塔流程。
@@ -163,19 +163,19 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
             raise_on_fail=False,  # 多次失败后跳过而非抛异常。
         )
         if not success:  # 流程多次失败。
-            self.log_warning("企业塔流程多次失败，跳过")  # 记录跳过原因。
+            self.log_warning(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_RETRIES_EXHAUSTED}")  # 记录跳过原因。
             return  # 不标记完成，下次可重试。
         self.mark_done("tribe_tower", "day")  # 记录本周期已完成。
         if not self._under_daily():  # 非日常编排时由本任务直接提醒。
             self.notify_failed_towers()  # 提醒战斗失败的塔。
-        self.log_info("企业塔任务完成")  # 记录子流程完成。
+        self.log_info(f"event={log_fields.EVENT_END} result={log_fields.RESULT_SUCCESS}")  # 记录子流程完成。
 
     def _do_simulation(self):  # 模拟室子流程：方舟→模拟室→红点判断→快速模拟→返回方舟。
         if not self.config.get("模拟室"):  # 用户未启用模拟室子流程。
-            self.log_info("模拟室未开启，跳过")  # 记录跳过原因。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_DISABLED}")  # 记录跳过原因。
             return  # 结束本子流程。
         if self.is_done("simulation", "day"):  # 本周期内已完成则直接跳过。
-            self.log_info("今日模拟室已完成，跳过")  # 记录跳过原因。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_ALREADY_DONE}")  # 记录跳过原因。
             return  # 结束本子流程。
         success = self.try_step(  # 模拟室整体流程以方舟为起点，用恢复协议包裹。
             lambda: self._do_simulation_flow(),  # 执行模拟室流程。
@@ -183,17 +183,16 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
             raise_on_fail=False,  # 多次失败后跳过而非抛异常。
         )
         if not success:  # 流程多次失败。
-            self.log_warning("模拟室流程多次失败，跳过")  # 记录跳过原因。
+            self.log_warning(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_RETRIES_EXHAUSTED}")  # 记录跳过原因。
             return  # 不标记完成，下次可重试。
         self.mark_done("simulation", "day")  # 记录本周期已完成。
-        self.log_info("模拟室任务完成")  # 记录子流程完成。
+        self.log_info(f"event={log_fields.EVENT_END} result={log_fields.RESULT_SUCCESS}")  # 记录子流程完成。
 
     def _do_simulation_flow(self):  # 模拟室整体流程：确保在方舟→模拟室→更新弹窗处理→红点判断→快速模拟→关闭返回方舟。
         self._nav_to_ark()  # 确保处于方舟界面（正常已就位；失败恢复回大厅后由此重新进入）。
         self.transition("simulation_room", click_feature="ark_simulation_room", wait_confirm=10, after_sleep=1)  # 点击模拟室入口并确认已进入模拟室界面。
         update_popup = self.find_one("simulation_overclock_update")  # 进入模拟室后识别是否弹出超频更新公告弹窗。
         if update_popup is not None:  # 弹窗存在时会遮挡界面，必须先关闭再继续后续流程。
-            self.log_info("检测到模拟室更新弹窗，先关闭")  # 记录弹窗处理。
             self.wait_click_feature("simulation_overclock_update_close", raise_if_not_found=True, after_sleep=1)  # 点击弹窗关闭按钮，关闭后继续原流程。
         red_dot = self.find_red_dot("box_simulation_badge")  # 在模拟室徽标区域检测通知红点。
         if red_dot is None:  # 无红点说明今日模拟室已完成或不可挑战。
@@ -223,13 +222,13 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
         common = self.config.get("拦截战")  # 通用拦截战开关。
         anomaly = self.config.get("异常拦截战")  # 异常个体拦截战开关。
         if common and anomaly:  # 两种拦截战共用入口与周期状态，不可并行，视为配置错误。
-            self.log_warning("拦截战与异常拦截战不可同时开启，跳过拦截战子流程")  # 记录配置冲突。
+            self.log_warning(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_CONFIG_CONFLICT}")  # 记录配置冲突。
             return  # 不执行任何拦截战。
         if not common and not anomaly:  # 两者都未开启。
-            self.log_info("拦截战未开启，跳过")  # 记录跳过原因。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_DISABLED}")  # 记录跳过原因。
             return  # 结束本子流程。
         if self.is_done("interception", "day"):  # 本周期内已完成则直接跳过。
-            self.log_info("今日拦截战已完成，跳过")  # 记录跳过原因。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_ALREADY_DONE}")  # 记录跳过原因。
             return  # 结束本子流程。
         success = self.try_step(  # 拦截战整体流程以方舟为起点，用恢复协议包裹。
             lambda: self._do_interception_flow(),  # 执行拦截战流程。
@@ -237,10 +236,10 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
             raise_on_fail=False,  # 多次失败后跳过而非抛异常。
         )
         if not success:  # 流程多次失败。
-            self.log_warning("拦截战流程多次失败，跳过")  # 记录跳过原因。
+            self.log_warning(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_RETRIES_EXHAUSTED}")  # 记录跳过原因。
             return  # 不标记完成，下次可重试。
         self.mark_done("interception", "day")  # 记录本周期已完成。
-        self.log_info("拦截战任务完成")  # 记录子流程完成。
+        self.log_info(f"event={log_fields.EVENT_END} result={log_fields.RESULT_SUCCESS}")  # 记录子流程完成。
 
     def _do_interception_flow(self):  # 拦截战整体流程：方舟→拦截战入口→按配置分流到通用/异常个体标签页→返回方舟。
         self._nav_to_ark()  # 确保处于方舟界面（正常已就位；失败恢复回大厅后由此重新进入）。
@@ -268,7 +267,7 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
                 continue  # 结算后仍有次数，进入下一轮判定。
             start = self.get_box_by_name("box_common_interception_start_battle_feature")  # 普通战斗可用性判定区域。
             if start is None or not self.is_feature_enabled(start):  # 两者均不可用。
-                self.log_info("通用拦截战快速战斗与普通战斗均不可用，结束")  # 记录结束原因。
+                self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_CAPPED} name=common_interception")  # 记录结束原因。
                 break  # 次数用尽，结束战斗循环。
             self.click_box(start, after_sleep=10)  # 点击普通战斗并等待加载。
             self._wait_interception_battle("common_interception_page")  # 战斗等待并确认回到本页。
@@ -282,7 +281,7 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
         # 动画容忍：点击入口后界面仍可能处于过场动画，入口按钮未渲染完成时色彩判态会误判为禁用，
         # 轮询等待其变为可用（彩色）；动画窗口内持续禁用才视为真的不可进入（未解锁或次数用尽）。
         if enter is None or not self.wait_until(lambda: self.is_feature_enabled(enter), time_out=8, settle_time=1.5):
-            self.log_info("异常个体拦截战不可进入（未解锁或次数用尽），结束")  # 记录结束原因。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_CAPPED} name=anomaly_interception")  # 记录结束原因。
             self._back_through_screens("ark")  # 从异常个体标签页直接返回方舟。
             return  # 由调用方统一标记完成。
         self._match_anomaly_boss()  # 切换异常个体到配置的 BOSS。
@@ -295,11 +294,11 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
                 self._wait_interception_battle("anomaly_interception_team_select_page")  # 战斗等待并确认回到本页。
                 continue  # 结算后仍有次数，进入下一轮判定。
             if self.config.get("只进行快速战斗"):  # 快速战斗不可用且只进行快速战斗。
-                self.log_info("快速战斗不可用且只进行快速战斗已开启，结束异常个体拦截战")  # 记录结束原因。
+                self.log_info(f"event={log_fields.EVENT_SKIP} reason=quick_only name=anomaly_interception")  # 记录结束原因。
                 break  # 结束战斗循环。
             start = self.get_box_by_name("box_anomaly_interception_start_battle_feature")  # 普通战斗可用性判定区域。
             if start is None or not self.is_feature_enabled(start):  # 普通战斗也不可用。
-                self.log_info("异常个体拦截战普通战斗不可用，结束")  # 记录结束原因。
+                self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_CAPPED} name=anomaly_interception")  # 记录结束原因。
                 break  # 次数用尽，结束战斗循环。
             self._select_anomaly_team_if_configured()  # 按配置选择队伍。
             self.click_box(start, after_sleep=10)  # 点击普通自动战斗并等待加载。
@@ -340,7 +339,7 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
         if result is None:  # 等待战斗结束超时。
             raise WaitFailedException("等待拦截战战斗结束超时")  # 抛异常由 try_step 恢复。
         if result == "failed":  # 战斗失败。
-            self.log_warning("拦截战战斗失败")  # 记录失败（次数已消耗，循环会在下一轮判定按钮状态）。
+            self.log_warning(f"event={log_fields.EVENT_FAIL} reason={log_fields.REASON_BATTLE_FAILED}")  # 记录失败（次数已消耗，循环会在下一轮判定按钮状态）。
         self.click_box(confirm_box, after_sleep=2)  # 点击结算确认/失败返回按钮。
         self.assert_screen(return_screen, time_out=15)  # 确认回到战斗前界面，供下一轮循环判定。
 
@@ -357,7 +356,7 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
                 break  # 停止循环。
         if not abandoned:  # 正常模式走完所有塔后统一返回方舟。
             if not self.wait_click_feature("common_back", raise_if_not_found=False, after_sleep=1):  # 点击返回方舟界面。
-                self.log_warning("返回方舟界面失败，后续任务会自动恢复")  # 记录未返回，依赖后续任务的失败恢复。
+                self.log_warning(f"event={log_fields.EVENT_FAIL} reason=back_to_ark")  # 记录未返回，依赖后续任务的失败恢复。
 
     def _tower_is_open(self, box_key):  # 在塔卡区域 OCR 识别 OPEN 关键词，判断该塔是否开放。
         try:  # 区域特征可能缺失。
@@ -371,14 +370,14 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
     def _try_tower(self, index):  # 处理单号塔：OPEN 判断→进入→战斗按钮可用性→战斗，返回是否进入过塔。
         box_key = f"box_tribe_tower{index}"  # 塔卡 OPEN 标注区域特征名。
         if not self._tower_is_open(box_key):  # 该塔未开放。
-            self.log_info(f"{index}号塔未开放，跳过")  # 记录跳过。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason=not_open tower={index}")  # 记录跳过。
             return False  # 未进入塔。
         self._enter_tower(box_key)  # 点击塔卡进入该塔。
         self.wait_feature("tribe_tower_stage", raise_if_not_found=True)  # 等待进入塔关卡界面。
         self.click_box("box_tower_enter", raise_if_not_found=True, after_sleep=1)  # box_ 前缀特征为纯坐标区域无模板，直接按坐标点击进入关卡。
         battle_box = self.get_box_by_name("box_stage_detail_battle")  # 获取战斗按钮区域（box_ 前缀特征为纯坐标区域，无模板）。
         if battle_box is None or not self.is_feature_enabled(battle_box):  # 区域缺失或按钮为灰白禁用态说明次数用尽。
-            self.log_info(f"{index}号塔通关次数用尽，跳过")  # 记录跳过。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_CAPPED} tower={index}")  # 记录跳过。
             self.wait_click_feature("stage_detail_close", raise_if_not_found=True, after_sleep=1)  # 点击关卡详情关闭按钮。
             self.wait_click_feature("common_back", raise_if_not_found=True, after_sleep=1)  # 返回无限之塔界面。
             return False  # 未进入战斗。
@@ -440,10 +439,10 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
 
     def _do_rookie_arena(self):  # 新人竞技场子流程：竞技场→新人竞技场→免费挑战→返回方舟。
         if not self.config.get("新人竞技场"):  # 用户未启用新人竞技场子流程。
-            self.log_info("新人竞技场未开启，跳过")  # 记录跳过原因。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_DISABLED}")  # 记录跳过原因。
             return  # 结束本子流程。
         if self.is_done("rookie_arena", "day"):  # 本周期内已完成则直接跳过。
-            self.log_info("今日新人竞技场已完成，跳过")  # 记录跳过原因。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_ALREADY_DONE}")  # 记录跳过原因。
             return  # 结束本子流程。
         success = self.try_step(  # 新人竞技场整体流程以方舟为起点，用恢复协议包裹。
             lambda: self._do_rookie_arena_flow(),  # 执行新人竞技场流程。
@@ -451,17 +450,17 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
             raise_on_fail=False,  # 多次失败后跳过而非抛异常。
         )
         if not success:  # 流程多次失败。
-            self.log_warning("新人竞技场流程多次失败，跳过")  # 记录跳过原因。
+            self.log_warning(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_RETRIES_EXHAUSTED}")  # 记录跳过原因。
             return  # 不标记完成，下次可重试。
         self.mark_done("rookie_arena", "day")  # 记录本周期已完成。
-        self.log_info("新人竞技场任务完成")  # 记录子流程完成。
+        self.log_info(f"event={log_fields.EVENT_END} result={log_fields.RESULT_SUCCESS}")  # 记录子流程完成。
 
     def _do_special_arena(self):  # 特殊竞技场子流程：竞技场→特殊竞技场→领取累计奖励→返回方舟。
         if not self.config.get("特殊竞技场"):  # 用户未启用特殊竞技场子流程。
-            self.log_info("特殊竞技场未开启，跳过")  # 记录跳过原因。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_DISABLED}")  # 记录跳过原因。
             return  # 结束本子流程。
         if self.is_done("special_arena", "day"):  # 本周期内已完成则直接跳过。
-            self.log_info("今日特殊竞技场已完成，跳过")  # 记录跳过原因。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_ALREADY_DONE}")  # 记录跳过原因。
             return  # 结束本子流程。
         success = self.try_step(  # 特殊竞技场整体流程以方舟为起点，用恢复协议包裹。
             lambda: self._do_special_arena_flow(),  # 执行特殊竞技场流程。
@@ -469,10 +468,10 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
             raise_on_fail=False,  # 多次失败后跳过而非抛异常。
         )
         if not success:  # 流程多次失败。
-            self.log_warning("特殊竞技场流程多次失败，跳过")  # 记录跳过原因。
+            self.log_warning(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_RETRIES_EXHAUSTED}")  # 记录跳过原因。
             return  # 不标记完成，下次可重试。
         self.mark_done("special_arena", "day")  # 记录本周期已完成。
-        self.log_info("特殊竞技场任务完成")  # 记录子流程完成。
+        self.log_info(f"event={log_fields.EVENT_END} result={log_fields.RESULT_SUCCESS}")  # 记录子流程完成。
 
     def _nav_to_arena(self):  # 导航到竞技场界面：先就位方舟，再点击竞技场入口（供竞技场子流程复用）。
         self._nav_to_ark()  # 确保处于方舟界面（过场动画容忍与恢复/冷启动分流均在 ensure_screen 内）。
@@ -482,7 +481,7 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
         self._nav_to_arena()  # 确保处于竞技场界面（正常已就位；失败恢复回大厅后由此重新进入）。
         hit = self._click_entry_race_closed("rookie_arena", "rookie_arena")  # 点击新人竞技场入口并赛跑确认（目标界面 vs 赛季结束横幅）。
         if hit == "closed":  # 休赛期：入口在画面但已关闭，点击只弹出赛季结束横幅。
-            self.log_info("新人竞技场赛季已结束，本周期视为已完成")  # 记录休赛期收尾。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_SEASON_ENDED} name=rookie_arena")  # 记录休赛期收尾。
             self._back_through_screens("ark")  # 未进入子页面，从竞技场界面一次返回方舟。
             return  # 正常返回，由调用方标记本周期已完成。
         if hit is None:  # 既未进入目标界面也未出现横幅：视为真实导航异常。
@@ -494,7 +493,7 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
                 encounter = None  # 视为免费次数已用尽。
             # 动画容忍：按钮未渲染完成时色彩判态会误判为禁用，轮询等其稳定为可用。
             if encounter is None or not self.wait_until(lambda: self.is_feature_enabled(encounter), time_out=5, settle_time=1):
-                self.log_info("新人竞技场免费挑战次数已用尽")  # 记录结束原因。
+                self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_CAPPED} name=rookie_arena")  # 记录结束原因。
                 break  # 结束循环。
             target = self._rookie_arena_pick_opponent()  # 按对手选择策略确定要挑战的对手免费挑战区域名。
             if target is None:  # 刷新用尽仍未找到战力压制对手。
@@ -504,26 +503,26 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
 
     def _rookie_arena_pick_opponent(self):  # 按配置选择对手：策略关闭固定选最下面；开启时选稳定战力压制对手，否则刷新对手列表（最多10次）。
         if not self.config.get("对手选择策略"):  # 对手选择策略已关闭。
-            self.log_info("对手选择策略已关闭，固定挑战最下面的对手")  # 记录选择方式。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_DISABLED} name=opponent_strategy")  # 记录选择方式。
             return "box_rookie_arena_o3_free_encounter"  # 固定返回3号（最下面）对手。
         refresh_count = 0  # 刷新对手列表次数统计。
         while True:  # 循环读取战力并判断是否存在可稳定压制的对手。
             player = self._rookie_arena_read_cp("box_rookie_arena_player_cp")  # OCR 读取己方战力。
             if player is None:  # 己方战力读取失败无法比较。
-                self.log_warning("己方战力读取失败，回退固定挑战最下面的对手")  # 记录回退原因。
+                self.log_warning(f"event={log_fields.EVENT_FAIL} reason=cp_read_failed")  # 记录回退原因。
                 return "box_rookie_arena_o3_free_encounter"  # 保守回退固定最下面对手。
             threshold = player * _ROOKIE_ARENA_CP_RATIO  # 稳定战力压制阈值：己方战力 * 0.846。
             for cp_name, encounter_name in _ROOKIE_CP_ENCOUNTER_PAIRS:  # 自上而下检查 1-3 号对手。
                 opponent = self._rookie_arena_read_cp(cp_name)  # OCR 读取该对手战力。
                 if opponent is not None and threshold > opponent:  # 找到可稳定压制的对手。
-                    self.log_info(f"选择对手{encounter_name[-5]}：己方 {player} * 0.846 = {threshold:.0f} > 对手 {opponent}")  # 记录选择依据。
+                    self.log_info(f"event={log_fields.EVENT_SELECT} name=opponent target={encounter_name[-5]} player={player} threshold={threshold:.0f} opponent={opponent}")  # 记录选择依据。
                     return encounter_name  # 返回该对手的免费挑战区域名。
             if refresh_count >= _ROOKIE_ARENA_MAX_REFRESH:  # 刷新次数已达上限。
-                self.log_warning(f"刷新 {refresh_count} 次仍未找到战力压制对手，结束新人竞技场")  # 记录结束原因。
+                self.log_warning(f"event={log_fields.EVENT_ABORT} reason={log_fields.REASON_CAPPED} limit={refresh_count} name=rookie_arena")  # 记录结束原因。
                 return None  # 结束子流程。
             self.wait_click_feature("rookie_arena_refresh", raise_if_not_found=True, after_sleep=3)  # 点击刷新对手列表并等待刷新完成。
             refresh_count += 1  # 刷新次数加一。
-            self.log_info(f"未找到战力压制对手，刷新对手（第 {refresh_count} 次）")  # 记录刷新。
+            self.log_info(f"event={log_fields.EVENT_ROUND} index={refresh_count} name=refresh_opponents")  # 记录刷新。
 
     def _rookie_arena_read_cp(self, feature_name):  # 在指定战力标注区域内 OCR 读数，失败返回 None。
         try:  # 区域特征可能缺失。
@@ -601,10 +600,10 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
 
     def _do_ranking_reward(self):  # 排名奖励子流程：方舟→排名→领取排名奖励→返回方舟。
         if not self.config.get("收取排名奖励"):  # 用户未启用收取排名奖励子流程。
-            self.log_info("收取排名奖励未开启，跳过")  # 记录跳过原因。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_DISABLED}")  # 记录跳过原因。
             return  # 结束本子流程。
         if self.is_done("ranking_reward", "day"):  # 本周期内已完成则直接跳过。
-            self.log_info("今日排名奖励已完成，跳过")  # 记录跳过原因。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_ALREADY_DONE}")  # 记录跳过原因。
             return  # 结束本子流程。
         success = self.try_step(  # 排名奖励整体流程以方舟为起点，用恢复协议包裹。
             lambda: self._do_ranking_reward_flow(),  # 执行收取排名奖励流程。
@@ -612,10 +611,10 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
             raise_on_fail=False,  # 多次失败后跳过而非抛异常。
         )
         if not success:  # 流程多次失败。
-            self.log_warning("收取排名奖励流程多次失败，跳过")  # 记录跳过原因。
+            self.log_warning(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_RETRIES_EXHAUSTED}")  # 记录跳过原因。
             return  # 不标记完成，下次可重试。
         self.mark_done("ranking_reward", "day")  # 记录本周期已完成。
-        self.log_info("收取排名奖励任务完成")  # 记录子流程完成。
+        self.log_info(f"event={log_fields.EVENT_END} result={log_fields.RESULT_SUCCESS}")  # 记录子流程完成。
 
     def _do_ranking_reward_flow(self):  # 排名奖励整体流程：确保在方舟→红点判断→进入排名→奖励可用性判断→领取→返回方舟。
         self._nav_to_ark()  # 确保处于方舟界面（正常已就位；失败恢复回大厅后由此重新进入）。
@@ -638,7 +637,7 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
         self._nav_to_arena()  # 确保处于竞技场界面（正常已就位；失败恢复回大厅后由此重新进入）。
         hit = self._click_entry_race_closed("special_arena", "special_arena")  # 点击特殊竞技场入口并赛跑确认。
         if hit == "closed":  # 休赛期：入口在画面但已关闭，点击只弹出赛季结束横幅。
-            self.log_info("特殊竞技场赛季已结束，本周期视为已完成")  # 记录休赛期收尾。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_SEASON_ENDED} name=special_arena")  # 记录休赛期收尾。
             self._back_through_screens("ark")  # 未进入子页面，从竞技场界面一次返回方舟。
             return  # 正常返回，由调用方标记本周期已完成。
         if hit is None:  # 既未进入目标界面也未出现横幅：视为真实导航异常。

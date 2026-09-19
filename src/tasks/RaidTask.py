@@ -1,6 +1,7 @@
 
 from ok.task.exceptions import WaitFailedException  # 导入等待失败异常，流程断言失败时抛出由 try_step 捕获恢复。
 
+from src import log_fields  # 日志字段取值词表（单一数据源）。
 from src.tasks.NikkeBaseTask import NikkeBaseTask  # 导入项目基类，所有任务统一继承它。
 
 # 个人突袭结果页点击空白的相对坐标（屏幕右下中部空白区，同 OutpostTask 咨询对话的推进点击）。
@@ -46,7 +47,7 @@ class RaidTask(NikkeBaseTask):  # 定义讨伐任务类，包含协同作战与�
                 self.click_box(home, after_sleep=1)  # 点击大厅按钮返回大厅。
             self.wait_for_lobby(time_out=10, raise_if_not_found=False)  # 等待确认回到大厅，超时不抛异常。
         except Exception as e:  # 返回大厅异常不影响标记完成。
-            self.log_warning(f"返回大厅失败: {e}")  # 记录异常。
+            self.log_warning(f"event={log_fields.EVENT_ABORT} reason={log_fields.REASON_LOBBY_NOT_FOUND} error={e}")  # 记录异常。
 
     def _is_coop_finished(self):  # 判断协同作战次数是否已用尽（OCR 识别 0/3）。
         try:  # 先判断协同作战功能入口是否可用（灰白禁用视为已完成）。
@@ -84,7 +85,7 @@ class RaidTask(NikkeBaseTask):  # 定义讨伐任务类，包含协同作战与�
             panel = self._get_panel_box()  # 获取左侧面板区域。
             coop_box = self._find_panel_entry("coop", panel)  # 使用灰度识别。
             if coop_box is None:  # 未找到协同作战入口。
-                self.log_info("未找到协同作战入口，视为已完成。")  # 记录跳过原因。
+                self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_ENTRY_MISSING}")  # 记录跳过原因。
             return coop_box  # 返回入口框或 None。
 
         # A 幂等就位协同作战页：已在页面直接返回；否则分流恢复/冷启动后从大厅点入口。
@@ -94,7 +95,7 @@ class RaidTask(NikkeBaseTask):  # 定义讨伐任务类，包含协同作战与�
         while True:  # 循环直到次数用尽。
             # D 在 box_coop_count 区域进行 OCR 识别 最后的文字是否为 0/3。
             if self._is_coop_finished():  # D -- true 分支：次数已用尽。
-                self.log_info("协同作战次数已用尽（0/3），结束。")  # 记录次数用尽。
+                self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_CAPPED} name=coop")  # 记录次数用尽。
                 break  # 结束循环。
             # D -- false 分支：次数未用尽，继续匹配。
             try:  # 次数区域可能缺失。
@@ -121,10 +122,10 @@ class RaidTask(NikkeBaseTask):  # 定义讨伐任务类，包含协同作战与�
 
     def _do_coop(self):  # 协同作战子流程：开关与完成状态检查后以恢复协议执行主流程。
         if not self.config.get("协同作战"):  # 用户未启用协同作战。
-            self.log_info("协同作战未开启，跳过。")  # 记录跳过原因。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_DISABLED}")  # 记录跳过原因。
             return  # 结束本子流程。
         if self.is_done("coop", "day"):  # 本周期内已完成则直接跳过。
-            self.log_info("今日协同作战已完成，跳过。")  # 记录跳过原因。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_ALREADY_DONE}")  # 记录跳过原因。
             return  # 结束本子流程。
         success = self.try_step(  # 协同作战整体流程以大厅为起点，用恢复协议包裹。
             lambda: self._do_coop_flow(),  # 执行协同作战主流程。
@@ -132,10 +133,10 @@ class RaidTask(NikkeBaseTask):  # 定义讨伐任务类，包含协同作战与�
             raise_on_fail=False,  # 多次失败后跳过而非抛异常。
         )  # 结束 try_step 调用。
         if not success:  # 流程多次失败。
-            self.log_warning("协同作战流程多次失败，跳过。")  # 记录跳过原因。
+            self.log_warning(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_RETRIES_EXHAUSTED}")  # 记录跳过原因。
             return  # 不标记完成，下次可重试。
         self.mark_done("coop", "day")  # 记录本周期已完成。
-        self.log_info("协同作战任务完成。")  # 记录子流程完成。
+        self.log_info(f"event={log_fields.EVENT_END} result={log_fields.RESULT_SUCCESS}")  # 记录子流程完成。
 
     # ---- 个人突袭 ----
 
@@ -172,13 +173,13 @@ class RaidTask(NikkeBaseTask):  # 定义讨伐任务类，包含协同作战与�
         result, confirm_box = self.wait_battle_finish(time_out=10)  # P 节流轮询等待快速战斗结算画面（基类方法：含结算动画稳定化与中断哨兵，超时返回 (None, None)）。
         if confirm_box is None:  # 未识别到结算画面。
             raise WaitFailedException("未识别到个人突袭快速战斗结算画面")  # 抛异常由 try_step 捕获恢复。
-        self.log_info(f"个人突袭快速战斗结束: {result}")  # 记录结算结果。
+        self.log_info(f"event={log_fields.EVENT_END} result={result} name=solo_raid_quick")  # 记录结算结果。
         self.click_box(confirm_box, after_sleep=1)  # 点击结算确认关闭结果画面。
 
     def _handle_solo_raid_challenge_mode(self):  # 挑战模式落点分流：当前页仍带 solo_raid_page 特征，点 common_home 回大厅并视为当日已完成。
         if self.find_one("solo_raid_challenge_mode") is None:  # 未识别到挑战模式特征。
             return False  # 非挑战模式落点，交回主流程正常判定剩余次数。
-        self.log_info("个人突袭处于挑战模式，视为已完成，返回大厅。")  # 记录分流原因。
+        self.log_info(f"event={log_fields.EVENT_SKIP} reason=challenge_mode")  # 记录分流原因。
         self._try_return_to_lobby()  # 点击 common_home 返回大厅（容错，失败不影响标记完成）。
         return True  # 告知主流程当日已完成。
 
@@ -186,10 +187,10 @@ class RaidTask(NikkeBaseTask):  # 定义讨伐任务类，包含协同作战与�
         try:  # 先刷新一帧再识别，避免用到补点点击掉弹窗前的旧帧。
             self.next_frame()
         except Exception as e:  # 无可用帧时忽略，用现有帧兜底识别。
-            self.log_warning(f"结果页识别前刷新帧失败: {e}")  # 记录刷新失败。
+            self.log_warning(f"event={log_fields.EVENT_FAIL} name=next_frame error={e}")  # 记录刷新失败。
         if self.find_one("solo_raid_result") is None:  # 未识别到结果页特征。
             return False  # 非结果页落点，交回调用方按原异常恢复。
-        self.log_info("识别到个人突袭结果页，视为已完成，点击空白关闭。")  # 记录分流原因。
+        self.log_info(f"event={log_fields.EVENT_SKIP} reason=result_page")  # 记录分流原因。
         self.click_relative(_SOLO_RAID_RESULT_BLANK_X, _SOLO_RAID_RESULT_BLANK_Y, after_sleep=1)  # 点击屏幕右下中部空白关闭结果页。
         self._try_return_to_lobby()  # 关闭后若仍停在其他页面则点 common_home 回大厅（容错）。
         return True  # 告知主流程当日已完成。
@@ -199,7 +200,7 @@ class RaidTask(NikkeBaseTask):  # 定义讨伐任务类，包含协同作战与�
             panel = self._get_panel_box()  # 获取左侧面板区域。
             raid_box = self._find_panel_entry("solo_raid", panel)  # 使用灰度识别。
             if raid_box is None:  # 未找到个人突袭入口。
-                self.log_info("未找到个人突袭入口，视为已完成。")  # 记录跳过原因。
+                self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_ENTRY_MISSING}")  # 记录跳过原因。
             return raid_box  # 返回入口框或 None。
 
         # A 幂等就位个人突袭页：已在页面直接返回；否则分流恢复/冷启动后从大厅点入口。
@@ -219,7 +220,7 @@ class RaidTask(NikkeBaseTask):  # 定义讨伐任务类，包含协同作战与�
         while True:  # 循环直到没有可用的出战方式。
             rounds += 1  # 轮次加一。
             if rounds > 5:  # 超过安全上限仍未自然结束。
-                self.log_warning("个人突袭出战轮次超过上限，停止。")  # 记录异常并停止，避免死循环。
+                self.log_warning(f"event={log_fields.EVENT_ABORT} reason={log_fields.REASON_CAPPED} limit=5 name=solo_raid")  # 记录异常并停止，避免死循环。
                 break  # 结束循环。
             if self._is_solo_raid_option_enabled("box_solo_raid_quick_battle_feature"):  # D 快速战斗按钮可用（高亮彩色）。
                 self._do_solo_raid_quick_battle()  # K→S→L/O→Q→P 快速战斗一次扫荡全部剩余次数。
@@ -227,17 +228,17 @@ class RaidTask(NikkeBaseTask):  # 定义讨伐任务类，包含协同作战与�
             if self._is_solo_raid_option_enabled("box_solo_raid_battle_feature"):  # E 普通出战按钮可用（高亮彩色）。
                 self._do_solo_raid_battle()  # F→G→H→I→J→M→R→N 完整出战一轮。
                 continue  # N --> C 回到首页重新判断剩余次数。
-            self.log_info("个人突袭无可用出战方式，结束。")  # D/E 均 false：当日次数已用尽或功能未解锁。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_CAPPED} name=solo_raid")  # D/E 均 false：当日次数已用尽或功能未解锁。
             break  # E -- false --> END。
         # 循环结束，尝试返回大厅。
         self._try_return_to_lobby()  # 容错回大厅：点 common_home 并等待大厅确认，失败不影响标记完成。
 
     def _do_solo_raid(self):  # 个人突袭子流程：开关与完成状态检查后以恢复协议执行主流程。
         if not self.config.get("个人突袭"):  # 用户未启用个人突袭。
-            self.log_info("个人突袭未开启，跳过。")  # 记录跳过原因。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_DISABLED}")  # 记录跳过原因。
             return  # 结束本子流程。
         if self.is_done("solo_raid", "day"):  # 本周期内已完成则直接跳过。
-            self.log_info("今日个人突袭已完成，跳过。")  # 记录跳过原因。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_ALREADY_DONE}")  # 记录跳过原因。
             return  # 结束本子流程。
         success = self.try_step(  # 个人突袭整体流程用恢复协议包裹。
             lambda: self._do_solo_raid_flow(),  # 执行个人突袭主流程。
@@ -245,16 +246,18 @@ class RaidTask(NikkeBaseTask):  # 定义讨伐任务类，包含协同作战与�
             raise_on_fail=False,  # 多次失败后跳过而非抛异常。
         )  # 结束 try_step 调用。
         if not success:  # 流程多次失败。
-            self.log_warning("个人突袭流程多次失败，跳过。")  # 记录跳过原因。
+            self.log_warning(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_RETRIES_EXHAUSTED}")  # 记录跳过原因。
             return  # 不标记完成，下次可重试。
         self.mark_done("solo_raid", "day")  # 记录本周期已完成。
-        self.log_info("个人突袭任务完成。")  # 记录子流程完成。
+        self.log_info(f"event={log_fields.EVENT_END} result={log_fields.RESULT_SUCCESS}")  # 记录子流程完成。
 
     def run(self):  # 任务执行入口：统一进入大厅后依次执行协同作战与个人突襲。
-        self.log_info("讨伐任务开始。")  # 记录任务开始。
+        if not self.config.get("协同作战") and not self.config.get("个人突袭"):  # 两个子流程均未开启（无副作用，先判跳过）。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_DISABLED}")  # 记录跳过原因。
+            return  # 结束本次执行，避免无谓拉起游戏窗口。
         if not self.ensure_screen("lobby", raise_on_fail=False):  # 启动后就位游戏大厅（幂等闸门：含冷启动引导与弹窗清理），失败则中止。
-            self.log_error("未能进入游戏大厅，中止讨伐任务。")  # 记录失败原因。
+            self.log_error(f"event={log_fields.EVENT_ABORT} reason={log_fields.REASON_LOBBY_NOT_FOUND}")  # 记录失败原因。
             return  # 结束本次执行。
         self._do_coop()  # 执行协同作战子流程。
         self._do_solo_raid()  # 执行个人突袭子流程。
-        self.log_info("讨伐任务完成。")  # 记录任务完成。
+        self.log_info(f"event={log_fields.EVENT_END} result={log_fields.RESULT_SUCCESS}")  # 记录任务完成。

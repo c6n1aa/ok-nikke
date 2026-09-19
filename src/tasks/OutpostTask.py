@@ -7,6 +7,7 @@ import time  # 时间模块，对话推进循环的超时控制。
 
 from ok.task.exceptions import WaitFailedException  # 框架等待失败异常，断言失败时抛出由 try_step 捕获恢复。
 
+from src import log_fields  # 日志字段取值词表（单一数据源）。
 from src.tasks.NikkeBaseTask import NikkeBaseTask  # 项目基类，所有任务统一继承它。
 
 # 派遣公告栏窗口标题匹配模式：OCR 部分匹配（框架对 re.Pattern 走 re.search，兼容尾随标点）。
@@ -107,22 +108,21 @@ class OutpostTask(NikkeBaseTask):  # 前哨基地任务：执行派遣公告栏�
     # ---- run 入口 ----
 
     def run(self):  # 任务执行入口：统一进入前哨基地，依次执行各子流程，最后统一返回大厅。
-        self.log_info("前哨基地任务开始")  # 记录任务开始。
         if not self.config.get("派遣") and not self.config.get("咨询") \
                 and not self.config.get("突发剧情"):  # 子流程均未开启。
-            self.log_info("派遣/咨询/突发剧情均未开启，跳过")  # 记录跳过原因。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_DISABLED}")  # 记录跳过原因。
             return  # 结束任务，避免无谓拉起游戏窗口。
         if self.is_completed():  # 开启的子流程均已完成。
-            self.log_info("开启的子流程均已完成，跳过")  # 记录跳过原因。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_ALREADY_DONE}")  # 记录跳过原因。
             return  # 结束任务，避免无谓拉起游戏窗口。
         if not self.try_step(self._nav_to_outpost, name="进入前哨基地", raise_on_fail=False):  # 统一入口：确认进入前哨基地界面，失败则中止整个任务。
-            self.log_error("未能进入前哨基地界面，中止前哨基地任务")  # 记录中止原因。
+            self.log_error(f"event={log_fields.EVENT_ABORT} reason={log_fields.REASON_RETRIES_EXHAUSTED}")  # 记录中止原因。
             return  # 结束任务。
         self._do_dispatch()  # 执行派遣子流程。
         self._do_brief_encounter()  # 执行突发剧情子流程。
         self._do_advise()  # 执行咨询子流程（放在最后，结束后已自行直接返回大厅）。
         self._exit_to_lobby()  # 派遣/突发剧情收尾仍在前哨基地界面，此处统一返回大厅（基类幂等实现，已在大厅则只确认）。
-        self.log_info("前哨基地任务完成")  # 记录任务完成。
+        self.log_info(f"event={log_fields.EVENT_END} result={log_fields.RESULT_SUCCESS}")  # 记录任务完成。
 
     def _nav_to_outpost(self):  # 导航到前哨基地界面（幂等入口闸门，供统一入口与各子流程开头复用）。
         self.ensure_screen("outpost", click_feature="outpost", wait_confirm=10, after_sleep=1)  # 过场动画容忍、弹窗清理与恢复/冷启动分流均在 ensure_screen 内。
@@ -131,16 +131,16 @@ class OutpostTask(NikkeBaseTask):  # 前哨基地任务：执行派遣公告栏�
 
     def _do_dispatch(self):  # 派遣子流程编排：开关/完成判断 + 恢复协议包裹。
         if not self.config.get("派遣"):  # 用户未启用派遣子流程。
-            self.log_info("派遣未开启，跳过")  # 记录跳过原因。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_DISABLED}")  # 记录跳过原因。
             return  # 结束本子流程。
         if self.is_done("bulletin_board", "day"):  # 本周期内已完成则直接跳过。
-            self.log_info("今日派遣已完成，跳过")  # 记录跳过原因。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_ALREADY_DONE}")  # 记录跳过原因。
             return  # 结束本子流程。
         if not self.try_step(self._dispatch_flow, name="派遣", raise_on_fail=False):  # 以前哨基地为起点，失败恢复回大厅后重新进入。
-            self.log_warning("派遣流程多次失败，跳过")  # 记录跳过原因。
+            self.log_warning(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_RETRIES_EXHAUSTED}")  # 记录跳过原因。
             return  # 不标记完成，下次可重试。
         self.mark_done("bulletin_board", "day")  # 记录本周期已完成。
-        self.log_info("派遣任务完成")  # 记录子流程完成。
+        self.log_info(f"event={log_fields.EVENT_END} result={log_fields.RESULT_SUCCESS}")  # 记录子流程完成。
 
     def _dispatch_flow(self):  # 派遣整体流程：确保在前哨基地→派遣公告栏→领取/全部派遣→关闭→回前哨基地。
         self._nav_to_outpost()  # 确保处于前哨基地界面（正常已就位；失败恢复回大厅后由此重新进入）。
@@ -165,16 +165,16 @@ class OutpostTask(NikkeBaseTask):  # 前哨基地任务：执行派遣公告栏�
 
     def _do_advise(self):  # 咨询子流程编排：开关/完成判断 + 恢复协议包裹。
         if not self.config.get("咨询"):  # 用户未启用咨询子流程。
-            self.log_info("咨询未开启，跳过")  # 记录跳过原因。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_DISABLED}")  # 记录跳过原因。
             return  # 结束本子流程。
         if self.is_done("advise", "day"):  # 本周期内已完成则直接跳过。
-            self.log_info("今日咨询已完成，跳过")  # 记录跳过原因。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_ALREADY_DONE}")  # 记录跳过原因。
             return  # 结束本子流程。
         if not self.try_step(self._advise_flow, name="咨询", raise_on_fail=False):  # 以前哨基地为起点，失败恢复回大厅后重新进入。
-            self.log_warning("咨询流程多次失败，跳过")  # 记录跳过原因。
+            self.log_warning(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_RETRIES_EXHAUSTED}")  # 记录跳过原因。
             return  # 不标记完成，下次可重试。
         self.mark_done("advise", "day")  # 记录本周期已完成。
-        self.log_info("咨询任务完成")  # 记录子流程完成。
+        self.log_info(f"event={log_fields.EVENT_END} result={log_fields.RESULT_SUCCESS}")  # 记录子流程完成。
 
     def _enter_advise(self):  # 咨询入口：前哨基地→指挥中心→咨询入口，确认到达[咨询]界面。
         self._nav_to_outpost()  # 确保处于前哨基地界面（正常已就位；失败恢复回大厅后由此重新进入）。
@@ -191,7 +191,7 @@ class OutpostTask(NikkeBaseTask):  # 前哨基地任务：执行派遣公告栏�
         self._enter_advise()  # 进入[咨询]界面（前哨基地→指挥中心→咨询入口）。
         count_box = self._optional_box("box_advise_count_feature")  # 咨询次数区域（缺失视为无剩余次数）。
         if count_box is None or not self.is_feature_enabled(count_box):  # 次数区域灰白禁用 = 无剩余咨询次数。
-            self.log_info("无剩余咨询次数，咨询流程结束")  # 记录结束原因。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_CAPPED} name=advise")  # 记录结束原因。
             self._exit_advise_to_lobby()  # 返回大厅。
             return  # 由调用方标记完成。
         self.click_box(self._box_or_fail("box_advise_nikke"), after_sleep=1)  # 点第一个可咨询角色打开详情。
@@ -203,7 +203,7 @@ class OutpostTask(NikkeBaseTask):  # 前哨基地任务：执行派遣公告栏�
             if self.config.get("只咨询星标"):  # 只咨询星标开关开启时先判星标。
                 star_box = self._optional_box("box_advise_nikke_star")  # 星标区域（缺失视为未星标）。
                 if star_box is None or not self.is_feature_enabled(star_box):  # 当前角色未星标。
-                    self.log_info("当前角色未星标，咨询流程结束")  # 记录结束原因。
+                    self.log_info(f"event={log_fields.EVENT_SKIP} reason=not_starred name={name}")  # 记录结束原因。
                     self._exit_advise_to_lobby()  # 返回大厅。
                     return  # 由调用方标记完成。
             skip = False  # 是否跳过当前角色直接切换下一个。
@@ -221,12 +221,12 @@ class OutpostTask(NikkeBaseTask):  # 前哨基地任务：执行派遣公告栏�
                     return  # 由调用方标记完成。
             switched = self._switch_advise_nikke(name)  # 点击下一个切换角色（以名称变更为准）。
             if not switched:  # 重试用尽仍无法切换。
-                self.log_warning("无法切换到下一个咨询角色，咨询流程结束")  # 记录结束原因。
+                self.log_warning(f"event={log_fields.EVENT_ABORT} reason=switch_failed name=advise")  # 记录结束原因。
                 self._exit_advise_to_lobby()  # 返回大厅。
                 return  # 由调用方标记完成。
             switches += 1  # 切换计数加一。
             if switches > _ADVISE_MAX_SWITCH:  # 超过切换上限，强行结束防止异常界面无限循环。
-                self.log_warning(f"切换角色超过 {_ADVISE_MAX_SWITCH} 次，强行结束咨询流程")  # 记录强行结束。
+                self.log_warning(f"event={log_fields.EVENT_ABORT} reason={log_fields.REASON_CAPPED} limit={_ADVISE_MAX_SWITCH} name=advise")  # 记录强行结束。
                 self._exit_advise_to_lobby()  # 返回大厅。
                 return  # 由调用方标记完成。
 
@@ -349,27 +349,27 @@ class OutpostTask(NikkeBaseTask):  # 前哨基地任务：执行派遣公告栏�
 
     def _do_brief_encounter(self):  # 突发剧情子流程编排：开关/完成判断 + 恢复协议包裹。
         if not self.config.get("突发剧情"):  # 用户未启用突发剧情子流程。
-            self.log_info("突发剧情未开启，跳过")  # 记录跳过原因。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_DISABLED}")  # 记录跳过原因。
             return  # 结束本子流程。
         if self.is_done("brief_encounter", "week"):  # 本周期内已完成则直接跳过。
-            self.log_info("本周突发剧情已完成，跳过")  # 记录跳过原因。
+            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_ALREADY_DONE}")  # 记录跳过原因。
             return  # 结束本子流程。
         if not self.try_step(self._brief_encounter_flow, name="突发剧情",
                              raise_on_fail=False):  # 以前哨基地为起点，失败恢复回大厅后重新进入。
-            self.log_warning("突发剧情流程多次失败，跳过")  # 记录跳过原因。
+            self.log_warning(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_RETRIES_EXHAUSTED}")  # 记录跳过原因。
             return  # 不标记完成，下次可重试。
         self.mark_done("brief_encounter", "week")  # 记录本周期已完成。
-        self.log_info("突发剧情任务完成")  # 记录子流程完成。
+        self.log_info(f"event={log_fields.EVENT_END} result={log_fields.RESULT_SUCCESS}")  # 记录子流程完成。
 
     def _brief_encounter_flow(self):  # 突发剧情整体流程：确保在前哨基地→展开列表→逐条清理到次数用尽。
         self._nav_to_outpost()  # 确保处于前哨基地界面（正常已就位；失败恢复回大厅后由此重新进入）。
         while True:  # 每轮先复核剩余次数/列表状态，再清理一条，直到 0/5 或无可触发条目。
             if self._bf_count_zero():  # 0/5：本周已无可触发次数。
-                self.log_info("本周突发剧情次数已用尽，突发剧情流程结束")  # 记录结束原因。
+                self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_CAPPED} name=brief_encounter")  # 记录结束原因。
                 return  # 由调用方标记完成。
             self._ensure_bf_list_open()  # 展开突发剧情列表（未展开则点气泡）。
             if not self._bf_card1_has_text():  # 列表区域无文字：无可触发的突发剧情。
-                self.log_info("无可触发的突发剧情，突发剧情流程结束")  # 记录结束原因。
+                self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_NOT_FOUND} name=brief_encounter")  # 记录结束原因。
                 return  # 由调用方标记完成。
             self._clear_one_bf()  # 清理一条突发剧情后留在前哨基地，循环复核。
 
