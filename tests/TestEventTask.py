@@ -1049,7 +1049,7 @@ class TestEventTask(_DebugOffTestCase):
         self.assertEqual(_CHALLENGE_CLICK_ATTEMPTS, offset_mock.call_count)  # 每次点击都重新取随机偏移。
         self.assertEqual(2, wait_mock.call_count)  # 每次点击后各等一次详情页。
         screen_mock.assert_any_call('event_challenge_page')  # 失败时记「是否仍在挑战页」便于定位原因。
-        warn_mock.assert_called_once_with('event=fail name=challenge_click attempt=1 on_challenge_page=True')  # 首次点空按失败级别告警。
+        warn_mock.assert_not_called()  # 第二次进入详情页，不算失败。
         quick_mock.assert_called_once()  # 进详情页后照常走后续分支。
 
     def test_flow_challenge_stage_click_lands_not_on_detail(self):
@@ -1071,8 +1071,7 @@ class TestEventTask(_DebugOffTestCase):
             self.task._flow_challenge()
         self.assertEqual(_CHALLENGE_CLICK_ATTEMPTS, click_mock.call_count)  # 两次都点空。
         self.assertEqual(_CHALLENGE_CLICK_ATTEMPTS, wait_mock.call_count)  # 两次都等满窗口。
-        self.assertEqual(2, warn_mock.call_count)  # 两次点空的失败告警 + 用尽尝试次数的中止告警。
-        warn_mock.assert_called_with(f'event=abort reason=retries_exhausted name=challenge_click attempts={_CHALLENGE_CLICK_ATTEMPTS}')  # 末次记中止告警。
+        warn_mock.assert_called_once()  # 用尽尝试次数才告警。
         back_mock.assert_called_once()  # 兜底回菜单页。
 
     def test_find_available_challenge_stage_picks_bottom_most_enabled(self):

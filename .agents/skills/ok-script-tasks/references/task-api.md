@@ -133,23 +133,6 @@ Prefer task methods over direct executor/device access:
 - Feature detection: `self.find_one(...)`, `self.find_feature(...)`, `self.wait_click_feature(...)`, `self.get_box_by_name(...)`
 - OCR: `self.ocr(...)`, `self.wait_ocr(...)`, `self.wait_click_ocr(...)`
 - Status and logs: `self.log_info(...)`, `self.log_warning(...)`, `self.log_error(...)`, `self.info_set(...)`, `self.info_incr(...)`
-
-## Structured Logging
-
-Emit logs as space-separated `key=value` fields so they are greppable and machine-parseable. Field keys are written inline at the call site; field values come from a shared vocabulary module so there are no scattered literals.
-
-```python
-from src import log_fields  # shared vocabulary (single source of truth)
-
-self.log_info(f"event={log_fields.EVENT_START}")  # lifecycle start
-self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_ALREADY_DONE} key={key} period={period}")  # skip with reason
-self.log_warning(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_RETRIES_EXHAUSTED}")  # retries exhausted
-```
-
-- Task identity comes from the logger's class-name prefix; do not repeat the task name in a field.
-- The framework already logs clicks: `click` / `click_box` / `wait_click_feature` / `wait_click_ocr` emit `left_click <name> (x, y)` when a `name` (or `box.name`) is present. Do not add a redundant click log.
-- Vocabulary: `event=` (`start`/`end`/`skip`/`fail`/`abort`/`round`/`select`), `result=` (`success`/`failed`), general `reason=` (`already_done`, `disabled`, `lobby_not_found`, `retries_exhausted`, `capped`, `timeout`, `entry_missing`, `no_reward`, `battle_failed`, ...). Task-private reasons stay local.
-- If the project has no vocabulary module, keep a module-level string-constant table (not a class or enum) and apply the same discipline.
 - Coordination: `self.get_task_by_class(...)`, `self.run_task_by_class(...)`
 
 ## English and Chinese

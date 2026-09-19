@@ -26,17 +26,15 @@ class ClaimRewardTask(BaseTask):
 
     def run(self):
         for attempt in range(self.config.get("Retry Count", 3)):
-            self.info_set("Attempt", attempt + 1)  # structured status for the GUI
+            self.info_set("Attempt", attempt + 1)
             button = self.wait_ocr(match=self.config.get("Confirm Text"), time_out=3)
             if button:
-                self.click_box(button, after_sleep=1)  # framework auto-logs the click
-                self.log_info("event=end result=success", notify=True)  # structured completion
+                self.click_box(button, after_sleep=1)
+                self.log_info("Task completed", notify=True)
                 return
             self.next_frame()
-        self.log_warning("event=abort reason=retries_exhausted")  # structured give-up
+        self.log_warning("No reward button found")
 ```
-
-With a project vocabulary module, reference its constants instead of literals (`from src import log_fields`).
 
 ## Trigger Task
 
@@ -64,8 +62,8 @@ class AutoClosePopupTask(TriggerTask):
         close_button = self.ocr(match=self.config.get("Close Text"))
         if not close_button:
             return False
-        self.click_box(close_button, after_sleep=0.5)  # framework auto-logs the click
-        self.log_info("event=end result=success name=close_popup")
+        self.click_box(close_button, after_sleep=0.5)
+        self.log_info("Closed popup")
         return True
 ```
 
@@ -98,7 +96,8 @@ class ClickFeatureTask(BaseTask):
             time_out=10,
             raise_if_not_found=True,
             after_sleep=1,
-        )  # framework auto-logs the click
+        )
+        self.log_info("Clicked feature")
 ```
 
 ## Config With Drop-Down and Multi-Selection
@@ -146,7 +145,7 @@ class MyCustomTask(BaseTask):
         self.default_config = {"Message": "Hello"}
 
     def run(self):
-        self.log_info(f"event=start message={self.config.get('Message')}")  # structured key=value
+        self.log_info(self.config.get("Message"))
 ```
 
 The loader scans top-level classes and instantiates the first subclass of `BaseTask` or `TriggerTask`.
@@ -161,4 +160,3 @@ The loader scans top-level classes and instantiates the first subclass of `BaseT
 - Trigger tasks include `_enabled` and a sensible `trigger_interval`.
 - OCR text covers English and Chinese when the target UI may use both.
 - Registration path and class name match the real module.
-- Logs use structured `key=value` fields with vocabulary constants (not literals) and do not restate framework auto-logged clicks.

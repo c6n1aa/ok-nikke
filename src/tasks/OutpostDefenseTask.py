@@ -2,15 +2,12 @@ import time
 
 from ok.task.exceptions import WaitFailedException
 
-from src import log_fields  # 日志字段取值词表（单一数据源）。
 from src.tasks.NikkeBaseTask import NikkeBaseTask  # 导入项目基类，所有任务统一继承它。
 
 
 class OutpostDefenseTask(NikkeBaseTask):  # 定义歼灭子任务类。
 
     done_keys = {"outpost_defense": "day"}  # 完成状态：歼灭（日常刷新）。
-
-    _MAX_GEM_TIMES = 10  # 使用珠宝歼灭次数的上限（与 validate_config 同源）。
 
     def __init__(self, *args, **kwargs):  # 初始化任务元数据与配置。
         super().__init__(*args, **kwargs)  # 必须先调用父类初始化。
@@ -38,21 +35,19 @@ class OutpostDefenseTask(NikkeBaseTask):  # 定义歼灭子任务类。
         raise WaitFailedException("未能进入前哨基地歼灭页。")  # 超时仍失败则抛出异常。
 
     def run(self):  # 子任务执行入口。
-        key, period = "outpost_defense", self.done_keys["outpost_defense"]  # 完成状态键与周期。
-        if self.is_done(key, period):  # 本周期内已完成则直接跳过。
-            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_ALREADY_DONE} key={key} period={period}")  # 记录跳过。
+        if self.is_done("outpost_defense", "day"):  # 本周期内已完成则直接跳过。
+            self.log_info("今天已歼灭过，跳过。")  # 记录跳过原因。
             return  # 结束本次执行。
         times = self.config.get("使用珠宝歼灭次数", 0)  # 读取使用珠宝的歼灭次数。
-        if times < 0 or times > self._MAX_GEM_TIMES:  # 校验次数是否在合法范围。
-            self.log_error(f"event={log_fields.EVENT_ABORT} reason=config_out_of_range key=使用珠宝歼灭次数 value={times} range=0-{self._MAX_GEM_TIMES}")  # 记录非法配置。
+        if times < 0 or times > 10:  # 校验次数是否在合法范围。
+            self.log_error(f"歼灭次数 {times} 超出 0-10 范围。")  # 记录非法配置。
             return  # 结束本次执行。
-        self.log_info(f"event={log_fields.EVENT_START} gem_times={times}")  # 记录流程开始与生效配置。
         self.ensure_screen("lobby")  # 先就位游戏大厅（含冷启动引导与弹窗清理），避免游戏仍在加载/登录页就按大厅坐标点击；失败抛 WaitFailedException。
         if not self.try_step(self._do_outpost_defense, name="歼灭", raise_on_fail=False):  # 从大厅出发完成整个歼灭子流程，失败恢复回大厅重试。
-            self.log_warning(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_RETRIES_EXHAUSTED}")  # 记录跳过，不中断整个日常。
+            self.log_warning("歼灭流程失败，跳过。")  # 记录失败并跳过，不中断整个日常。
             return  # 失败时不标记已完成，留待下次重试。
-        self.mark_done(key, period)  # 记录本周期已完成。
-        self.log_info(f"event={log_fields.EVENT_END} result={log_fields.RESULT_SUCCESS} key={key} period={period}")  # 记录子流程完成。
+        self.mark_done("outpost_defense", "day")  # 记录本周期已完成。
+        self.log_info("歼灭完成。")  # 记录子流程完成。
 
     def _do_outpost_defense(self):  # 歼灭入口子流程：从大厅进入、歼灭并领取奖励，由 try_step 整体包裹。
         self._click_outpost_defense(time_out=10)  # 按标注区域中心点击进入前哨基地歼灭页。
@@ -60,8 +55,7 @@ class OutpostDefenseTask(NikkeBaseTask):  # 定义歼灭子任务类。
         if times == 0:  # 次数为0时执行免费歼灭。
             self._wipe_out_free()  # 免费歼灭一次。
         else:  # 次数大于0时执行珠宝歼灭循环。
-            for index in range(times):  # 按配置次数循环。
-                self.log_info(f"event={log_fields.EVENT_ROUND} index={index + 1} total={times}")  # 记录本轮珠宝歼灭。
+            for _ in range(times):  # 按配置次数循环。
                 self._wipe_out_with_gem()  # 使用珠宝歼灭一次。
         self.wait_click_feature("outpost_defense_claim", time_out=10, raise_if_not_found=True, after_sleep=1)  # 点击领取歼灭奖励，弹窗未关会抛异常被 try_step 捕获。
         self.dismiss_all_popups(time_out=5);  # 统一清理可能残留的领取弹窗，等待弹窗出现并关闭后再继续。
@@ -86,5 +80,5 @@ class OutpostDefenseTask(NikkeBaseTask):  # 定义歼灭子任务类。
 
     def validate_config(self, key, value):  # 配置校验入口。
         if key == "使用珠宝歼灭次数":  # 只校验歼灭次数。
-            if not isinstance(value, int) or value < 0 or value > self._MAX_GEM_TIMES:  # 次数必须是 0 到上限之间的整数。
-                return f"使用珠宝歼灭次数必须在 0 到 {self._MAX_GEM_TIMES} 之间。"  # 返回非法提示。
+            if not isinstance(value, int) or value < 0 or value > 10:  # 次数必须是0-10的整数。
+                return "使用珠宝歼灭次数必须在 0 到 10 之间。"  # 返回非法提示。

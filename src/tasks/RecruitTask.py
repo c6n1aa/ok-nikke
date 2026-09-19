@@ -3,7 +3,6 @@ import time  # 时间模块，招募结果确认循环的超时控制。
 
 from ok.task.exceptions import WaitFailedException  # 特征缺失/确认超时抛出的框架等待失败异常。
 
-from src import log_fields  # 日志字段取值词表（单一数据源）。
 from src.tasks.NikkeBaseTask import NikkeBaseTask  # 项目基类，所有任务统一继承它。
 
 # 招募结果「确认」按钮 OCR 匹配模式：OCR 文本常带尾随标点/拆框，用正则部分匹配。
@@ -32,18 +31,18 @@ class RecruitTask(NikkeBaseTask):  # 招募任务：每日免费招募/友情点
         })
 
     def run(self):  # 任务执行入口：就位大厅→进入招募界面→按配置执行各招募→返回大厅标记完成。
-        key, period = "recruit", self.done_keys["recruit"]  # 完成状态键与周期。
-        if self.is_done(key, period):  # 本周期内已完成则直接跳过（先判完成，避免无谓就位大厅）。
-            self.log_info(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_ALREADY_DONE} key={key} period={period}")  # 记录跳过。
-            return  # 结束本次执行。
+        self.log_info("招募任务开始。")  # 记录任务开始。
         if not self.ensure_screen("lobby", raise_on_fail=False):  # 启动后就位游戏大厅（幂等闸门：含冷启动引导与弹窗清理），失败则中止。
-            self.log_error(f"event={log_fields.EVENT_ABORT} reason={log_fields.REASON_LOBBY_NOT_FOUND} key={key}")  # 记录失败原因。
+            self.log_error("未能进入游戏大厅，中止招募任务。")  # 记录失败原因。
+            return  # 结束本次执行。
+        if self.is_done("recruit", "day"):  # 本周期内已完成则直接跳过。
+            self.log_info("今日招募已完成，跳过。")  # 记录跳过原因。
             return  # 结束本次执行。
         if not self.try_step(self._do_recruit, name="招募", raise_on_fail=False):  # 招募整体流程：进入→各子招募→返回大厅，失败不标记完成。
-            self.log_warning(f"event={log_fields.EVENT_SKIP} reason={log_fields.REASON_RETRIES_EXHAUSTED}")  # 记录失败原因。
+            self.log_warning("招募流程多次失败，跳过。")  # 记录失败原因。
             return  # 结束本次执行。
-        self.mark_done(key, period)  # 记录本周期已完成。
-        self.log_info(f"event={log_fields.EVENT_END} result={log_fields.RESULT_SUCCESS} key={key} period={period}")  # 记录任务完成。
+        self.mark_done("recruit", "day")  # 记录本周期已完成。
+        self.log_info("招募任务完成。")  # 记录任务完成。
 
     def _do_recruit(self):  # 招募整体流程（re-entrant，由 try_step 包裹）：进入招募界面→按配置执行各子招募→返回大厅。
         self.transition("recruit_page", click_feature="gacha", wait_confirm=10, after_sleep=1)  # 点大厅抽卡入口并确认进入招募界面。
