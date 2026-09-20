@@ -1,7 +1,7 @@
 """活动列表行识别：模板生成（纯函数/解析）+ 真实截图匹配回归。
 
 期望坐标来自 2560x1440 实机截图（tests/images/event_list.png）与官方活动图
-（tests/images/event_banner_great_villain_union.png）的离线标定，测量脚本见 dev_tools/check_banner_match*.py。
+（tests/images/event_banner_great_villain_union.png）的离线标定；测量脚本是开发期的一次性脚本，已不保留。
 """
 import hashlib
 import os

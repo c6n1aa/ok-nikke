@@ -2,7 +2,7 @@
 
 fixtures 是真实活动关卡页截图跑项目同款 onnxocr 的产物（tests/fixtures/event_stage/*.json 的
 `full` = 全屏 OCR、`list` = box_event_stage_list 裁剪后的 OCR），测试只跑解析不跑模型，完全确定性。
-截图本体留在 dev_tools/event/（不入仓），fixtures 的 bbox 已换算回整图坐标。
+截图本体是开发期的实机素材，不入仓；fixtures 的 bbox 已换算回整图坐标。
 """
 
 import json

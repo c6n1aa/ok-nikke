@@ -2,7 +2,7 @@
 """update.py（应用内更新 bootstrap）的纯函数单测。
 
 只测无副作用的部分：配置解析、更新源解析、依赖指纹、pip 命令、tag 排序/过滤、版本号读写。
-端到端 git 流程见 dev_tools/poc_update_flow.py（用真实 tag + 临时目录）。
+端到端 git 流程的开发期验证脚本（dev_tools/poc_update_flow.py，用真实 tag + 临时目录）已随 dev_tools/ 临时文件清理删除。
 """
 
 import ast

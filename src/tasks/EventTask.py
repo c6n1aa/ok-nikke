@@ -34,7 +34,7 @@ _STAGE_SCAN_MAX_SCROLLS = 6  # 关卡列表跨屏扫描的最多下滚次数（�
 
 _STORY_MODES = ("NORMAL", "HARD")  # 剧情关卡难度选项（沿用游戏内英文标签）；难度选择未实现，配置项暂隐藏入口。
 
-# 活动关卡页（剧情子流程）区域特征与行切片参数（解析规则见 src/event_stage.py 与 dev_tools/handoff.md §4）。
+# 活动关卡页（剧情子流程）区域特征与行切片参数（解析规则见 src/event_stage.py）。
 _STAGE_LIST_BOX = "box_event_stage_list"  # 关卡列表区（提供横向范围；OCR 时纵向拉满整屏，见 _stage_list_box）。
 _STAGE_MODE_BOX = "box_event_stage_mode"  # 关卡页难度区（NORMAL / HARD）。
 _SLICE_GAP_RATIO = 1.5  # 相邻锚点间距超过行距的该倍数 = 中间漏了一行，按中点外推补一条。
@@ -120,7 +120,7 @@ _MENU_PROBE_ENTRIES = ("挑战", "任务", "商店")
 
 # 活动主页功能入口探测表：label -> 关键词正则列表（列表顺序即探测顺序）。
 # OCR 在 _MENU_BAND_BOXES 各区域内逐区匹配；预留 feature 位：实机若发现某入口只有图标无文字，
-# 再改成 {label: (feature, [keywords])} 形式补 coco 特征匹配（handoff §1）。
+# 再改成 {label: (feature, [keywords])} 形式补 coco 特征匹配。
 _ENTRIES = {
     "签到": [re.compile(r"签到印章", re.IGNORECASE)],
     "剧情": [*_STORY_MENU_PATTERNS, _STORY_SUB_PATTERN],
