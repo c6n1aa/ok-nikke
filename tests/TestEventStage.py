@@ -40,25 +40,20 @@ class TestEventStageFixtures(unittest.TestCase):
             self.assertGreaterEqual(row.box[0], list_box[0])
             self.assertLessEqual(row.box[2], list_box[0] + list_box[2])
 
-    def test_direct_layout_locked_rows_have_no_id(self):
-        # 锁定页：只有首关有编号，其余行是 ACCESS/DENIED（编号位被锁定文案占据）。
+    def test_direct_layout_locked_text_produces_no_rows(self):
+        # 锁定页：编号位被 ACCESS/DENIED 占据，没有编号 → 不产出条目（锁定行不可点击，调用方也只按 stage_id 取目标）。
         rows, _ = _parse('event_smol_02', 'list')
-        self.assertEqual('1-01', rows[0].stage_id)
+        self.assertEqual(['1-01'], [row.stage_id for row in rows])
         self.assertEqual(es.STATUS_AVAILABLE, rows[0].status)
-        locked = [row for row in rows if row.status == es.STATUS_LOCKED]
-        self.assertEqual(6, len(locked))
-        for row in locked:  # 锁定行没有编号，来源为 lock。
-            self.assertIsNone(row.stage_id)
-            self.assertEqual(es.SOURCE_LOCK, row.source)
         self.assertEqual('1-01', es.progress_target(rows).stage_id)
 
     def test_locked_only_page_full_layer_reads_arrow_prefixed_number(self):
-        # 全屏层（EventTask 不采用，仅作对照输入）：锁定行占位读不到编号，但首关带装饰箭头的编号
-        # （`》1-01`，旧的文案白名单因 `》` 把整块丢弃）现在按结构判据能读出来。
+        # 全屏层（EventTask 现在也会跑）：锁定行占位读不到编号，但首关带装饰箭头的编号
+        # （`》1-01`，旧的文案白名单因 `》` 把整块丢弃）现在按结构判据能读出来；锁定文案不建行。
         rows, data = _parse('event_smol_02', 'full')
         self.assertEqual(1, es.count_numbers(data['full']))
-        self.assertEqual('1-01', rows[0].stage_id)
-        self.assertEqual([es.STATUS_LOCKED] * 6, [row.status for row in rows[1:]])
+        self.assertEqual(['1-01'], [row.stage_id for row in rows])
+        self.assertEqual([es.STATUS_AVAILABLE], [row.status for row in rows])
 
     def test_direct_layout_misread_numbers_normalize(self):
         # HARD 全通页：7 行编号全是形近抖动（√ 读成 V 再叠 O↔0、=↔-，如 V1O6 / V1-O8 / V 1=1O），必须全部归一化。
@@ -86,7 +81,7 @@ class TestEventStageFixtures(unittest.TestCase):
         self.assertEqual(es.STATUS_REPEAT, rows[0].status)
         self.assertEqual('1-02', rows[1].stage_id)
         self.assertEqual(es.STATUS_AVAILABLE, rows[1].status)
-        self.assertTrue(any(row.status == es.STATUS_LOCKED for row in rows))  # 同行列表里还有锁定行。
+        self.assertEqual(2, len(rows))  # 同屏的锁定文案不产出条目。
 
     def test_handwritten_page_stays_within_candidate_set(self):
         # 手写体全锁页：编号可能误读，解析结果只允许落在受限候选表内（或 None），且不抛异常。
@@ -96,13 +91,13 @@ class TestEventStageFixtures(unittest.TestCase):
 
     def test_handwritten_snake_page_parses_number_row(self):
         # 手写体 + 蛇形（`img_1.png`，1507x878）：编号是纯数字 `04`，锚点读成 `&vent`，锁定文案抖动成
-        # `Aces Denied`/`AccessDeniced`。首关可打（用户确认），紧贴编号下方的 `Access Denied` 属于下一行，
+        # `Aces Denied`/`AccessDeniced`。首关可打（用户确认），紧贴编号下方的 `Access Denied` 属于下一锁定行，
         # 不能被归到编号行——否则唯一可打行会被误判 locked → 推图跳过。
         rows, data = _parse('img_1', 'full')
         numbered = [row for row in rows if row.stage_id]
         self.assertEqual(['1-04'], [row.stage_id for row in numbered])
         self.assertEqual(es.STATUS_AVAILABLE, numbered[0].status)
-        self.assertEqual(4, len([row for row in rows if not row.stage_id]))
+        self.assertEqual(1, len(rows))  # 锁定文案不产出条目。
         self.assertEqual('1-04', es.progress_target(rows).stage_id)
         self.assertEqual(1, es.count_numbers(data['full']))
         # 蛇形：编号在左列（x≈662），行框不能横跨整列表宽（否则中心落在两列之间）。
@@ -159,9 +154,8 @@ class TestEventStageBlocks(unittest.TestCase):
             _block('+ +  Alccess Denied + +', y=741, height=20),
         ]
         rows = es.parse(blocks, list_box=(681, 245, 522, 621))
-        self.assertEqual(['1-01', None, None, None], [row.stage_id for row in rows])
-        self.assertEqual([es.STATUS_AVAILABLE, es.STATUS_LOCKED, es.STATUS_LOCKED, es.STATUS_LOCKED],
-                         [row.status for row in rows])
+        self.assertEqual(['1-01'], [row.stage_id for row in rows])
+        self.assertEqual([es.STATUS_AVAILABLE], [row.status for row in rows])
         self.assertEqual('1-01', es.progress_target(rows).stage_id)  # 首关要能被选中去推图。
 
     def test_sequence_gaps_detects_missing_row(self):
@@ -190,15 +184,15 @@ class TestEventStageBlocks(unittest.TestCase):
         self.assertEqual('1-16', es.ALLOWED_IDS[-1])
         self.assertEqual(['1-16'], es.stage_id_candidates('H1-16'))  # HARD 编号归一化到同一套。
 
-    def test_status_attachment_requires_lower_half_of_row(self):
-        # 状态文字落在编号行下半区（>0.5 行距）才归行；紧贴编号（上半区）的是下一锁定行的文案槽 → 独立行。
+    def test_status_below_row_attaches_and_lock_text_is_ignored(self):
+        # 状态文案画在编号下方约 0.6 倍行距处 → 归上方编号行；紧贴编号的 ACCESS DENIED 只标记锁定位，不改编号行状态。
         rows = es.parse([_block('1-05', y=400),  # ctr 420。
-                         _block('ACCESS DENIED', y=400 + 48),  # ctr 468，Δ48 = 0.2 行距 → 独立锁定行。
-                         _block('1-06', y=400 + 240),  # ctr 660。
-                         _block('CLEAR', y=400 + 240 + 150)])  # ctr 830，Δ170 = 0.71 行距 → 归给 1-06。
-        self.assertEqual(['1-05', None, '1-06'], [row.stage_id for row in rows])
-        self.assertEqual([es.STATUS_AVAILABLE, es.STATUS_LOCKED, es.STATUS_CLEAR], [row.status for row in rows])
-        self.assertEqual('1-05', es.progress_target(rows).stage_id)  # 唯一可打行不被误判 locked。
+                         _block('ACCESS DENIED', y=452),  # ctr 472，紧贴编号 → 锁定文案，忽略。
+                         _block('1-06', y=520),  # ctr 540。
+                         _block('CLEAR', y=520 + 75)])  # ctr 615，Δ75 = 0.63 行距 → 归给 1-06。
+        self.assertEqual(['1-05', '1-06'], [row.stage_id for row in rows])
+        self.assertEqual([es.STATUS_AVAILABLE, es.STATUS_CLEAR], [row.status for row in rows])
+        self.assertEqual('1-05', es.progress_target(rows).stage_id)  # 唯一可打行不被锁定文案误判 locked。
 
     def test_snake_number_rows_narrow_to_own_column(self):
         # 蛇形：相邻编号分居左右两列（同一 y、不同 x），行框取各自编号块 x，互不重叠、不横跨整列表宽。
@@ -276,16 +270,50 @@ class TestEventStageBlocks(unittest.TestCase):
         self.assertEqual(['1-06', '1-07', '1-08'], [row.stage_id for row in rows])
         self.assertEqual(es.SOURCE_SEQUENCE, rows[1].source)
 
-    def test_status_attaches_only_within_row_pitch(self):
-        # 状态文案画在所属编号行下方约 0.6 倍行距处；超出一个行距即视为独立锁定行。
+    def test_status_far_from_any_row_is_dropped(self):
+        # 状态文案画在所属编号行下方约 0.6 倍行距处（归行）；超出一个行距 = 无主噪声，丢弃（不产出锁定行）。
         near = [_block('1-01', y=400), _block('1-02', y=520), _block('CLEAR', y=470)]
         rows = es.parse(near)
         self.assertEqual(es.STATUS_CLEAR, rows[0].status)
         self.assertEqual(es.STATUS_AVAILABLE, rows[1].status)
-        far = [_block('1-01', y=400), _block('1-02', y=520), _block('DENIED', y=700)]
+        far = [_block('1-01', y=400), _block('1-02', y=520), _block('CLEAR', y=700)]
         rows = es.parse(far)
-        self.assertEqual(3, len(rows))  # 多出一行锁定行。
-        self.assertEqual(es.SOURCE_LOCK, rows[2].source)
+        self.assertEqual(2, len(rows))  # 无主 CLEAR 丢弃。
+        self.assertEqual([es.STATUS_AVAILABLE] * 2, [row.status for row in rows])
+
+    def test_status_on_same_row_right_badge_attaches(self):
+        # 徽标画在编号右侧**同一行**（REPEAT 图标 / CLEAR 印章）：|Δ| ≤ 0.4 行距 → 归本行。
+        blocks = [_block('1-06 EVENT', x=1000, y=400, width=160, height=40),  # ctr 420。
+                  _block('CLEAR', x=1500, y=402, width=100, height=36),  # ctr 420，同一行右侧。
+                  _block('1-07 EVENT', x=1000, y=520, width=160, height=40),  # ctr 540。
+                  _block('REPEAT', x=1500, y=560, width=100, height=36)]  # ctr 578，Δ38 = 0.32 行距。
+        rows = es.parse(blocks)
+        self.assertEqual(['1-06', '1-07'], [row.stage_id for row in rows])
+        self.assertEqual([es.STATUS_CLEAR, es.STATUS_REPEAT], [row.status for row in rows])
+        self.assertIsNone(es.progress_target(rows))  # 全 clear/repeat → 无可打目标。
+
+    def test_status_above_number_attaches(self):
+        # 手写体美术把 Clear 画在编号**上方**：|Δ| ≤ 0.4 行距 → 归本行。
+        blocks = [_block('Clear', x=1400, y=300, width=90, height=40),  # ctr 320。
+                  _block('02', x=1400, y=340, width=90, height=50),  # ctr 365。
+                  _block('Event', x=1400, y=820, width=90, height=30),  # ctr 835，锚点。
+                  _block('03', x=1400, y=845, width=90, height=70)]  # ctr 880。
+        rows = es.parse(blocks)
+        self.assertEqual(['1-02', '1-03'], [row.stage_id for row in rows])
+        self.assertEqual([es.STATUS_CLEAR, es.STATUS_AVAILABLE], [row.status for row in rows])
+        self.assertEqual('1-03', es.progress_target(rows).stage_id)
+
+    def test_locked_band_below_does_not_mark_current_row(self):
+        # 当前进度关下方整段是 ACCESS DENIED：锁定文案不归给上方编号行（否则当前关被误判 → 推图跳过）。
+        blocks = [_block('event 1-1', x=1200, y=380, width=120, height=40),  # ctr 400。
+                  _block('Access', x=1200, y=560, width=100, height=40),
+                  _block('Denied', x=1350, y=560, width=100, height=40),
+                  _block('Access', x=1200, y=900, width=100, height=40),
+                  _block('Denied', x=1350, y=900, width=100, height=40)]
+        rows = es.parse(blocks)
+        self.assertEqual(['1-01'], [row.stage_id for row in rows])
+        self.assertEqual(es.STATUS_AVAILABLE, rows[0].status)
+        self.assertEqual('1-01', es.progress_target(rows).stage_id)
 
     def test_fallback_row_pitch_scales_with_resolution(self):
         # 兜底行距不是固定像素：按分辨率缩放比缩放；缩放比无效（无帧/测试环境）时用标定值。
@@ -294,12 +322,12 @@ class TestEventStageBlocks(unittest.TestCase):
         self.assertEqual(es.ROW_PITCH_AT_REF, es.row_pitch_fallback(0.0))
 
     def test_status_attach_tolerance_follows_scale(self):
-        # 只有一个编号块（测不出行距）时归行容差走兜底行距：低分辨率下容差缩小，超界状态块成为独立行。
+        # 只有一个编号块（测不出行距）时归行容差走兜底行距：低分辨率下容差缩小，超界状态块被丢弃。
         blocks = [_block('1-01', y=400), _block('CLEAR', y=480)]  # 编号中心 420、状态中心 500，间距 80。
-        self.assertEqual([es.STATUS_CLEAR], [row.status for row in es.parse(blocks)])  # 1440p：80 ≤ 120 × 0.9。
-        rows = es.parse(blocks, scale=0.5)  # 720p：容差缩到 60 × 0.9 = 54 < 80。
-        self.assertEqual(2, len(rows))
-        self.assertEqual(es.SOURCE_LOCK, rows[1].source)
+        self.assertEqual([es.STATUS_CLEAR], [row.status for row in es.parse(blocks)])  # 1440p：80 ≤ 120 × 0.85。
+        rows = es.parse(blocks, scale=0.5)  # 720p：容差缩到 60 × 0.85 = 51 < 80。
+        self.assertEqual(1, len(rows))
+        self.assertEqual(es.STATUS_AVAILABLE, rows[0].status)
 
 
 if __name__ == '__main__':

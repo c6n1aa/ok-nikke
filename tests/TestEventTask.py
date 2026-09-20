@@ -1327,6 +1327,22 @@ class TestEventTask(_DebugOffTestCase):
         with patch.object(self.task, 'get_box_by_name', side_effect=ValueError('missing')):
             self.assertIsNone(self.task._stage_list_box())
 
+    def test_stage_list_box_expands_to_full_height(self):
+        # 列表区标注只在某一期活动标定：横向稳定、纵向逐期不同，故纵向拉满整屏，避免别的活动列表更高/更靠上被切掉行。
+        annotated = Box(950, 342, 729, 867, confidence=1, name='box_event_stage_list')
+        with patch.object(self.task, 'get_box_by_name', return_value=annotated), \
+                patch.object(type(self.task), 'height', new_callable=PropertyMock, return_value=1440):
+            box = self.task._stage_list_box()
+        self.assertEqual((950, 0, 729, 1440), (box.x, box.y, box.width, box.height))
+
+    def test_stage_list_box_keeps_annotation_without_height(self):
+        # 无有效屏高（无帧/单测）：保守用标注框，不臆造整屏高度。
+        annotated = Box(950, 342, 729, 867, confidence=1, name='box_event_stage_list')
+        with patch.object(self.task, 'get_box_by_name', return_value=annotated), \
+                patch.object(type(self.task), 'height', new_callable=PropertyMock, return_value=0):
+            box = self.task._stage_list_box()
+        self.assertEqual((950, 342, 729, 867), (box.x, box.y, box.width, box.height))
+
     def test_stage_blocks_skip_slice_when_numbers_sufficient(self):
         # 编号块数与锚点数齐平（7 个编号、0 个锚点）：不触发降级，OCR 只调用一次列表区。
         numbers = [Box(1200, 400 + index * 120, 60, 40, confidence=0.9, name=f'EVENT V1-0{index + 1}')
@@ -1337,7 +1353,7 @@ class TestEventTask(_DebugOffTestCase):
         self.assertEqual(1, ocr_mock.call_count)
 
     def test_stage_blocks_slice_when_anchors_exceed_numbers(self):
-        # 低对比页：裁剪层只读到 1 个编号 + 3 个锚点残片，每条窄带补扫一次。
+        # 低对比页：列表区只读到 1 个编号 + 3 个锚点残片，每条窄带补扫一次。
         list_box = Box(950, 342, 729, 867, confidence=1, name='list')
         listed = [Box(1200, 1100, 60, 40, confidence=0.9, name='1-12'),
                   Box(1200, 400, 30, 20, confidence=0.83, name='eni'),

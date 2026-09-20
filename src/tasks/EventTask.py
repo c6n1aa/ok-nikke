@@ -35,7 +35,7 @@ _STAGE_SCAN_MAX_SCROLLS = 6  # 关卡列表跨屏扫描的最多下滚次数（�
 _STORY_MODES = ("NORMAL", "HARD")  # 剧情关卡难度选项（沿用游戏内英文标签）；难度选择未实现，配置项暂隐藏入口。
 
 # 活动关卡页（剧情子流程）区域特征与行切片参数（解析规则见 src/event_stage.py 与 dev_tools/handoff.md §4）。
-_STAGE_LIST_BOX = "box_event_stage_list"  # 关卡列表区（OCR 裁剪范围 + 行锚点切片范围）。
+_STAGE_LIST_BOX = "box_event_stage_list"  # 关卡列表区（提供横向范围；OCR 时纵向拉满整屏，见 _stage_list_box）。
 _STAGE_MODE_BOX = "box_event_stage_mode"  # 关卡页难度区（NORMAL / HARD）。
 _SLICE_GAP_RATIO = 1.5  # 相邻锚点间距超过行距的该倍数 = 中间漏了一行，按中点外推补一条。
 _DEDUP_RATIO = 40 / 1440  # 多层 OCR 同一元素的纵向去重容差（占屏高比例）。
@@ -626,13 +626,18 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
         self.close_overlay(keywords=(self._MASK_CLAIM_PATTERN, self._MASK_ANYWHERE_PATTERN,
                                      self._CLICK_TO_PROCEED_PATTERN), time_out=time_out)  # 复用登录奖励同一套遮罩提示词。
 
-    # ---- 剧情关卡页 OCR 与解析（方案 §5：全屏/裁剪 → 行锚点切片三级降级） ----
+    # ---- 剧情关卡页 OCR 与解析（横向标注整屏竖条 → 行锚点/均匀切片降级） ----
 
-    def _stage_list_box(self):  # 关卡列表区 Box（coco 区域特征，按分辨率缩放）；未标注返回 None。
-        box = self._optional_box(_STAGE_LIST_BOX)  # 区域框。
+    def _stage_list_box(self):  # 关卡列表检索区 Box：横向用 coco 标注，纵向拉满整屏。
+        """标注框只在一期活动上标定：横向跨期稳定，纵向逐期不同（按标注 y/高裁剪会切掉别的活动的行）。
+        故只沿用标注横向范围，纵向用整屏，交给解析层按内容筛行。"""
+        box = self._optional_box(_STAGE_LIST_BOX)  # 标注框。
         if box is None:  # 特征缺失。
             self.log_warning(f"缺少区域特征: {_STAGE_LIST_BOX}")  # 记录缺失，便于排查。
-        return box  # 无法定位列表区时为 None。
+            return None  # 无法定位列表区时为 None。
+        if self.height and self.height > 0:  # 有有效屏高：纵向拉满。
+            return Box(box.x, 0, box.width, self.height, confidence=box.confidence, name=box.name)  # 同横向范围的整屏竖条。
+        return box  # 无屏高（单测/无帧）：保守用标注框。
 
     def _ocr_blocks(self, box):  # 一次区域 OCR -> 解析层 Block 列表（整图坐标）。
         return [event_stage.Block(text=item.name, score=item.confidence, x1=item.x, y1=item.y,
@@ -642,8 +647,9 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
     def _block_kind(self, block):  # 块类别（去重只在同类别之间进行）。
         if event_stage.stage_id_candidates(block.text):  # 编号块。
             return "number"
-        if event_stage.match_status(block.text):  # 状态文案块。
-            return "status"
+        status = event_stage.match_status(block.text)  # 状态文案块。
+        if status:  # clear / repeat / locked 各自成类：同一行的 CLEAR 印章与 REPEAT 图标都有效，不能被去重挤掉。
+            return status
         return "other"  # 锚点等其它块。
 
     def _dedup_blocks(self, blocks):  # 多层 OCR 的重复块：同类别且纵向邻近时只保留置信度最高的一块。
@@ -699,7 +705,7 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
         return bands  # 条数 = 列表区高度 ÷ 行距（封顶 _UNIFORM_MAX_BANDS）。
 
     def _stage_blocks(self, list_box):  # 列表区 OCR；编号读不全时降级切片补扫（有锚点按锚点切，无锚点按标定行距均匀切）并去重。
-        blocks = self._ocr_blocks(list_box)  # 第一层：列表区裁剪 OCR。
+        blocks = self._ocr_blocks(list_box)  # 第一层：列表区（整屏竖条）OCR。
         self.log_debug(f"列表区 OCR {len(blocks)} 块：{[block.text for block in blocks]}")  # 原始文本便于排查识别问题。
         anchors = [block for block in blocks if event_stage.is_anchor(block.text)
                    and not event_stage.stage_id_candidates(block.text)]  # 行锚点（含 eni/vent 残片）。

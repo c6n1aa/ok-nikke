@@ -1,22 +1,12 @@
 """活动关卡页（STAGE LIST）的 OCR 文本解析：纯逻辑，不 import ok 框架（同 `event_calendar.py` 风格）。
 
-设计依据（交接口径）见 `dev_tools/handoff.md` §4「关卡页解析层」：判据只用文本块位置 + 语义 + 序列校验，
-不使用美术特征（模板 / 颜色）；每期美术不同，OCR 会有形近抖动（O↔0、=↔-、丢分隔符）。
+输入一层 OCR 文本块（text/score/bbox），输出编号行 StageRef。本模块只服务一个目的：给调用方
+可点击的关卡目标行（`progress_target` 推图 / `find_stage` 扫荡）。锁定行没有编号、不可点击，
+调用方选择器全按 stage_id 过滤，故不为锁定文案建行。
 
-输入是一层 OCR 文本块（text/score/bbox），输出行条目 StageRef：
-- 编号行：编号块 + 状态块（`CLEAR` / `REPEAT >>` / 锁定族）配对；编号块里紧邻编号的勾选符号 √
-  （已通关的行内标记，实测被 OCR 读成 `V`）使该行默认 clear，其余默认 available；
-- 锁定行：编号位被锁定文案占据（`ACCESS DENIED` 等），没有编号，stage_id 为 None。
-
-配对规则按实测：状态文案画在所属编号行的编号块**下方**（约 0.6 倍行距处），
-且两行式布局里 `EVENT` 锚点块与编号块同带 → 状态块归给「上方最近且在行距内的编号行」，
-超出容差即视为独立锁定行（见 tests/TestEventStage.py 的 fixtures 断言）。
-
-兜底行距（`ROW_PITCH_AT_REF`）不写死像素：`parse(scale=...)` 传当前分辨率相对标定截图的
-缩放比，按比例缩放（状态归行容差、行框高度、状态块聚类阈值同源联动）。
-
-三级 OCR 降级（全屏 → 列表区裁剪 → 行锚点切片）由调用方负责：本模块提供
-`count_numbers` 供调用方判断是否需要降级（锚点过滤由调用方按 `is_anchor` 内联），解析本身与 OCR 层级无关。
+判据只用文本块位置 + 语义 + 序列校验（不用美术特征，逐期美术不同，见 `dev_tools/handoff.md` §4）：
+编号 = 块里唯一一段「数字+分隔符」且匹配编号体（形近归一 + 受限候选 + 序列单调）；状态归最近编号行
+（同行/略上方 |Δ|≤0.4 行距，或上方编号行下方 0.4~0.85 行距）。OCR 分层由调用方负责。
 """
 
 from __future__ import annotations
@@ -30,26 +20,29 @@ logger = logging.getLogger(__name__)  # 不引入 ok 框架，日志走 stdlib�
 # 受限候选表：编号只可能是这些值，误读一律收敛到最近合法值（方案 §7）。
 ALLOWED_IDS = tuple(f"1-{i:02d}" for i in range(1, 17))  # 1-01 ~ 1-16（特殊活动最多 16 关；HARD 与 NORMAL 共用同一套）。
 
-MIN_SCORE = 0.6  # 置信度下限：实测 0.612 的锁定行不可丢，阈值只用来剔除极低分噪声。
+MIN_SCORE = 0.6  # 置信度下限（实测 0.612 的锁定行不可丢，只剔除极低分噪声）。
 MAX_DISTANCE = 2  # 关键词模糊匹配的最大编辑距离。
-ROW_PITCH_AT_REF = 120  # 行距兜底标定值（2560x1440 实测直排列约 115~120px），按分辨率缩放比缩放后使用。
-STATUS_ATTACH_RATIO = 0.9  # 状态块归行容差 = 行距 × 该比例，超出即判为独立锁定行。
-STATUS_ATTACH_MIN_RATIO = 0.5  # 状态必须落在编号行**下半区**（> 行距 × 该比例）才算本行状态；更近的那条是下一锁定行的文案槽。
-DUP_ROW_RATIO = 0.4  # 同列编号块判「同一行的重复识别」的纵向容差（相对行距）：取小值的比例，避免并掉真实相邻行。
+ROW_PITCH_AT_REF = 120  # 行距兜底标定值（2560x1440 实测直排约 115~120px），按分辨率缩放比缩放。
+SAME_ROW_RATIO = 0.4  # 状态块与编号同行的纵向容差（相对行距）：覆盖徽标在编号右侧/上方的美术。
+STATUS_BELOW_RATIO = 0.85  # 状态块归给上方编号行的最大距离（相对行距）：覆盖实测 0.6~0.71 倍槽位（蛇形 REPEAT）。
+PITCH_CLUSTER_RATIO = 0.4  # 编号与锚点同带判定（相对兜底行距），用于聚成一行线。
+PITCH_GAP_RATIO = 1.5  # 行线间距超过最小间距该倍数 = 漏行造成的成倍间距，估行距时剔除。
+PITCH_MIN_RATIO = 0.5  # 估计行距低于兜底值该倍数 = 只量到同行错位，退回兜底值。
+PITCH_MAX_RATIO = 1.6  # 估计行距高于兜底值该倍数 = 行信号太稀，退回兜底值。
+DUP_ROW_RATIO = 0.4  # 同列编号块判「同一行重复识别」的纵向容差（相对行距），避免并掉真实相邻行。
 
 CLEAR_KEYWORDS = ("clear", "complete", "completed")  # 已通关文案。
 CLEAR_MARK_CHARS = ("V", "✓", "√")  # 行内勾选符号（√，实测被 OCR 读成 V；normalize 后统一大写）。
 REPEAT_KEYWORDS = ("repeat",)  # 可重复挑战文案（扫荡目标行）。
-LOCKED_KEYWORDS = ("access", "denied", "locked")  # 锁定族文案。
+LOCKED_KEYWORDS = ("access", "denied", "locked")  # 锁定族文案（只用于识别锁定位，不建行）。
 ANCHOR_KEYWORDS = ("event",)  # 行锚点文案（`EVENT` 与编号同带的两行式）。
 
 STATUS_CLEAR = "clear"  # 已通关。
 STATUS_REPEAT = "repeat"  # 已通关且可重复挑战。
-STATUS_LOCKED = "locked"  # 未解锁（当前进度之后）。
+STATUS_LOCKED = "locked"  # 未解锁（由 match_status 产出给调用方归类；不会出现在行条目上）。
 STATUS_AVAILABLE = "available"  # 可打（未通关且未锁）。
 
 SOURCE_NUMBER = "number"  # 行由编号块建立。
-SOURCE_LOCK = "lock"  # 行由锁定文案建立（无编号）。
 SOURCE_SEQUENCE = "sequence"  # 编号块误读、按序列收敛到预期下一关。
 
 # 形近字符归一化：O/o/I/l/| → 0/1；= . _ → -；B → 8（8 的常见误读，实机 `EVENT V1-OB` = 1-08）。
@@ -109,7 +102,7 @@ class _Row:
     box: tuple[int, int, int, int]
     status: str
     source: str
-    anchor_center: float  # 归属判定用的行锚点 y（编号行取编号块中心，锁定行取文案块中心）。
+    anchor_center: float  # 状态归行判定用的编号块中心 y。
 
 
 def edit_distance(a, b):
@@ -225,39 +218,47 @@ def _as_blocks(blocks):
     return [block if isinstance(block, Block) else Block.from_dict(block) for block in blocks]
 
 
-def _median_gap(centers):
-    """一组 y 中心相邻间距的中位数（剔除重叠），不足两点返回 0。"""
-    centers = sorted(centers)  # 按 y 排序。
-    gaps = [b - a for a, b in zip(centers, centers[1:]) if b - a > 1]  # 剔除重叠的相邻间距。
-    if not gaps:  # 全部重叠。
-        return 0
-    gaps.sort()
-    return gaps[len(gaps) // 2]  # 中位数对误读块不敏感。
-
-
 def row_pitch_fallback(scale=1.0):
     """兜底行距（像素）：标定值按分辨率缩放比缩放；缩放比无效（无帧/测试环境）时用标定值。"""
     return ROW_PITCH_AT_REF * (scale if scale and scale > 0 else 1.0)
 
 
-def _row_pitch(number_blocks, cluster_centers, fallback):
-    """行距估计：优先用编号块间距；编号块不足两块时用状态簇间距（锁定页编号少）；仍不足用兜底值。"""
-    pitch = _median_gap([block.center_y for block in number_blocks])  # 编号块间距。
-    if pitch <= 0:  # 编号块少于两块/全部重叠。
-        pitch = _median_gap(cluster_centers)  # 退一步用状态簇间距。
-    return pitch if pitch > 0 else fallback
+def _estimate_pitch(number_blocks, anchor_blocks, scale):
+    """行距 = 编号 + 锚点行线间距的中位数；编号稀疏时锚点补密。只靠编号会因漏行成倍失真；
+    不用状态块（画在编号下方槽位，会插进两行之间把间距切碎）。"""
+    fallback = row_pitch_fallback(scale)  # 兜底行距（按分辨率缩放）。
+    centers = sorted(block.center_y for block in number_blocks + anchor_blocks)  # 编号 + 锚点行信号。
+    tolerance = fallback * PITCH_CLUSTER_RATIO  # 同带容差（同行错位远小于一个行距）。
+    lines = []  # 行线列表（每线为同带信号中心）。
+    for center in centers:
+        if lines and center - lines[-1][-1] <= tolerance:  # 与上一条行线同带。
+            lines[-1].append(center)
+        else:
+            lines.append([center])
+    line_centers = [sum(line) / len(line) for line in lines]  # 每条行线的中心。
+    gaps = [b - a for a, b in zip(line_centers, line_centers[1:]) if b - a > 1]  # 相邻行线间距。
+    if not gaps:  # 行线不足两条。
+        return fallback
+    regular = [gap for gap in gaps if gap <= min(gaps) * PITCH_GAP_RATIO]  # 剔除漏行造成的成倍间距。
+    regular.sort()
+    pitch = regular[len(regular) // 2]  # 正常行距的中位数。
+    if fallback * PITCH_MIN_RATIO <= pitch <= fallback * PITCH_MAX_RATIO:  # 估计值在合理带内。
+        logger.debug(f"行距估计：采用中位数 {pitch:.0f}px（间距 {[round(gap) for gap in gaps]}，兜底 {fallback:.0f}px）")
+        return pitch
+    logger.debug(f"行距估计：中位数 {pitch:.0f}px 超出 [{fallback * PITCH_MIN_RATIO:.0f}, "
+                 f"{fallback * PITCH_MAX_RATIO:.0f}]px，回退兜底 {fallback:.0f}px")  # 失真则兜底。
+    return fallback
 
 
-def _row_box(blocks, pitch, list_box, center_y):
-    """行框：给了列表区就横跨列表宽度、纵向按行距切分；否则取块并集上下扩半个行距。"""
-    if list_box is not None:  # 列表区已知：点击落点更稳。
-        return (int(list_box[0]), int(center_y - pitch / 2),
-                int(list_box[0] + list_box[2]), int(center_y + pitch / 2))
-    x1 = min(block.x1 for block in blocks)  # 块并集左边界。
-    x2 = max(block.x2 for block in blocks)  # 块并集右边界。
-    y1 = min(block.y1 for block in blocks)  # 块并集上边界。
-    y2 = max(block.y2 for block in blocks)  # 块并集下边界。
-    return (int(x1), int(y1 - pitch / 2), int(x2), int(y2 + pitch / 2))
+def _cluster_status_blocks(blocks, cluster_gap):
+    """状态块聚类：`ACCESS` 与 `DENIED` 是两块，纵向邻近（≤ cluster_gap）即同簇。"""
+    clusters = []  # 每簇为块列表。
+    for block in sorted(blocks, key=lambda item: item.center_y):  # 按 y 顺序聚类。
+        if clusters and block.center_y - clusters[-1][-1].center_y <= cluster_gap:  # 与上一簇同行。
+            clusters[-1].append(block)  # 并入。
+        else:
+            clusters.append([block])  # 新簇。
+    return clusters
 
 
 def _number_row_box(block, pitch, list_box, center_y):
@@ -274,32 +275,34 @@ def _number_row_box(block, pitch, list_box, center_y):
     return (int(x1), int(center_y - pitch / 2), int(x2), int(center_y + pitch / 2))
 
 
-def _cluster_status_blocks(blocks, cluster_gap):
-    """状态块聚类：`ACCESS` 与 `DENIED` 是两块，纵向邻近（≤ cluster_gap）即同簇。"""
-    clusters = []  # 每簇为块列表。
-    for block in sorted(blocks, key=lambda item: item.center_y):  # 按 y 顺序聚类。
-        if clusters and block.center_y - clusters[-1][-1].center_y <= cluster_gap:  # 与上一簇同行。
-            clusters[-1].append(block)  # 并入。
-        else:
-            clusters.append([block])  # 新簇。
-    return clusters
+def _status_target(rows, center_y, pitch):
+    """状态块归属的编号行下标：先判「上方编号行的下方槽位」（经典直排，虽更靠近下一行但属于上一行），
+    再判「同行/略上方」（徽标在编号右侧同行、文案在编号上方）；无主返回 None。"""
+    below = [(center_y - row.anchor_center, index) for index, row in enumerate(rows)
+             if SAME_ROW_RATIO * pitch < center_y - row.anchor_center <= STATUS_BELOW_RATIO * pitch]  # 上方行下方槽位。
+    if below:
+        return min(below)[1]  # 最近的上一行。
+    same = [(abs(center_y - row.anchor_center), index) for index, row in enumerate(rows)
+            if abs(center_y - row.anchor_center) <= SAME_ROW_RATIO * pitch]  # 同行/略上方。
+    return min(same)[1] if same else None
 
 
 def _build_rows(blocks, list_box=None, allowed=ALLOWED_IDS, scale=1.0):
-    """聚类成内部行：编号行（候选编号 + 默认状态）与锁定行（无编号）。"""
-    fallback_pitch = row_pitch_fallback(scale)  # 兜底行距（按分辨率缩放）。
+    """聚类成内部编号行：候选编号 + 默认状态；状态（clear/repeat）再按语义归行。"""
+    fallback = row_pitch_fallback(scale)  # 兜底行距（按分辨率缩放）：状态聚类阈值、重复识别容差同源。
     usable = [block for block in blocks if block.score >= MIN_SCORE and block.text.strip()]  # 过滤极低分噪声块。
     number_blocks = [block for block in usable if stage_id_candidates(block.text, allowed)]  # 编号块。
+    anchor_blocks = [block for block in usable if not stage_id_candidates(block.text, allowed)
+                     and is_anchor(block.text)]  # 行锚点块（行距信号）。
     status_blocks = [block for block in usable if not stage_id_candidates(block.text, allowed)
-                     and match_status(block.text)]  # 状态块。
-    clusters = _cluster_status_blocks(status_blocks, fallback_pitch / 2)  # 状态簇（`ACCESS` + `DENIED` 同簇）。
-    cluster_centers = [sum(block.center_y for block in cluster) / len(cluster) for cluster in clusters]  # 簇中心。
-    pitch = _row_pitch(number_blocks, cluster_centers, fallback_pitch)  # 行距估计。
+                     and match_status(block.text)]  # 状态块（clear/repeat/locked）。
+    clusters = _cluster_status_blocks(status_blocks, fallback / 2)  # 状态簇（`ACCESS` + `DENIED` 同簇）。
+    pitch = _estimate_pitch(number_blocks, anchor_blocks, scale)  # 行距估计。
     logger.debug(f"行构建：可用块 {len(usable)} / 编号块 {len(number_blocks)} / 状态块 {len(status_blocks)} / "
-                 f"状态簇 {len(clusters)}；行距 {pitch:.0f}px（兜底 {fallback_pitch:.0f}px，scale {scale}）")  # 聚类概览。
+                 f"锚点块 {len(anchor_blocks)} / 状态簇 {len(clusters)}；行距 {pitch:.0f}px（scale {scale}）")  # 聚类概览。
     rows = []  # 内部行列表。
-    placed = []  # 已建编号行的 (中心 y, x1, x2)：同列纵向邻近的重复识别要并掉（否则会收敛出多余关卡）。
-    tolerance = min(pitch, fallback_pitch) * DUP_ROW_RATIO  # 重复识别容差：用较小行距的比例（真实相邻行距远大于它）。
+    placed = []  # 已建编号行的 (中心 y, x1, x2)，用于同列重复识别去重。
+    tolerance = min(pitch, fallback) * DUP_ROW_RATIO  # 重复识别容差：用较小行距的比例。
     for block in sorted(number_blocks, key=lambda item: (item.center_y, item.x1)):  # 先建立全部编号行。
         if any(abs(block.center_y - center) <= tolerance and block.x1 < x2 and x1 < block.x2  # 同列（x 重叠）+ 纵向贴近。
                for center, x1, x2 in placed):  # = 同一行的重复识别（`1-05` 与 `》1-05` 这类）。
@@ -308,31 +311,25 @@ def _build_rows(blocks, list_box=None, allowed=ALLOWED_IDS, scale=1.0):
         candidates = stage_id_candidates(block.text, allowed)  # 编号候选（提取逻辑保证至多一个）。
         candidate = candidates[0] if candidates else None
         status = STATUS_CLEAR if has_clear_mark(block.text) else STATUS_AVAILABLE  # 行内勾选（√ 读成 V）= 已通关。
-        logger.debug(f"编号行 {candidate}（{block.text!r} y={block.center_y:.0f}）状态 {status}")  # 逐行明细便于核对。
+        logger.debug(f"编号行 {candidate}（{block.text!r} y={block.center_y:.0f}）状态 {status}")  # 逐行明细。
         rows.append(_Row(candidate=candidate, box=_number_row_box(block, pitch, list_box, block.center_y),
                          status=status, source=SOURCE_NUMBER, anchor_center=block.center_y))
         placed.append((block.center_y, block.x1, block.x2))  # 登记该行位置供后续去重。
-    for cluster in clusters:  # 状态簇逐个归行。
-        center_y = sum(block.center_y for block in cluster) / len(cluster)  # 簇中心。
+    for cluster in clusters:  # 状态簇按语义归行（锁定族不改编号行状态）。
         status = match_status(" ".join(block.text for block in cluster))  # 多块拼起来判状态。
-        tolerance = pitch * STATUS_ATTACH_RATIO  # 归行容差上界。
-        min_gap = pitch * STATUS_ATTACH_MIN_RATIO  # 归行容差下界：状态在本行下半区才算（更近 = 下一锁定行的文案槽）。
-        target = None  # 归属的编号行下标。
-        best = None  # 归属的最小纵向距离。
-        for index, row in enumerate(rows):  # 只在编号行的**上方**找归属（状态文案画在编号下方）。
-            delta = center_y - row.anchor_center
-            if 0 <= delta and (best is None or delta < best):  # 最近且在其下方。
-                target, best = index, delta
-        if target is not None and best is not None and min_gap < best <= tolerance:  # 落在编号行下半区 = 该行的状态。
-            logger.debug(f"状态 {status} 归给 {rows[target].candidate}（间距 {best:.0f} ≤ 容差 {tolerance:.0f}）")  # 归行判定。
-            row = rows[target]
-            rows[target] = _Row(candidate=row.candidate, box=row.box, status=status,
-                                source=row.source, anchor_center=row.anchor_center)
-        else:  # 超出容差 = 锁定行（编号位被锁定文案占据）。
-            logger.debug(f"状态 {status} 判为独立行（y={center_y:.0f}，最近间距 "
-                         f"{best if best is not None else -1:.0f} > 容差 {tolerance:.0f}）")  # 锁定行判定。
-            rows.append(_Row(candidate=None, box=_row_box(cluster, pitch, list_box, center_y),
-                             status=status, source=SOURCE_LOCK, anchor_center=center_y))
+        if status not in (STATUS_CLEAR, STATUS_REPEAT):  # `ACCESS DENIED` = 锁定位，不是任何编号行的状态。
+            logger.debug(f"锁定簇（{' '.join(block.text for block in cluster)}）不归行"
+                         f"（锁定行无编号、不产出条目）")  # 记录便于核对。
+            continue
+        center_y = sum(block.center_y for block in cluster) / len(cluster)  # 簇中心。
+        index = _status_target(rows, center_y, pitch)  # 归属编号行。
+        if index is None:  # 无编号行可归（编号漏检）。
+            logger.debug(f"状态 {status}（y={center_y:.0f}）无归属编号行，丢弃")  # 记录便于核对。
+            continue
+        row = rows[index]
+        logger.debug(f"状态 {status} 归给 {row.candidate}（间距 {center_y - row.anchor_center:.0f}）")  # 归行判定。
+        rows[index] = _Row(candidate=row.candidate, box=row.box, status=status,
+                           source=row.source, anchor_center=row.anchor_center)
     rows.sort(key=lambda row: (row.box[1], row.box[3]))  # 统一按 y 排序。
     return rows
 
@@ -344,18 +341,17 @@ def _resolve_sequence(rows, allowed=ALLOWED_IDS):
     for row in rows:  # 逐行（已按 y 排序）。
         chosen = None  # 本行选定编号。
         source = row.source  # 行来源（误读收敛时改写）。
-        if row.source != SOURCE_LOCK:  # 锁定行不参与序列。
-            candidate = row.candidate
-            if candidate is not None:  # 编号行（提取逻辑保证单候选）。
-                index = _id_index(candidate, allowed)
-                if index is not None and index > last_index:  # 满足序号单调递增。
-                    chosen = candidate
-                elif last_index < len(allowed):  # 违规/误读：收敛到序列预期的下一关。
-                    chosen = allowed[last_index]
-                    source = SOURCE_SEQUENCE
-                    logger.debug(f"序号收敛：{candidate} -> {chosen}（上一行序号 {last_index}）")  # 收敛记录。
-            if chosen is not None:  # 记录序号供后续比较。
-                last_index = _id_index(chosen, allowed) or last_index
+        candidate = row.candidate
+        if candidate is not None:  # 编号行（提取逻辑保证单候选）。
+            index = _id_index(candidate, allowed)
+            if index is not None and index > last_index:  # 满足序号单调递增。
+                chosen = candidate
+            elif last_index < len(allowed):  # 违规/误读：收敛到序列预期的下一关。
+                chosen = allowed[last_index]
+                source = SOURCE_SEQUENCE
+                logger.debug(f"序号收敛：{candidate} -> {chosen}（上一行序号 {last_index}）")  # 收敛记录。
+        if chosen is not None:  # 记录序号供后续比较。
+            last_index = _id_index(chosen, allowed) or last_index
         resolved.append(StageRef(stage_id=chosen, box=row.box, status=row.status, source=source))
     return resolved
 
