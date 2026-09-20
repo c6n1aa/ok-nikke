@@ -1,5 +1,8 @@
 import itertools
 import os
+import shutil
+import sqlite3
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -12,7 +15,7 @@ from ok.task.exceptions import WaitFailedException
 from src.config import config
 from src.screens import _keyword
 from src.tasks.OutpostTask import _ADVISE_MAX_SWITCH, _BF_LIST_OPEN_MAX_ATTEMPTS, _SINGLE_OPTION_CLICK_X, \
-    OutpostTask, _normalize_answer_text, _normalize_query_name
+    OutpostTask, _normalize_answer_text, _normalize_character_name
 
 _TEST_CONFIG_DIR = os.path.join('dev_tools', 'test_configs')
 
@@ -102,10 +105,11 @@ class TestOutpostTaskMeta(_DebugOffTestCase):
         self.assertEqual("box_conversation_icon", self.task.screens["conversation"]["feature_box"])
 
     def test_normalize_helpers(self):
-        self.assertEqual("D", _normalize_query_name("D。"))  # 尾部标点折叠为通配符后收拢。
-        self.assertEqual("Rapi%Red%Hood", _normalize_query_name("Rapi: Red Hood"))  # 内部标点转通配符。
-        self.assertEqual("", _normalize_query_name("!!!"))  # 全标点名称视为空。
-        self.assertEqual("", _normalize_query_name(None))
+        self.assertEqual("d", _normalize_character_name("D。"))  # 尾部标点被忽略。
+        self.assertEqual("rapiredhood", _normalize_character_name("Rapi: Red Hood"))  # 内部标点被忽略。
+        self.assertEqual("eh", _normalize_character_name("E.H."))  # 尾随点不再产生通配符（回归点）。
+        self.assertEqual("", _normalize_character_name("!!!"))  # 全标点名称视为空。
+        self.assertEqual("", _normalize_character_name(None))
         self.assertEqual("好的交给我吧", _normalize_answer_text("好的，交给我吧！"))  # 去标点。
         self.assertEqual("", _normalize_answer_text(None))
 
@@ -123,11 +127,50 @@ class TestOutpostTaskMeta(_DebugOffTestCase):
         with patch.object(self.task, "_advise_locale", return_value="zh_CN"):
             self.assertEqual(rows, self.task._query_advise_rows("D。"))  # 尾部标点不影响查询结果。
         with patch.object(self.task, "_advise_locale", return_value="zh_CN"):
-            self.assertTrue(self.task._query_advise_rows("拉毗:小红帽"))  # 内部标点转通配符后命中全名角色。
+            self.assertTrue(self.task._query_advise_rows("拉毗:小红帽"))  # 内部标点归一后命中全名角色。
         with patch.object(self.task, "_advise_locale", return_value=""):
             self.assertEqual([], self.task._query_advise_rows("D"))  # 语言不支持返回空。
         with patch.object(self.task, "_advise_locale", return_value="zh_CN"):
             self.assertEqual([], self.task._query_advise_rows(""))  # 名称为空返回空。
+        with patch.object(self.task, "_advise_locale", return_value="en"):
+            self.assertTrue(self.task._query_advise_rows("E.H."))  # 回归：尾随点曾被 strip 掉通配符导致恒空。
+        with patch.object(self.task, "_advise_locale", return_value="en"):
+            guilty_rows = self.task._query_advise_rows("Guilty")  # 原角色。
+        with patch.object(self.task, "_advise_locale", return_value="en"):
+            self.assertNotEqual(guilty_rows, self.task._query_advise_rows("Guilty: Mighty Bunny"))  # SP 与原角色不串。
+
+    def _make_temp_advise_db(self, names):
+        """建临时咨询库：按给定角色名写入 en 语言占位条目（答案固定为 提问/好/坏），返回库路径。"""
+        temp_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, temp_dir, ignore_errors=True)
+        db_path = os.path.join(temp_dir, 'advise.db')
+        con = sqlite3.connect(db_path)
+        try:
+            con.execute("CREATE TABLE advise (locale TEXT, character_name TEXT, prompt TEXT, good TEXT, bad TEXT)")
+            for name in names:
+                con.execute("INSERT INTO advise VALUES (?, ?, ?, ?, ?)", ("en", name, "提问", "好", "坏"))
+            con.commit()
+        finally:
+            con.close()
+        return db_path
+
+    def test_query_advise_rows_ambiguous_name_returns_empty(self):
+        # 库中归一化后同名（E.H. / EH）属数据问题：宁可不猜，返回空交随机兜底并留日志。
+        db_path = self._make_temp_advise_db(["E.H.", "EH"])
+        with patch("src.tasks.OutpostTask._ADVISE_DB_PATH", db_path), \
+                patch.object(self.task, "_advise_locale", return_value="en"), \
+                patch.object(self.task, "log_warning") as warn_mock:
+            self.assertEqual([], self.task._query_advise_rows("E.H."))
+        warn_mock.assert_called_once()
+
+    def test_query_advise_rows_matches_by_normalized_key(self):
+        # 唯一归一匹配时用库内原名等值查询：OCR 读数带的标点/大小写差异不影响命中。
+        db_path = self._make_temp_advise_db(["E.H."])
+        with patch("src.tasks.OutpostTask._ADVISE_DB_PATH", db_path), \
+                patch.object(self.task, "_advise_locale", return_value="en"), \
+                patch.object(self.task, "log_warning") as warn_mock:
+            self.assertEqual([("提问", "好", "坏")], self.task._query_advise_rows("e.h。"))
+        warn_mock.assert_not_called()
 
     def test_advise_count_zero(self):
         with patch.object(self.task, "get_box_by_name", return_value=_named_box("box_advise_count")), \

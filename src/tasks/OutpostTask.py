@@ -44,8 +44,8 @@ def _normalize_answer_text(text):  # 答案文本规范化：去除全部标点�
     return re.sub(r"[\W_]+", "", text or "")  # \W 为非文字字符（含标点/空白），下划线单独去除。
 
 
-def _normalize_query_name(name):  # OCR 角色名称转 SQL LIKE 模式：标点符号替换为通配符 %。
-    return re.sub(r"\W+", "%", (name or "").strip()).strip("%")  # 连续非文字字符折叠为单个通配符。
+def _normalize_character_name(name):  # 角色名归一键：去全部非文字字符并统一大小写，用于跨标点比对。
+    return re.sub(r"[\W_]+", "", (name or "").strip()).casefold()  # 与 _normalize_answer_text 同源，另加大小写归一。
 
 
 class OutpostTask(NikkeBaseTask):  # 前哨基地任务：执行派遣公告栏、咨询与突发剧情子流程。
@@ -418,8 +418,8 @@ class OutpostTask(NikkeBaseTask):  # 前哨基地任务：执行派遣公告栏�
 
     def _query_advise_rows(self, name):  # 按语言区域与角色名称查询咨询答案；失败/无结果返回空列表。
         locale = self._advise_locale()  # 运行时语言映射为库内 locale 代码。
-        pattern = _normalize_query_name(name)  # 角色名称标点替换为通配符。
-        if not locale or not pattern:  # 语言不支持或名称为空时无法查询。
+        key = _normalize_character_name(name)  # 角色名归一键（忽略标点与大小写）。
+        if not locale or not key:  # 语言不支持或名称为空时无法查询。
             return []  # 答案走随机兜底。
         if not os.path.exists(_ADVISE_DB_PATH):  # 数据库缺失（未随包分发）。
             self.log_warning(f"咨询数据库不存在: {_ADVISE_DB_PATH}")  # 记录缺失。
@@ -428,9 +428,21 @@ class OutpostTask(NikkeBaseTask):  # 前哨基地任务：执行派遣公告栏�
             con = sqlite3.connect(f"file:{_ADVISE_DB_PATH.replace(os.sep, '/')}?mode=ro",
                                   uri=True)  # 只读连接（mode=ro 无写锁），保证速度和响应。
             try:
-                return con.execute(  # 仅按 locale 与角色名称查询。
-                    "SELECT prompt, good, bad FROM advise WHERE locale = ? AND character_name LIKE ?",
-                    (locale, pattern)).fetchall()  # 返回该角色全部咨询条目。
+                names = [r[0] for r in con.execute(  # 该语言全部角色名（约 164 行，开销可忽略）。
+                    "SELECT DISTINCT character_name FROM advise WHERE locale = ?",
+                    (locale,))]  # 只取名字列，不拉正文。
+                matched = [n for n in names if _normalize_character_name(n) == key]  # 归一后精确比对。
+                if len(matched) != 1:  # 无匹配或歧义都不猜，交由随机兜底。
+                    if len(matched) > 1:  # 歧义属数据问题，留痕便于定位。
+                        self.log_warning(f"咨询角色名 {name!r} 命中多个角色 {matched}，已跳过")
+                    return []  # 答案走随机兜底。
+                rows = con.execute(  # 归一后唯一，可安全等值匹配。
+                    "SELECT prompt, good, bad FROM advise WHERE locale = ? AND character_name = ?",
+                    (locale, matched[0])).fetchall()  # 返回该角色全部咨询条目。
+                # 留痕 OCR 原名与命中角色名：OCR 只读到名字前半段时会命中原角色（前缀串角色），
+                # 名字本身无法判定，只能靠此日志实机排查。
+                self.log_debug(f"咨询角色名 {name!r} 命中 {matched[0]!r}，{len(rows)} 条")
+                return rows  # 返回查询结果。
             finally:
                 con.close()  # 用完即关，避免占用句柄。
         except sqlite3.Error as e:  # 查询异常。
