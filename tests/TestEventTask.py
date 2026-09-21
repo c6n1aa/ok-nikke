@@ -869,15 +869,45 @@ class TestEventTask(_DebugOffTestCase):
         with patch.object(self.task, '_find_claim_all', return_value=claim), \
                 patch.object(self.task, 'is_feature_enabled', return_value=False), \
                 patch.object(self.task, 'click_box', side_effect=AssertionError('灰白不应点击')), \
-                patch.object(self.task, '_close_claim_overlay', side_effect=AssertionError('灰白不应清遮罩')):
+                patch.object(self.task, 'wait_until', side_effect=AssertionError('灰白不应推进领取节奏')):
             self.task._claim_mission_rewards()
 
     def test_claim_mission_rewards_stops_when_claim_text_missing(self):
         with patch.object(self.task, '_find_claim_all', return_value=None), \
                 patch.object(self.task, 'click_box', side_effect=AssertionError('未识别到按钮不应点击')), \
+                patch.object(self.task, 'wait_until', side_effect=AssertionError('未识别到按钮不应推进领取节奏')), \
                 patch.object(self.task, 'log_warning') as warn_mock:
             self.task._claim_mission_rewards()
         warn_mock.assert_called_once()
+
+    def test_claim_mission_rewards_paces_on_second_stage_ready(self):
+        # 每日任务栏目是两段式（第一段领积分不弹遮罩）：点完按「重新可领」推进，不要求必须出遮罩。
+        claim = self._claim_all_box()
+        with patch.object(self.task, '_find_claim_all', return_value=claim), \
+                patch.object(self.task, 'is_feature_enabled', side_effect=[True, False]), \
+                patch.object(self.task, 'click_box') as click_mock, \
+                patch.object(self.task, 'wait_until', return_value=True) as wait_mock:
+            self.task._claim_mission_rewards()
+        self.assertEqual(1, click_mock.call_count)  # 第一轮点击；第二轮按钮灰白退出。
+        wait_mock.assert_called_once()  # 每轮点完等第二段重新可领。
+        args, kwargs = wait_mock.call_args
+        self.assertEqual('_claim_all_claimable', args[0].__func__.__name__)  # 判据是「重新可领」，而非遮罩必须出现。
+        from src.tasks.EventTask import _MISSION_CLAIM_SETTLE_TIMEOUT, _MISSION_CLAIM_SETTLE
+        self.assertEqual(_MISSION_CLAIM_SETTLE_TIMEOUT, kwargs['time_out'])  # 给第二段渲染留出窗口。
+        self.assertEqual(_MISSION_CLAIM_SETTLE, kwargs['settle_time'])  # 可领后稳定确认，吸收按钮入场动画。
+        self.assertFalse(kwargs['raise_if_not_found'])  # 超时静默，不抛异常，由下一轮灰白判态兜底。
+        self.assertTrue(callable(kwargs['pre_action']))  # 等待期间仍清掉可能弹出的奖励遮罩。
+
+    def test_claim_mission_rewards_continues_when_second_stage_late(self):
+        # 第二段晚到（wait_until 未确认到「重新可领」）不提前停止：静默进入下一轮，由灰白判态兜底收尾。
+        claim = self._claim_all_box()
+        with patch.object(self.task, '_find_claim_all', return_value=claim), \
+                patch.object(self.task, 'is_feature_enabled', side_effect=[True, False]), \
+                patch.object(self.task, 'click_box') as click_mock, \
+                patch.object(self.task, 'wait_until', return_value=False) as wait_mock:
+            self.task._claim_mission_rewards()
+        self.assertEqual(1, click_mock.call_count)  # 第一轮点击；下一轮灰白退出。
+        wait_mock.assert_called_once()  # 点击后仍等待第二段就绪，超时不立即停止。
 
     def test_claim_mission_rewards_hits_click_limit(self):
         from src.tasks.EventTask import _MISSION_CLAIM_MAX_CLICKS
@@ -885,12 +915,30 @@ class TestEventTask(_DebugOffTestCase):
         with patch.object(self.task, '_find_claim_all', return_value=claim), \
                 patch.object(self.task, 'is_feature_enabled', return_value=True), \
                 patch.object(self.task, 'click_box') as click_mock, \
-                patch.object(self.task, '_close_claim_overlay') as overlay_mock, \
+                patch.object(self.task, 'wait_until', return_value=True) as wait_mock, \
                 patch.object(self.task, 'log_warning') as warn_mock:
             self.task._claim_mission_rewards()
         self.assertEqual(_MISSION_CLAIM_MAX_CLICKS, click_mock.call_count)  # 每轮都点，到上限为止。
-        self.assertEqual(_MISSION_CLAIM_MAX_CLICKS, overlay_mock.call_count)  # 每轮点完都清遮罩。
+        self.assertEqual(_MISSION_CLAIM_MAX_CLICKS, wait_mock.call_count)  # 每轮点完都等第二段就绪。
         warn_mock.assert_called_once()  # 上限耗尽告警（防死循环）。
+
+    def test_close_claim_overlay_tolerates_missing_mask(self):
+        # 领奖遮罩非必现：没弹遮罩不算失败，否则一次没领到就把整条子流程判成失败（实机事故根因）。
+        with patch.object(self.task, 'close_overlay') as overlay_mock:
+            self.task._close_claim_overlay()
+        kwargs = overlay_mock.call_args.kwargs
+        self.assertIs(False, kwargs['require_click'])  # 关掉基类「必须点到遮罩」的必现语义。
+        self.assertEqual(5, kwargs['time_out'])  # 仍给遮罩出现留等待窗口。
+        patterns = kwargs['keywords']
+        self.assertTrue(any(p.search('点击领取奖励') for p in patterns))  # 覆盖领奖遮罩。
+
+    def test_other_claim_all_panel_present_follows_mission_popup(self):
+        # 活动任务弹窗也带「全部领取」：弹窗在即声明「不是登录奖励面板」，避免被基类当登录奖励误点。
+        with patch.object(self.task, '_mission_popup_ready', return_value=True) as ready_mock:
+            self.assertTrue(self.task._other_claim_all_panel_present())
+        ready_mock.assert_called_once()  # 判据完全复用弹窗就位判定。
+        with patch.object(self.task, '_mission_popup_ready', return_value=False):
+            self.assertFalse(self.task._other_claim_all_panel_present())  # 弹窗不在时不干扰登录奖励面板清理。
 
     # ---- 挑战流程（大小活动都有，同一套 UI；进入方式统一走 transition 守卫式进入） ----
 

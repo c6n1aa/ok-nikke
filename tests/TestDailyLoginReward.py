@@ -118,6 +118,21 @@ class TestDailyLoginRewardPopup(TaskTestCase):
         self.assertEqual([], clicked)  # 不产生任何点击。
         blank_mock.assert_not_called()  # 也不点空白。
 
+    def test_skip_claim_when_other_claim_all_panel_present(self):
+        """其它同样带「全部领取」的面板（活动任务弹窗）由任务侧声明，命中时不当作登录奖励弹窗误点。"""
+        text = self._box(name='全部领取')  # 模拟活动任务弹窗的「全部领取」文字框（OCR 命中也不应点）。
+        clicked = []  # 收集被点击的框。
+        with patch.object(self.task, '_other_claim_all_panel_present', return_value=True), \
+                patch.object(self.task, 'find_one', return_value=None), \
+                patch.object(self.task, 'ocr', return_value=[text]), \
+                patch.object(self.task, 'click_box', side_effect=lambda box, **_k: clicked.append(box)), \
+                patch.object(self.task, 'close_popup_by_blank') as blank_mock, \
+                patch.object(self.task, 'sleep'):
+            result = self.task._close_daily_login_popup()
+        self.assertFalse(result)  # 判定为其它面板而非登录奖励弹窗。
+        self.assertEqual([], clicked)  # 不产生任何点击。
+        blank_mock.assert_not_called()  # 也不点空白。
+
     def test_claim_all_dismisses_reward_mask(self):
         """点击「全部领取」后立即清理弹出的奖励遮罩。"""
         text = self._box(name='全部领取')  # 模拟 OCR 命中的「全部领取」文字框。

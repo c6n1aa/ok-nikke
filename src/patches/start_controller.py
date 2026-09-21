@@ -40,6 +40,11 @@ class NikkeStartController(start_controller_module.StartController):
     LAUNCHER_START_TIMEOUT = 60
     LAUNCHER_BUTTON_SEARCH_TIMEOUT = 60
     LAUNCHER_POLL_INTERVAL = 1.0
+    # 启动按钮点击的最大次数（首次 + 兜底重试）与每次点击后的生效观察时间：
+    # 启动器刚显示时按钮可能还在移位，OCR 取到的坐标会在点击前失效导致点空，
+    # 观察期内按钮仍能被识别就重新定位再点。3 次 × 5 秒远小于 60 秒总超时。
+    LAUNCHER_CLICK_MAX_ATTEMPTS = 3
+    LAUNCHER_CLICK_VERIFY_TIMEOUT = 5
     # 加载完成判定：窗口出现后最短等 1 秒，尺寸连续 1 秒内变化不超过容差即视为稳定。
     # 要求"完全不变"会把边框阴影/DPI 缩放的 1-2px 抖动误判为不稳定，导致 OCR 迟迟不开始；
     # 因此放宽为容差判定并缩短等待，OCR 循环本身有 60s 超时兜底，早点开始无风险。
@@ -281,6 +286,7 @@ class NikkeStartController(start_controller_module.StartController):
         context = _CaptureContext()
         deadline = time.monotonic() + self.LAUNCHER_BUTTON_SEARCH_TIMEOUT
         missing_count = 0  # 连续找不到窗口的轮数，用于降频日志，避免刷屏。
+        click_count = 0  # 已点击启动按钮的次数，达到上限后只等游戏窗口出现，不再点。
         try:
             while not self.exit_event.is_set():
                 if self._game_window_found():
@@ -306,22 +312,51 @@ class NikkeStartController(start_controller_module.StartController):
                 missing_count = 0
                 # 强制启动器窗口置于前台（恢复最小化 + 置顶），保证 OCR 能识别到启动按钮。
                 self._bring_window_forward(launcher_hwnd)
-                center = self._capture_and_find_button(context, launcher_hwnd, button_text, region)
-                if center is not None:
-                    self._click_screen_point(launcher_hwnd, *center)
-                    return True
+                if click_count < self.LAUNCHER_CLICK_MAX_ATTEMPTS:
+                    center = self._capture_and_find_button(context, launcher_hwnd, button_text, region)
+                    if center is not None:
+                        click_count += 1
+                        if not self._click_screen_point(launcher_hwnd, *center):
+                            return False  # 模拟点击本身失败，_click_screen_point 已经提示过。
+                        if self._launcher_click_effective(launcher_hwnd, context, button_text, region):
+                            return True
+                        # 这一轮点击没生效（首次识别时按钮还在移位，坐标已失效），
+                        # 重新 OCR 定位后再点一次，直到用满次数上限。
+                        logger.info(
+                            f'launcher start button click #{click_count} not effective, re-locate and retry')
+                        continue
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     # emit(True, msg, 0) 会被 MainWindow.starting_emulator 处理：
                     # 切回启动页 + alert_error(msg, tray=True) 弹通知（含托盘），同时 return False 中断启动流程，
                     # 使 _do_start 不会调用 og.executor.start()，任务不会被执行。
-                    communicate.starting_emulator.emit(True, '启动按钮未找到，请检查是否已经登录以及网络环境', 0)
+                    if click_count:
+                        communicate.starting_emulator.emit(True, '已多次点击启动按钮但游戏未启动，请手动启动游戏!', 0)
+                    else:
+                        communicate.starting_emulator.emit(True, '启动按钮未找到，请检查是否已经登录以及网络环境', 0)
                     return False
                 communicate.starting_emulator.emit(False, None, int(remaining))
                 time.sleep(self.LAUNCHER_POLL_INTERVAL)
         finally:
             clean_up_bitblt(context)
         return False
+
+    def _launcher_click_effective(self, launcher_hwnd, context, button_text, region):
+        # 点击启动按钮后观察这一轮点击是否生效：
+        # 游戏窗口出现、游戏进程已拉起、启动器窗口已退出、启动按钮不再被识别，四种情况任一成立都算生效；
+        # 观察超时后启动按钮仍能被识别，说明点击落在按钮移位前的旧坐标上，判定为未生效。
+        deadline = time.monotonic() + self.LAUNCHER_CLICK_VERIFY_TIMEOUT
+        while not self.exit_event.is_set():
+            if self._game_window_found() or self._game_process_running():
+                return True
+            if not win32gui.IsWindow(launcher_hwnd):
+                return True  # 启动器已退出，视为点击生效，后续由外层继续等游戏窗口。
+            if self._capture_and_find_button(context, launcher_hwnd, button_text, region) is None:
+                return True  # 启动按钮已消失（文字变化或界面已切换），视为点击生效。
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(self.LAUNCHER_POLL_INTERVAL)
+        return True
 
     def _capture_and_find_button(self, context, launcher_hwnd, button_text, region):
         if not win32gui.IsWindow(launcher_hwnd):  # 句柄已失效直接返回，避免后续调用报 1400。

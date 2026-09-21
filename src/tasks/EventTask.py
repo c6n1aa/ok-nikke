@@ -96,6 +96,8 @@ _MISSION_DAILY_SUBTITLE_BOX = "box_event_daily_subtitle"  # 大活动弹窗副�
 _MISSION_READY_TIMEOUT = 10  # 点入口后等弹窗就位（大活动认栏目图标，小活动认副标题）的窗口（秒）。
 _MISSION_TAB_SWITCH_TIMEOUT = 5  # 点栏目标签后等副标题变化的窗口（秒）。
 _MISSION_CLAIM_MAX_CLICKS = 20  # 单次领取循环的点击上限（点击未生效时防死循环）。
+_MISSION_CLAIM_SETTLE_TIMEOUT = 5  # 点击「全部领取」后等第二段重新可领的观察窗（秒）。
+_MISSION_CLAIM_SETTLE = 1.5  # 第二段重新可领后的稳定确认时间（秒），吸收按钮入场/位移动画。
 
 # 剧情入口关键词（探测顺序即优先级；_ENTRIES['剧情'] 直接引用，大小活动差异由命中的关键词区分）。
 # 大活动菜单页是 STORY I/II，小活动主页与大活动剧情子页面是「加成奖励妮姬」。
@@ -607,7 +609,8 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
             self.log_warning("签到奖励界面未在预期时间内出现（已切页但未识别到「全部领取」），跳过领取")  # 记录跳过原因。
         # 签到是独立整页界面（非模态窗）：点返回键回活动菜单页（已在菜单页则 no-op）。
         # 注意：不要用 dismiss_all_popups —— 签到界面「全部领取」与登录奖励面板判据同字，
-        # 会被 _close_daily_login_popup 误认成登录奖励面板重复点击（其消歧只认 mission_page）。
+        # 会被 _close_daily_login_popup 误认成登录奖励面板重复点击（其消歧只认 mission_page 与
+        # 活动任务弹窗，签到页两者都不命中）。
         self._ensure_event_menu()  # 返回活动菜单页，供后续子流程接续。
 
     def _find_claim_all(self):  # 在面板底部区域 OCR 识别「全部领取」按钮文字，返回匹配框或 None（签到印章/任务弹窗共用）。
@@ -624,7 +627,8 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
 
     def _close_claim_overlay(self, time_out=5):  # 清理领奖遮罩（签到印章/任务弹窗共用，遮罩非必现，超时未出现不报错）。
         self.close_overlay(keywords=(self._MASK_CLAIM_PATTERN, self._MASK_ANYWHERE_PATTERN,
-                                     self._CLICK_TO_PROCEED_PATTERN), time_out=time_out)  # 复用登录奖励同一套遮罩提示词。
+                                     self._CLICK_TO_PROCEED_PATTERN),
+                           time_out=time_out, require_click=False)  # 遮罩非必现：没弹遮罩不算失败，避免把一次未领到奖励判成整条子流程失败。
 
     # ---- 剧情关卡页 OCR 与解析（横向标注整屏竖条 → 行锚点/均匀切片降级） ----
 
@@ -1123,6 +1127,9 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
             return True  # 就位。
         return self._find_mission_subtitle() is not None  # 小活动单页弹窗：副标题 CHALLENGE 命中即就位。
 
+    def _other_claim_all_panel_present(self):  # 活动任务弹窗也带「全部领取」：弹窗在则不是登录奖励面板，跳过以免误点。
+        return self._mission_popup_ready()  # 弹窗不在时该判据自然为 False，不影响大厅的登录奖励面板清理。
+
     def _mission_tabs(self):  # 在栏目区定位两个栏目，返回 {role: Box}；栏目区缺失或任一栏目未定位到返回 None。
         region = self._optional_box(_MISSION_ICON_BOX)  # 栏目区（coco 区域特征；缺失即无法判定栏目）。
         if region is None:  # 区域未标注（coco 版本不符 / 小活动弹窗无栏目）。
@@ -1196,7 +1203,11 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
         boxes = self.ocr(box=box, match=[_MISSION_SUBTITLE_TEXT])  # 区域内 OCR 部分匹配副标题关键词。
         return boxes[0] if boxes else None  # 命中即弹窗已就位。
 
-    def _claim_mission_rewards(self):  # 循环点「全部领取」直到按钮灰白；每轮点完清掉领奖遮罩再判下一轮。
+    def _claim_all_claimable(self):  # 当前帧「全部领取」是否重新可领（文字在且底色彩色）；遮罩盖住/过渡灰白均视为未就绪。
+        claim = self._find_claim_all()  # 弹窗底部「全部领取」文字框。
+        return claim is not None and self.is_feature_enabled(self._claim_button_box(claim))  # 文字在且底色彩色 = 第二段已就绪可领。
+
+    def _claim_mission_rewards(self):  # 循环点「全部领取」直到按钮灰白；每轮点完等第二段重新可领，再回到按钮判态进入下一轮。
         for _ in range(_MISSION_CLAIM_MAX_CLICKS):  # 次数上限保护：点击未生效时不再无限循环。
             claim = self._find_claim_all()  # 弹窗底部「全部领取」文字（与签到印章同一判据文字与搜索区域）。
             if claim is None:  # 文字消失（弹窗已被关掉或页面结构变化）。
@@ -1205,9 +1216,17 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
             if not self.is_feature_enabled(self._claim_button_box(claim)):  # 外扩取到按钮底色判态：灰白 = 已无可领奖励。
                 self.log_info("任务奖励已无可领取（「全部领取」为灰白态）")  # 记录结束状态。
                 return  # 结束领取。
-            self.click_box(claim, after_sleep=1)  # 点击全部领取（一次性领取当前全部可领档位）。
+            self.click_box(claim, after_sleep=1)  # 点击全部领取（每日任务栏目为两段式：第一段领积分、第二段领奖励）。
             self.log_info("已点击任务弹窗「全部领取」")  # 记录动作。
-            self._close_claim_overlay()  # 领取后可能弹奖励遮罩（复用登录奖励同一套遮罩清理）。
+            # 等待第二段就绪：轮询「全部领取」重新可领并稳定，覆盖两段式第二段晚于 click 后 1s 渲染的过渡期。
+            # 不再用 dismiss_all_popups 的恒真 clear_condition（_mission_popup_ready 全程为真，起不到等第二段的作用，
+            # 且会拉起整条弹窗清理管线）；每轮趁此清掉可能弹出的奖励遮罩（非必现）。超时静默进入下一轮，
+            # 由顶部的灰白判态兜底确认已领完。
+            self.wait_until(self._claim_all_claimable,
+                            time_out=_MISSION_CLAIM_SETTLE_TIMEOUT,
+                            settle_time=_MISSION_CLAIM_SETTLE,
+                            pre_action=lambda: self._close_claim_overlay(time_out=1),
+                            raise_if_not_found=False)
         self.log_warning(f"任务奖励领取点击达到上限 {_MISSION_CLAIM_MAX_CLICKS}，停止领取")  # 上限耗尽仍未收敛，记录异常。
 
     def _flow_shop(self):  # 商店流程（自足重入）：购买活动商店商品。实机未标定前占位，非幂等流程留 v1.5。

@@ -85,26 +85,43 @@ class HarvestTask(NikkeBaseTask):  # 定义收获子任务类：收取友情点�
             self.wait_until(lambda: not self.is_feature_enabled(claim_box), time_out=10, raise_if_not_found=True)  # 等待领取按钮变灰禁用，即全部领完。
         self.wait_click_feature("mailbox_close", time_out=10, raise_if_not_found=True, after_sleep=1)  # 点击关闭按钮返回。
 
-    def _combined_step(self):  # 合并子流程：打开 PASS 模态窗→领取→关闭，结束回大厅。
-        if self._open_pass_modal():  # 打开 PASS 模态框（含多个 PASS 的翻页找红点）。
-            self._claim_pass_modal()  # 领取任务页/奖励页奖励，收尾关闭模态窗。
+    def _combined_step(self):  # 合并子流程：逐个处理带红点的 PASS（打开模态窗→领取→关闭），直到无红点或翻页次数用尽。
+        multi = self._pass_multi()  # 多个 PASS 才需要翻页查找；单个 PASS 只处理一次。
+        swipes = 0  # 累计翻页次数，整轮流程共享 _PASS_SWIPE_LIMIT 上限。
+        while True:  # 每轮处理一个带红点的 PASS。
+            opened, swipes = self._open_pass_modal(swipes, multi)  # 翻页找红点并打开模态框，拿回累计翻页次数。
+            if not opened:  # 无红点或翻页次数用尽：结束。
+                break
+            if not self._claim_pass_modal():  # 模态窗未确认关闭时画面上仍是面板，继续翻页会把拖拽落在面板上。
+                raise WaitFailedException("PASS 模态窗未关闭")  # 抛异常交由 try_step 恢复回大厅重试。
+            if not multi:  # 单个 PASS 领完即结束，不翻页。
+                break
+            if swipes >= self._PASS_SWIPE_LIMIT:  # 翻页次数用尽：不再找下一个 PASS。
+                self.log_warning(f"PASS 翻页达到上限（{self._PASS_SWIPE_LIMIT}），停止查找。")  # 记录上限停止原因。
+                break
+            self._swipe_pass_page()  # 当前 PASS 已领完，翻页继续找下一个带红点的 PASS。
+            swipes += 1  # 翻页次数加一。
 
-    def _open_pass_modal(self):  # 从大厅打开 PASS 模态框：多个 PASS 先翻页找红点，命中后点击徽章并确认模态框打开。返回是否已打开。
-        is_multi = any(self.find_one(f) is not None for f in self._PASS_ENTRY_FEATURES)  # 判断 pass_switch/pass_selector 是否存在其一：任一存在即多个 PASS。
-        swipes = 0  # 翻页计数。
+    def _pass_multi(self):  # 是否多个 PASS：大厅存在 pass_switch/pass_selector 任一即说明 PASS 可切换。
+        return any(self.find_one(f) is not None for f in self._PASS_ENTRY_FEATURES)  # 任一入口特征存在即多个 PASS。
+
+    def _open_pass_modal(self, swipes, multi):  # 从大厅打开 PASS 模态框：翻页找红点，命中后点击徽章并确认模态框打开。返回 (是否已打开, 累计翻页次数)。
         red_dot = self.find_red_dot("box_pass_badge", template_path=self._RED_DOT_TEMPLATE, use_color_fallback=False)  # 在 PASS 徽章区域检测通知红点（模板匹配优先）。
-        while red_dot is None and is_multi and swipes < self._PASS_SWIPE_LIMIT:  # 多个 PASS 且无红点：循环翻页切换 PASS 直到命中红点或达到上限。
+        while red_dot is None and multi and swipes < self._PASS_SWIPE_LIMIT:  # 多个 PASS 且无红点：循环翻页切换 PASS 直到命中红点或达到上限。
             self._swipe_pass_page()  # 按住徽章向左滑动翻页。
             swipes += 1  # 翻页计数加一。
             red_dot = self.find_red_dot("box_pass_badge", template_path=self._RED_DOT_TEMPLATE, use_color_fallback=False)  # 翻页后重新检测红点。
         if red_dot is None:  # 无可领取奖励（单个 PASS 无红点，或多个 PASS 翻到上限仍无红点）。
-            self.log_warning("PASS 无可领取奖励，跳过。")  # 记录跳过原因。
-            return False  # 不打开模态窗，由上层收尾标记完成。
+            if multi and swipes >= self._PASS_SWIPE_LIMIT:  # 翻页次数用尽而终止，与"本来就没红点"区分日志。
+                self.log_warning(f"PASS 翻页达到上限（{self._PASS_SWIPE_LIMIT}），停止查找。")  # 记录上限停止原因。
+            else:  # 单 PASS 无红点或翻页后确实没有红点。
+                self.log_warning("PASS 无可领取奖励，跳过。")  # 记录跳过原因。
+            return False, swipes  # 不打开模态窗，由上层收尾标记完成。
         self.click_box("box_pass_area", after_sleep=1)  # 点击 PASS 徽章区域打开模态框（box_pass_badge 仅用于查找红点）。
         if self.wait_ocr(box=self._pass_tab_box(), match=list(self._PASS_TAB_PATTERNS), time_out=5,
                          raise_if_not_found=False) is None:  # 页签行 OCR 到文字才算模态框已打开。
             raise WaitFailedException("PASS 模态框未打开")  # 抛异常交由 try_step 恢复回大厅重试。
-        return True  # 已打开 PASS 模态框。
+        return True, swipes  # 已打开 PASS 模态框，带回累计翻页次数。
 
     def _pass_tab_box(self):  # 面板页签行的 OCR 区域（按当前分辨率换算）。
         return self.box_of_screen(*self._PASS_TAB_OCR_BOX, name="pass_tab_area")
@@ -125,7 +142,7 @@ class HarvestTask(NikkeBaseTask):  # 定义收获子任务类：收取友情点�
         self.mouse_up()  # 终点以最高速度松开，完成翻页。
         self.sleep(1.8)  # 等待翻页动画停稳，再让上层重新检测红点（避免动画中间帧误判导致连滑）。
 
-    def _claim_pass_modal(self):  # 在 PASS 模态框内领取：先任务页再奖励页，无可领时关闭模态窗。
+    def _claim_pass_modal(self):  # 在 PASS 模态框内领取：先任务页再奖励页，收尾关闭模态窗。返回模态窗是否已确认关闭。
         claim_box = self.get_box_by_name("box_pass_reward_claim_feature")  # 领取按钮区域（两页共用同一按钮位置）。
         self.click_box("box_pass_mission_page", after_sleep=1)  # 点任务页页签：box_ 为纯坐标区域，直接按标注中心点击。
         self.next_frame()  # 刷新一帧，确保后续判定读到切换后的画面。
@@ -140,12 +157,12 @@ class HarvestTask(NikkeBaseTask):  # 定义收获子任务类：收取友情点�
         if self.is_feature_enabled(claim_box):  # 奖励页领取按钮可用（高亮彩色）。
             self.click_box(claim_box, after_sleep=1)  # 点击领取奖励页奖励。
             self.dismiss_all_popups(time_out=5)  # 处理领取后弹出的奖励遮罩层（默认等待遮罩出现）。
-        self._close_pass_modal()  # 收尾关闭 PASS 模态窗（已领取或无可领均关闭，回到大厅）。
+        return self._close_pass_modal()  # 收尾关闭 PASS 模态窗（已领取或无可领均关闭，回到大厅），返回是否已确认关闭。
 
     def _close_pass_modal(self):  # 关闭 PASS 模态窗：清理领奖遮罩后点击面板外空白关闭（关闭 X 外观/位置随面板样式漂移，模板识别不稳定）。
         self.dismiss_all_popups(wait_for_popup=False, time_out=5)  # 快速清理领奖遮罩等弹窗，无弹窗不白等。
         if not self.close_popup_by_blank(lambda: not self._pass_panel_opened()):  # 点空白关闭，按面板页签文字消失确认（遮罩吞点击时自动补点）。
-            self.log_warning("点击空白未能关闭PASS模态窗，跳过关闭。")  # 记录失败（模态窗可能已自行关闭或点击被吞）。
+            self.log_warning("点击空白未能关闭PASS模态窗，跳过关闭。")  # 记录失败（补点耗尽后页签文字仍在，即面板未关或被页面吞掉点击）。
             return False  # 关闭失败。
         self.log_info("已关闭PASS模态窗。")  # 记录关闭动作。
         return True  # 关闭成功。

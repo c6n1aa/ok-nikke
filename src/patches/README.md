@@ -19,7 +19,7 @@
 
 ### start_controller.py
 
-把 `ok.ui.qt.StartController.StartController` 替换为 `NikkeStartController`，其 `start_device` 流程：管理员检查 → 判断 `nikke.exe` 游戏主进程是否已在运行（若在运行则跳过启动器）→ 否则启动配置的启动器（`nikke_launcher.exe` 或 `.lnk`，自动解析）→ 在可配置区域内 OCR 找到并点击启动按钮 → 等待游戏窗口出现 → 调整到最小窗口尺寸 → 按交互方式把游戏窗口置前。没有直接启动回退：若未配置启动器且游戏未在运行，提示用户配置启动器或手动启动游戏。
+把 `ok.ui.qt.StartController.StartController` 替换为 `NikkeStartController`，其 `start_device` 流程：管理员检查 → 判断 `nikke.exe` 游戏主进程是否已在运行（若在运行则跳过启动器）→ 否则启动配置的启动器（`nikke_launcher.exe` 或 `.lnk`，自动解析）→ 在可配置区域内 OCR 找到并点击启动按钮（点完先观察 `LAUNCHER_CLICK_VERIFY_TIMEOUT` 秒：游戏窗口/进程出现、启动器退出或按钮不再被识别才算生效；按钮仍在说明首次识别的坐标已被界面移位作废，重新 OCR 定位后再点，最多 `LAUNCHER_CLICK_MAX_ATTEMPTS` 次）→ 等待游戏窗口出现 → 调整到最小窗口尺寸 → 按交互方式把游戏窗口置前。没有直接启动回退：若未配置启动器且游戏未在运行，提示用户配置启动器或手动启动游戏。
 
 启动前的置前（`_bring_game_window_to_front`）复用 `interaction_requires_foreground()`：`Pynput`/`PyDirect`/`ForegroundPostMessage` 依赖窗口前台（后台时点击被静默跳过、executor 取不到帧），先调 `HwndWindow.bring_to_front()`；`Genshin`/`PostMessage` 后台可点击，跳过以保留后台运行能力。只用 `bring_to_front`，不用 `AttachThreadInput`（会把本线程与游戏线程的输入队列绑定，与 GUI 焦点争夺叠加会死锁）。
 
@@ -29,7 +29,11 @@
 
 ### start_tab.py
 
-包装 `ok.ui.qt.start.StartTab.StartTab.__init__`：正式版（非 `config['debug']` 启动）在构建完成后把底部的「Debug」卡片（导出日志/打开目录/OCR/悬浮窗标记框开关等调试入口）从布局移除并销毁；debug 模式（`main_debug.py`）下保留。ok-script 2.0.6 起原「调试悬浮窗」卡片已并入 Debug 卡片，锚点为 `debug_widget`。
+包装 `ok.ui.qt.start.StartTab.StartTab.__init__`：正式版（非 `config['debug']` 启动）在构建完成后把底部「Debug」卡片里的调试悬浮窗开关（`overlay_switch`，Enable/Disable Boxes）隐藏，并显式关掉持久化的 `_ok` 配置 `use_overlay`（框架 `initialize_overlay` 在 UI 构建之后才执行，只看配置，不清就会在正式版里冒出标记框悬浮窗且无入口关闭）；卡片本身保留，导出日志、打开安装目录/截图目录/日志目录、查看日志、OCR 这些排障入口正式版照常可用。开关只隐藏不销毁（框架后续仍会读写它的状态），debug 模式（`main_debug.py`）完全不动。ok-script 2.0.6 起原「调试悬浮窗」卡片已并入 Debug 卡片，锚点为 `overlay_switch`。
+
+### startup_splash.py
+
+包装 `App.do_show_main` 与 `Tab.__init__`，在主窗口构建期间显示启动画面（`src/ui/StartupSplash.py` 的 `StartupSplash`，基于框架 `BaseWindow`，无标题栏/置顶/不可缩放）：`MainWindow` 构造（开发机实测约 4 秒，占双击到出窗口的大头）期间没有事件循环，画面全靠补丁手动 `processEvents` 冲刷；每开始构造一个 tab 就按其类名推进一次进度与文案（`Tab` 是所有 tab 的公共基类），主窗口 `show()` 完成后关闭，构造抛异常时同样关闭（否则错误窗口会被启动画面盖住）。启动画面本身失败只记日志，不拖住启动流程；headless 路径不经过 `do_show_main`，不受影响。文案与进度常量见模块顶部。
 
 ### tasks_tab.py
 

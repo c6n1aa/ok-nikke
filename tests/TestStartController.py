@@ -1,9 +1,11 @@
-"""启动控制器置前补丁：按交互方式决定启动任务前是否把游戏窗口切到前台。
+"""启动控制器补丁：启动前置前后的窗口处理与启动器按钮点击兜底。
 
-纯 mock 单测：不建真实窗口、不启动设备、不碰 Qt 事件循环，只验证交互方式闸门、
-置前调用与各类失败语义，以及 start_device 里的接线顺序。
+纯 mock 单测：不建真实窗口、不启动设备、不碰 Qt 事件循环、不跑真实 OCR，
+只验证交互方式闸门、置前调用与各类失败语义、start_device 里的接线顺序，
+以及启动按钮点击后的生效判定与重新定位重试。
 """
 import unittest
+from contextlib import ExitStack, contextmanager
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -30,6 +32,20 @@ class _FakeHwndWindow:
 def _controller():
     """绕过 __init__（会起 Handler 线程）构造控制器，仅测与构造无关的启动流程方法。"""
     return NikkeStartController.__new__(NikkeStartController)
+
+
+class _FakeExitEvent:
+    """假退出事件：始终未置位，让启动轮询循环按 mock 的返回值推进。"""
+
+    def is_set(self):
+        return False
+
+
+def _launcher_controller():
+    """带 exit_event 的控制器，供启动器按钮点击流程使用。"""
+    controller = _controller()
+    controller.exit_event = _FakeExitEvent()
+    return controller
 
 
 class TestStartControllerForeground(unittest.TestCase):
@@ -93,6 +109,120 @@ class TestStartControllerForeground(unittest.TestCase):
             self.assertTrue(controller.start_device(initial_refresh_done=True))  # 启动成功。
         self.assertEqual(['resize', 'front'], order)  # 先调尺寸再置前。
         communicate.starting_emulator.emit.assert_called_with(True, None, 0)  # 收尾信号不变。
+
+
+class TestStartControllerLauncherClick(unittest.TestCase):
+    """_click_launcher_button：点击启动按钮未生效时重新 OCR 定位再点的兜底流程。"""
+
+    @contextmanager
+    def _click_env(self, centers, effective, clicked, click_result=True, search_timeout=None):
+        """拦截真实窗口/OCR/点击，按给定序列返回识别坐标与生效判定。"""
+        communicate = MagicMock()
+        centers_iter = iter(centers)
+        effective_iter = iter(effective)
+        with ExitStack() as stack:
+            stack.enter_context(
+                patch.object(NikkeStartController, '_wait_until_launcher_window', lambda self, exe: 0x1111))
+            stack.enter_context(
+                patch.object(NikkeStartController, '_wait_until_launcher_stable', lambda self, hwnd: True))
+            stack.enter_context(patch.object(NikkeStartController, '_bring_window_forward', lambda self, hwnd: None))
+            stack.enter_context(patch.object(NikkeStartController, '_game_window_found', lambda self: False))
+            stack.enter_context(patch.object(NikkeStartController, '_capture_and_find_button',
+                                             lambda self, *args: next(centers_iter)))
+            stack.enter_context(patch.object(NikkeStartController, '_click_screen_point',
+                                             lambda self, hwnd, x, y: clicked.append((x, y)) or click_result))
+            stack.enter_context(patch.object(NikkeStartController, '_launcher_click_effective',
+                                             lambda self, *args: next(effective_iter)))
+            stack.enter_context(patch.object(start_controller_patch.win32gui, 'IsWindow', lambda hwnd: True))
+            stack.enter_context(patch.object(start_controller_patch, 'communicate', communicate))
+            stack.enter_context(patch.object(start_controller_patch, 'clean_up_bitblt', MagicMock()))
+            if search_timeout is not None:
+                stack.enter_context(
+                    patch.object(NikkeStartController, 'LAUNCHER_BUTTON_SEARCH_TIMEOUT', search_timeout))
+            yield communicate
+
+    def test_single_click_when_effective(self):
+        """点击生效：只点一次并返回成功，不发任何提示。"""
+        clicked = []
+        with self._click_env(centers=[(100, 200)], effective=[True], clicked=clicked) as communicate:
+            self.assertTrue(_launcher_controller()._click_launcher_button('nikke_launcher.exe'))
+        self.assertEqual([(100, 200)], clicked)  # 只点一次。
+        communicate.starting_emulator.emit.assert_not_called()
+
+    def test_relocates_and_clicks_again_when_click_missed(self):
+        """首次点击未生效：按新识别到的坐标再点一次，不中断启动流程。"""
+        clicked = []
+        with self._click_env(centers=[(100, 200), (140, 205)], effective=[False, True],
+                             clicked=clicked) as communicate:
+            self.assertTrue(_launcher_controller()._click_launcher_button('nikke_launcher.exe'))
+        self.assertEqual([(100, 200), (140, 205)], clicked)  # 第二次用的是重新识别到的坐标。
+        communicate.starting_emulator.emit.assert_not_called()
+
+    def test_returns_false_when_simulated_click_fails(self):
+        """模拟点击本身抛错：不当作点击成功，直接返回失败。"""
+        clicked = []
+        with self._click_env(centers=[(100, 200)], effective=[], clicked=clicked, click_result=False):
+            self.assertFalse(_launcher_controller()._click_launcher_button('nikke_launcher.exe'))
+        self.assertEqual([(100, 200)], clicked)
+
+    def test_stops_after_max_attempts_and_reports_failure(self):
+        """连续未生效：点击次数封顶后只等游戏窗口，超时报"已多次点击"而非"按钮未找到"。"""
+        max_attempts = NikkeStartController.LAUNCHER_CLICK_MAX_ATTEMPTS
+        clicked = []
+        with self._click_env(centers=[(100 + i, 200) for i in range(max_attempts)],
+                             effective=[False] * max_attempts, clicked=clicked,
+                             search_timeout=0) as communicate:
+            self.assertFalse(_launcher_controller()._click_launcher_button('nikke_launcher.exe'))
+        self.assertEqual(max_attempts, len(clicked))  # 不超过次数上限。
+        communicate.starting_emulator.emit.assert_any_call(True, '已多次点击启动按钮但游戏未启动，请手动启动游戏!', 0)
+
+    def test_reports_missing_button_without_clicking(self):
+        """一次都没识别到启动按钮：沿用手册提示，不产生点击。"""
+        clicked = []
+        with self._click_env(centers=[None], effective=[], clicked=clicked, search_timeout=0) as communicate:
+            self.assertFalse(_launcher_controller()._click_launcher_button('nikke_launcher.exe'))
+        self.assertEqual([], clicked)
+        communicate.starting_emulator.emit.assert_any_call(True, '启动按钮未找到，请检查是否已经登录以及网络环境', 0)
+
+
+class TestStartControllerLauncherClickEffective(unittest.TestCase):
+    """_launcher_click_effective：点击启动按钮后的生效判定。"""
+
+    def _effective(self, game_window=False, game_process=False, window_alive=True, center=(10, 20),
+                   verify_timeout=None):
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(NikkeStartController, '_game_window_found',
+                                             lambda self: game_window))
+            stack.enter_context(patch.object(NikkeStartController, '_game_process_running',
+                                             lambda self: game_process))
+            stack.enter_context(patch.object(NikkeStartController, '_capture_and_find_button',
+                                             lambda self, *args: center))
+            stack.enter_context(patch.object(start_controller_patch.win32gui, 'IsWindow',
+                                             lambda hwnd: window_alive))
+            if verify_timeout is not None:
+                stack.enter_context(
+                    patch.object(NikkeStartController, 'LAUNCHER_CLICK_VERIFY_TIMEOUT', verify_timeout))
+            return _launcher_controller()._launcher_click_effective(0x1111, None, '启动', (0.05, 0.83, 0.30, 0.93))
+
+    def test_game_window_appearing_counts_as_effective(self):
+        """游戏窗口出现：判定生效。"""
+        self.assertTrue(self._effective(game_window=True))
+
+    def test_game_process_starting_counts_as_effective(self):
+        """游戏进程已拉起（窗口还没出来）：判定生效，避免重复点击。"""
+        self.assertTrue(self._effective(game_process=True))
+
+    def test_launcher_window_closed_counts_as_effective(self):
+        """启动器窗口已退出：判定生效，后续由外层等游戏窗口。"""
+        self.assertTrue(self._effective(window_alive=False))
+
+    def test_missing_button_counts_as_effective(self):
+        """启动按钮不再被识别（文字变化/界面切换）：判定生效。"""
+        self.assertTrue(self._effective(center=None))
+
+    def test_button_still_there_after_timeout_counts_as_not_effective(self):
+        """观察超时后启动按钮仍在：判定这一轮点击落空，交由外层重新定位。"""
+        self.assertFalse(self._effective(center=(10, 20), verify_timeout=0))
 
 
 if __name__ == '__main__':

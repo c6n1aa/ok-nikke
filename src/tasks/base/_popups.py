@@ -153,6 +153,15 @@ class PopupsMixin:
                    text_box.width + pad_w * 2, text_box.height + pad_h * 2,  # 尺寸两端各加一份。
                    name="daily_login_claim_button")  # 命名便于日志/调试识别。
 
+    def _other_claim_all_panel_present(self):
+        """当前帧的「全部领取」是否属于登录奖励面板以外的其它面板（默认无，由任务侧覆盖）。
+
+        「全部领取」不是登录奖励面板独有的文案：活动任务弹窗（大活动「每日任务/成就」两栏目、
+        小活动单页）底部同样是这四个字、同样落在屏幕下半区，只认文字会把弹窗当登录奖励面板点击。
+        这类面板的消歧判据各任务不同，故基类不写死，由任务侧按自己的弹窗判据覆盖。
+        """
+        return False
+
     def _close_daily_login_popup(self):
         """处理登录奖励（DAILY LOGIN）弹窗：有可领奖励先点「全部领取」，无可领则点击面板外空白关闭。
 
@@ -172,6 +181,8 @@ class PopupsMixin:
         claim = self._find_daily_login_claim_all()  # 查找「全部领取」文字。
         if claim is None:  # 无文字 = 当前帧无登录奖励弹窗。
             return False  # 返回未处理。
+        if self._other_claim_all_panel_present():  # 文字属于其它也带该按钮的面板（活动任务弹窗等）：先判出面板归属再决定点不点。
+            return False  # 跳过，避免把别的面板当登录奖励弹窗点击。
         if self.is_feature_enabled(self._daily_login_button_box(claim)):  # 底色彩色 = 仍有可领奖励。
             self.click_box(claim, after_sleep=1)  # 点击领取。
             self.log_info("已点击登录奖励全部领取。")  # 记录动作。
