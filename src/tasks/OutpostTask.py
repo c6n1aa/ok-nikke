@@ -12,8 +12,8 @@ from src.tasks.NikkeBaseTask import NikkeBaseTask  # 项目基类，所有任务
 # 派遣公告栏窗口标题匹配模式：OCR 部分匹配（框架对 re.Pattern 走 re.search，兼容尾随标点）。
 _DISPATCH_BOARD_TITLE_PATTERN = re.compile("派遣公告栏", re.IGNORECASE)
 # 咨询剩余次数计数匹配模式：提取 "X/10" 的分子。分子与分母的 0 均容忍 OCR 误识为 O/o，
-# 匹配后分子统一归一（O/o→0）再判 0（实测 OCR 会把分子的 0 识成 O 导致漏判用尽）。
-_ADVISE_COUNT_PATTERN = re.compile(r"([0-9Oo]+)\s*/\s*1[0Oo]")
+# 分母 "10" 的前导 1 也容忍被吞掉（实测 OCR 把 "8/10" 读成 "8/0"、把用尽的 "0/10" 读成 "0/0"）。
+_ADVISE_COUNT_PATTERN = re.compile(r"([0-9Oo]+)\s*/\s*1?[0Oo]")
 # 咨询对话推进的最大等待秒数：超时说明对话未按预期推进到作答时机，抛异常由 try_step 恢复。
 _CONVERSATION_MAX_WAIT = 120
 # 单个选项框判定为推进选项前需持续在场的秒数：作答双框可能先后渲染，防止把先出现的框误当推进选项点掉。
@@ -25,6 +25,9 @@ _SINGLE_OPTION_CLICK_X = 10
 _ADVISE_NEXT_MAX_RETRY = 5
 # 咨询流程切换角色的上限：超过后强行结束，防止异常界面状态下无限循环。
 _ADVISE_MAX_SWITCH = 30
+# 计数读不出且当前角色咨询按钮不可用的连续轮数上限：两项独立信号同时持续说明次数确已用尽，
+# 避免 OCR 整段丢字时只能靠切换上限空转 _ADVISE_MAX_SWITCH 次。
+_ADVISE_COUNT_UNREADABLE_MAX = 3
 # 咨询对话点击空白的相对坐标（屏幕右下中部空白区，不与选项框/图标重叠）。
 _CONVERSATION_BLANK_X = 0.7
 _CONVERSATION_BLANK_Y = 0.85
@@ -196,6 +199,7 @@ class OutpostTask(NikkeBaseTask):  # 前哨基地任务：执行派遣公告栏�
             return  # 由调用方标记完成。
         self.click_box(self._box_or_fail("box_advise_nikke"), after_sleep=1)  # 点第一个可咨询角色打开详情。
         switches = 0  # 切换角色计数，超限强行结束。
+        unreadable = 0  # 计数读不出且咨询按钮不可用的连续轮数，累计超限按次数用尽结束。
         while True:  # 逐角色处理循环：OCR 名称 → 星标/好感判断 → 咨询 → 切换下一个。
             self.assert_screen("advise_nikke", time_out=10)  # 等[咨询详情]界面。
             self.sleep(1)  # 等界面稳定后再 OCR，避免动画期读错角色名。
@@ -212,13 +216,23 @@ class OutpostTask(NikkeBaseTask):  # 前哨基地任务：执行派遣公告栏�
                     progress_box = self._optional_box("box_advise_collection_progress")  # 图鉴进度区域。
                     if progress_box is not None and self.is_feature_enabled(progress_box):  # 日志图鉴已完成。
                         skip = True  # 跳过该角色，直接切换下一个。
-            if not skip:  # 正常咨询判定路径。
-                advise_box = self._optional_box("box_advise_feature")  # 咨询按钮区域（缺失视为不可用）。
-                if advise_box is not None and self.is_feature_enabled(advise_box):  # 咨询按钮可用。
-                    self._advise_once(name, advise_box)  # 执行一次咨询：确认弹窗→对话→答题→跳过→回详情。
-                if self._advise_count_zero():  # 咨询次数已用尽（0/10）。
+            advise_box = self._optional_box("box_advise_feature")  # 咨询按钮区域（缺失视为不可用）。
+            consultable = advise_box is not None and self.is_feature_enabled(advise_box)  # 按钮灰白 = 当前角色不可咨询。
+            if consultable and not skip:  # 按钮可用且无需跳过才咨询。
+                self._advise_once(name, advise_box)  # 执行一次咨询：确认弹窗→对话→答题→跳过→回详情。
+            count = self._read_advise_count()  # 咨询次数分子（None 表示未识别到计数文本）。
+            if count == 0:  # 咨询次数已用尽（0/10）。
+                self.log_info("咨询次数已用尽，咨询流程结束")  # 记录结束原因。
+                self._exit_advise_to_lobby()  # 返回大厅。
+                return  # 由调用方标记完成。
+            if count is None and not consultable:  # 计数读不出且按钮灰白：连续多轮即视为次数已用尽。
+                unreadable += 1  # 累计连续轮数。
+                if unreadable >= _ADVISE_COUNT_UNREADABLE_MAX:  # 超过上限。
+                    self.log_warning("咨询次数区域连续无法识别且咨询按钮不可用，按次数用尽结束咨询流程")  # 记录结束原因。
                     self._exit_advise_to_lobby()  # 返回大厅。
                     return  # 由调用方标记完成。
+            else:  # 任一信号恢复即重新计数。
+                unreadable = 0
             switched = self._switch_advise_nikke(name)  # 点击下一个切换角色（以名称变更为准）。
             if not switched:  # 重试用尽仍无法切换。
                 self.log_warning("无法切换到下一个咨询角色，咨询流程结束")  # 记录结束原因。
@@ -251,19 +265,20 @@ class OutpostTask(NikkeBaseTask):  # 前哨基地任务：执行派遣公告栏�
             return False  # 特征不在场：名字区域可能被遮罩文本污染（OCR 垃圾≠原名会误判），不可信。
         return self._read_advise_name() != name  # 特征在场后才比较名字，避免遮罩污染造成假成功。
 
-    def _advise_count_zero(self):  # OCR 咨询次数区域判断是否已用尽（出现 0/10）。
-        box = self._optional_box("box_advise_count")  # 次数区域（缺失视为未用尽，交由切换上限兜底）。
+    def _read_advise_count(self):  # 读取咨询次数区域的计数分子；区域缺失或未识别到 X/10 计数返回 None。
+        box = self._optional_box("box_advise_count")  # 次数区域（缺失视为读不出）。
         if box is None:  # 区域缺失。
-            return False  # 视为未用尽。
+            return None  # 无法判读。
         # 次数文本是细体小字，小图直读会把 "10" 的 1 吞掉识成 "0/0"，3 倍放大后各分辨率实测稳定。
         texts = self.ocr(box=box, frame_processor=lambda image: cv2.resize(
             image, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC))  # 区域内放大后 OCR 获取计数文本。
         joined = " ".join((item.name or "") for item in texts)  # 拼接全部识别文本。
-        matches = _ADVISE_COUNT_PATTERN.findall(joined)  # 提取全部 X/10 计数的分子。
-        if not matches:  # OCR 未识别到任何 X/10 计数（区域错位或计数文本未渲染）。
+        matches = _ADVISE_COUNT_PATTERN.findall(joined)  # 提取全部计数的分子。
+        if not matches:  # OCR 未识别到任何计数（区域错位、计数文本未渲染或整段丢字）。
             self.log_warning(f"咨询次数区域未识别到计数文本：raw='{joined}'")  # 打印原文以便定位。
-        # 分子里的 O/o 归一为 0 后再判是否用尽（OCR 常把 0 误识为 O）。
-        return any(m.replace("O", "0").replace("o", "0") == "0" for m in matches)  # 任一分子为 0 即已用尽。
+            return None  # 无法判读。
+        # 分子里的 O/o 归一为 0 后取最小值：任一分子的 0（OCR 常把 0 识成 O）都代表次数已用尽。
+        return min(int(m.replace("O", "0").replace("o", "0")) for m in matches)
 
     def _advise_once(self, name, advise_box):  # 执行一次完整咨询：确认弹窗→对话推进→答题→跳过→回详情。
         self.click_box(advise_box, after_sleep=1)  # 点击咨询按钮。

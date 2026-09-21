@@ -172,21 +172,21 @@ class TestOutpostTaskMeta(_DebugOffTestCase):
             self.assertEqual([("提问", "好", "坏")], self.task._query_advise_rows("e.h。"))
         warn_mock.assert_not_called()
 
-    def test_advise_count_zero(self):
+    def test_read_advise_count(self):
+        for raw, expected in [("0/10", 0), ("O/10", 0), ("0/O", 0),  # 分子 0 含 OCR 误识为 O/o。
+                              ("0/0", 0),  # 回归：用尽时实机把 "0/10" 读成 "0/0"，曾因模式要求 /10 而漏判。
+                              ("10/10", 10),  # 不能因子串包含 0 被误判为用尽。
+                              ("咨询 5/10", 5),
+                              ("咨询次数 8/0", 8),  # 分母 "10" 的前导 1 被 OCR 吞掉时不得当成 0。
+                              ("咨询次数 4/O", 4)]:
+            with patch.object(self.task, "get_box_by_name", return_value=_named_box("box_advise_count")), \
+                    patch.object(self.task, "ocr", return_value=[_text_box(raw)]):
+                self.assertEqual(expected, self.task._read_advise_count(), raw)
         with patch.object(self.task, "get_box_by_name", return_value=_named_box("box_advise_count")), \
-                patch.object(self.task, "ocr", return_value=[_text_box("0/10")]):
-            self.assertTrue(self.task._advise_count_zero())
-        with patch.object(self.task, "get_box_by_name", return_value=_named_box("box_advise_count")), \
-                patch.object(self.task, "ocr", return_value=[_text_box("O/10")]):
-            self.assertTrue(self.task._advise_count_zero())  # OCR 把分子的 0 误识为 O 时仍判用尽。
-        with patch.object(self.task, "get_box_by_name", return_value=_named_box("box_advise_count")), \
-                patch.object(self.task, "ocr", return_value=[_text_box("10/10")]):
-            self.assertFalse(self.task._advise_count_zero())  # "10/10" 不能因子串包含被误判为 0。
-        with patch.object(self.task, "get_box_by_name", return_value=_named_box("box_advise_count")), \
-                patch.object(self.task, "ocr", return_value=[_text_box("咨询 5/10")]):
-            self.assertFalse(self.task._advise_count_zero())
+                patch.object(self.task, "ocr", return_value=[_text_box("咨询次数")]):
+            self.assertIsNone(self.task._read_advise_count())  # 计数整段丢字时判读不出，交由按钮态兜底。
         with patch.object(self.task, "get_box_by_name", side_effect=ValueError("missing")):
-            self.assertFalse(self.task._advise_count_zero())  # 区域缺失视为未用尽，交由切换上限兜底。
+            self.assertIsNone(self.task._read_advise_count())  # 区域缺失时判读不出。
 
 
 class TestOutpostTaskRun(_DebugOffTestCase):
@@ -418,7 +418,7 @@ class TestOutpostTaskAdvise(_DebugOffTestCase):
                 patch.object(self.task, "find_one", return_value=None), \
                 patch.object(self.task, "_read_advise_name", return_value="拉毗"), \
                 patch.object(self.task, "_advise_once") as advise_once_mock, \
-                patch.object(self.task, "_advise_count_zero", return_value=True), \
+                patch.object(self.task, "_read_advise_count", return_value=0), \
                 patch.object(self.task, "_exit_advise_to_lobby") as exit_mock, \
                 patch.object(self.task, "sleep"):
             self.task._advise_flow()
@@ -427,6 +427,49 @@ class TestOutpostTaskAdvise(_DebugOffTestCase):
         self.assertEqual("box_advise_feature", advise_once_mock.call_args.args[1].name)
         exit_mock.assert_called_once()  # 次数用尽直接返回大厅。
 
+    def test_flow_skipped_char_with_count_zero_ends(self):
+        # 当前角色图鉴已完成（跳过咨询）时次数已为 0：直接结束，不再白切下一个角色。
+        bond_box = _named_box("advise_bond_max")
+        self.task.config["补齐咨询日志"] = True
+        with patch.object(self.task, "_enter_advise"), \
+                patch.object(self.task, "assert_screen"), \
+                patch.object(self.task, "get_box_by_name", side_effect=lambda name: _named_box(name)), \
+                patch.object(self.task, "is_feature_enabled", return_value=True), \
+                patch.object(self.task, "click_box") as click_box_mock, \
+                patch.object(self.task, "find_one", return_value=bond_box), \
+                patch.object(self.task, "_read_advise_name", return_value="A"), \
+                patch.object(self.task, "_read_advise_count", return_value=0), \
+                patch.object(self.task, "_advise_once") as advise_once_mock, \
+                patch.object(self.task, "_exit_advise_to_lobby") as exit_mock, \
+                patch.object(self.task, "sleep"):
+            self.task._advise_flow()
+        advise_once_mock.assert_not_called()  # 图鉴已完成不咨询。
+        self.assertEqual([c.args[0].name for c in click_box_mock.call_args_list],
+                         ["box_advise_nikke"])  # 次数为 0 时不点下一个，直接结束。
+        exit_mock.assert_called_once()
+
+    def test_flow_unreadable_count_with_disabled_button_ends(self):
+        # 计数整段读不出 + 咨询按钮灰白：两项信号连续 3 轮即按次数用尽结束，不再空转到切换上限。
+        counter = itertools.count()  # 每次读取返回新名称，模拟切换一直成功。
+        with patch.object(self.task, "_enter_advise"), \
+                patch.object(self.task, "assert_screen"), \
+                patch.object(self.task, "wait_screen", return_value=True), \
+                patch.object(self.task, "get_box_by_name", side_effect=lambda name: _named_box(name)), \
+                patch.object(self.task, "is_feature_enabled",
+                             side_effect=lambda box: box.name == "box_advise_count_feature"), \
+                patch.object(self.task, "click_box") as click_box_mock, \
+                patch.object(self.task, "find_one", return_value=None), \
+                patch.object(self.task, "_read_advise_name", side_effect=lambda: f"角色{next(counter)}"), \
+                patch.object(self.task, "_read_advise_count", return_value=None), \
+                patch.object(self.task, "_advise_once") as advise_once_mock, \
+                patch.object(self.task, "_exit_advise_to_lobby") as exit_mock, \
+                patch.object(self.task, "sleep"):
+            self.task._advise_flow()
+        advise_once_mock.assert_not_called()  # 按钮灰白不咨询。
+        next_clicks = [c for c in click_box_mock.call_args_list if c.args[0].name == "advise_next"]
+        self.assertEqual(2, len(next_clicks))  # 第 3 轮达到上限即结束，只切了 2 次。
+        exit_mock.assert_called_once()
+
     def test_flow_bond_max_progress_skips_without_advise(self):
         self.task.config["补齐咨询日志"] = True
         bond_box = _named_box("advise_bond_max")
@@ -434,12 +477,12 @@ class TestOutpostTaskAdvise(_DebugOffTestCase):
                 patch.object(self.task, "assert_screen"), \
                 patch.object(self.task, "wait_screen", return_value=True), \
                 patch.object(self.task, "get_box_by_name", side_effect=lambda name: _named_box(name)), \
-                patch.object(self.task, "is_feature_enabled", side_effect=[True, True, True]), \
+                patch.object(self.task, "is_feature_enabled", return_value=True), \
                 patch.object(self.task, "click_box") as click_box_mock, \
                 patch.object(self.task, "find_one", side_effect=[bond_box, None]), \
                 patch.object(self.task, "_read_advise_name", side_effect=["A", "B", "B"]), \
                 patch.object(self.task, "_advise_once") as advise_once_mock, \
-                patch.object(self.task, "_advise_count_zero", return_value=True), \
+                patch.object(self.task, "_read_advise_count", side_effect=[4, 0]), \
                 patch.object(self.task, "_exit_advise_to_lobby") as exit_mock, \
                 patch.object(self.task, "sleep"):
             self.task._advise_flow()
@@ -460,7 +503,7 @@ class TestOutpostTaskAdvise(_DebugOffTestCase):
                 patch.object(self.task, "find_one", return_value=None), \
                 patch.object(self.task, "_read_advise_name", return_value="拉毗"), \
                 patch.object(self.task, "_advise_once"), \
-                patch.object(self.task, "_advise_count_zero", return_value=False), \
+                patch.object(self.task, "_read_advise_count", return_value=4), \
                 patch.object(self.task, "dismiss_all_popups") as dismiss_mock, \
                 patch.object(self.task, "_exit_advise_to_lobby") as exit_mock, \
                 patch.object(self.task, "sleep"):
@@ -521,7 +564,7 @@ class TestOutpostTaskAdvise(_DebugOffTestCase):
                 patch.object(self.task, "_read_advise_name",
                              side_effect=lambda: f"角色{next(counter)}"), \
                 patch.object(self.task, "_advise_once"), \
-                patch.object(self.task, "_advise_count_zero", return_value=False), \
+                patch.object(self.task, "_read_advise_count", return_value=4), \
                 patch.object(self.task, "_exit_advise_to_lobby") as exit_mock, \
                 patch.object(self.task, "sleep"):
             self.task._do_advise()  # 经 try_step 成功路径标记完成。
