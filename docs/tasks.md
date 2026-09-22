@@ -12,6 +12,7 @@
 - 一次性任务：`src/tasks/MyOneTimeTask.py`
 - 后台触发任务：`src/tasks/MyTriggerTask.py`
 - 基类与通用能力：`src/tasks/NikkeBaseTask.py`（实现按职责拆在 `src/tasks/base/` 下的 mixin，基类只做组合）
+- 任务级拆分范例：`src/tasks/EventTask.py`（子流程按职责拆在 `src/tasks/event/` 下的 mixin，任务类只做组合；常量集中在 `_const.py`）
 
 ## 写一个任务
 

@@ -7,9 +7,7 @@
 
 from ok.feature.Box import Box  # 「全部领取」文字框按比例外扩成按钮框。
 
-from src.tasks.event._const import (
-    _CLAIM_ALL_TEXT, _CLAIM_ALL_SCAN_BOX, _CLAIM_ALL_PAD,
-)
+from src.tasks.event._const import _CLAIM_ALL_TEXT, _CLAIM_ALL_SCAN_BOX, _CLAIM_ALL_PAD
 
 
 class EventClaimMixin:

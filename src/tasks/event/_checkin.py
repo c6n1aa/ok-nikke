@@ -6,9 +6,7 @@
 
 from ok.task.exceptions import WaitFailedException  # 入口缺失等流程断言抛出的等待失败异常。
 
-from src.tasks.event._const import (
-    _SD_ARRIVE_TIMEOUT,
-)
+from src.tasks.event._const import _SD_ARRIVE_TIMEOUT
 
 
 class EventCheckinMixin:

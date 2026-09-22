@@ -12,6 +12,7 @@ Starter templates:
 - One-shot task: `src/tasks/MyOneTimeTask.py`
 - Background trigger task: `src/tasks/MyTriggerTask.py`
 - Base class and shared capabilities: `src/tasks/NikkeBaseTask.py` (implementation split by responsibility into mixins under `src/tasks/base/`; the base class only composes them)
+- Task-level split example: `src/tasks/EventTask.py` (sub-flows split by responsibility into mixins under `src/tasks/event/`; the task class only composes them; constants live in `_const.py`)
 
 ## Write a Task
 
