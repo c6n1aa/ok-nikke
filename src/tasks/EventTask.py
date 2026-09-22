@@ -10,6 +10,7 @@ from src import event_calendar  # 官方活动日历缓存 + 活动图行匹配�
 from src.tasks.NikkeBaseTask import NikkeBaseTask  # 项目基类，所有任务统一继承它。
 
 from src.tasks.event._stage import EventStageMixin  # 关卡页读取 / 详情页 / 快速战斗。
+from src.tasks.event._claim import EventClaimMixin  # 「全部领取」按钮原语。
 from src.tasks.event._common import EventCommonMixin  # 通用小工具（区域解析 / 列表滚动）。
 
 from src.tasks.event._const import (  # 常量与身份工具集中处（避免 mixin 反向依赖本模块构成环）。
@@ -18,18 +19,17 @@ from src.tasks.event._const import (  # 常量与身份工具集中处（避免 
     _STAGE_DETAIL_BATTLE_BOX, _BATTLE_AFTER_SLEEP, _SWEEP_STAGES, _SWEEP_STAGE_DEFAULT, _SWEEP_MAX_ROUNDS,
     _SWEEP_QUICK_BOX, _SWEEP_CLOSE_FEATURE, _CHALLENGE_LIST_BOX, _CHALLENGE_STAGE_FEATURE,
     _CHALLENGE_CLICK_X_OFFSET, _CHALLENGE_CLICK_ATTEMPTS, _CHALLENGE_PAGE_SETTLE, _SD_ARRIVE_TIMEOUT,
-    _CLAIM_ALL_TEXT, _CLAIM_ALL_SCAN_BOX, _CLAIM_ALL_PAD, _MISSION_SUBTITLE_BOX, _MISSION_SUBTITLE_TEXT,
-    _MISSION_ICON_BOX, _MISSION_TABS, _MISSION_DAILY_SUBTITLE_BOX, _MISSION_READY_TIMEOUT,
-    _MISSION_TAB_SWITCH_TIMEOUT, _MISSION_CLAIM_MAX_CLICKS, _MISSION_CLAIM_SETTLE_TIMEOUT,
-    _MISSION_CLAIM_SETTLE, normalize_roman_numerals, _STORY_MENU_PATTERNS, _STORY_SUB_PATTERN,
-    _ENTRY_LOCK_BRIGHT_V, _ENTRY_LOCK_BRIGHT_RATIO, _MENU_PROBE_ENTRIES, _ENTRIES, _ENTRY_EXTRA_BOXES,
-    _SUBFLOW_ORDER, _SUBFLOW_METHODS, _SKIPPED_ENTRIES, _ENTRY_CLICK_Y_OFFSET, _ENTRY_EXTRA_CLICK_Y_OFFSET,
-    _EVENT_KEY_PREFIX, _EVENT_FLOW_PERIOD, _PER_EVENT_FLOWS, _LEGACY_DONE_KEY, _BIG_EVENT_TYPE, event_identity,
-    event_done_key,
+    _MISSION_SUBTITLE_BOX, _MISSION_SUBTITLE_TEXT, _MISSION_ICON_BOX, _MISSION_TABS,
+    _MISSION_DAILY_SUBTITLE_BOX, _MISSION_READY_TIMEOUT, _MISSION_TAB_SWITCH_TIMEOUT,
+    _MISSION_CLAIM_MAX_CLICKS, _MISSION_CLAIM_SETTLE_TIMEOUT, _MISSION_CLAIM_SETTLE, normalize_roman_numerals,
+    _STORY_MENU_PATTERNS, _STORY_SUB_PATTERN, _ENTRY_LOCK_BRIGHT_V, _ENTRY_LOCK_BRIGHT_RATIO,
+    _MENU_PROBE_ENTRIES, _ENTRIES, _ENTRY_EXTRA_BOXES, _SUBFLOW_ORDER, _SUBFLOW_METHODS, _SKIPPED_ENTRIES,
+    _ENTRY_CLICK_Y_OFFSET, _ENTRY_EXTRA_CLICK_Y_OFFSET, _EVENT_KEY_PREFIX, _EVENT_FLOW_PERIOD,
+    _PER_EVENT_FLOWS, _LEGACY_DONE_KEY, _BIG_EVENT_TYPE, event_identity, event_done_key,
 )
 
 
-class EventTask(EventStageMixin, EventCommonMixin, NikkeBaseTask):  # 活动任务：自动处理限时活动的通用内容（签到/剧情/挑战/任务/商店）。
+class EventTask(EventStageMixin, EventClaimMixin, EventCommonMixin, NikkeBaseTask):  # 活动任务：自动处理限时活动的通用内容（签到/剧情/挑战/任务/商店）。
 
     # 完成状态：真实键按活动身份动态生成（event_<身份>[_<流程>]，见 event_done_key），
     # 本表只作「本任务有完成状态」的声明锚（任务卡的「重置完成状态」按钮据此显示），不参与读写；
@@ -563,23 +563,6 @@ class EventTask(EventStageMixin, EventCommonMixin, NikkeBaseTask):  # 活动任�
         # 活动任务弹窗，签到页两者都不命中）。
         self._ensure_event_menu()  # 返回活动菜单页，供后续子流程接续。
 
-    def _find_claim_all(self):  # 在面板底部区域 OCR 识别「全部领取」按钮文字，返回匹配框或 None（签到印章/任务弹窗共用）。
-        boxes = self.ocr(box=self.box_of_screen(*_CLAIM_ALL_SCAN_BOX),  # 按钮所在的屏幕下部区域。
-                         match=[_CLAIM_ALL_TEXT])  # 正则部分匹配（兼容拆框/噪声）。
-        return boxes[0] if boxes else None  # 文字长在按钮上，命中即按钮存在。
-
-    def _claim_button_box(self, text_box):  # 「全部领取」文字框按比例外扩到按钮底色区域（供色彩判态）。
-        pad_w = text_box.width * _CLAIM_ALL_PAD[0]  # 水平外扩量。
-        pad_h = text_box.height * _CLAIM_ALL_PAD[1]  # 垂直外扩量。
-        return Box(text_box.x - pad_w, text_box.y - pad_h,  # 左上各外扩一份。
-                   text_box.width + pad_w * 2, text_box.height + pad_h * 2,  # 尺寸两端各加一份。
-                   name="claim_all_button")  # 命名便于日志/调试识别。
-
-    def _close_claim_overlay(self, time_out=5):  # 清理领奖遮罩（签到印章/任务弹窗共用，遮罩非必现，超时未出现不报错）。
-        self.close_overlay(keywords=(self._MASK_CLAIM_PATTERN, self._MASK_ANYWHERE_PATTERN,
-                                     self._CLICK_TO_PROCEED_PATTERN),
-                           time_out=time_out, require_click=False)  # 遮罩非必现：没弹遮罩不算失败，避免把一次未领到奖励判成整条子流程失败。
-
     # ---- 剧情执行链（方案 §8：推图链 + 扫荡链） ----
 
     def _push_stages(self):  # 连续推图链：自下而上找第一个能推的关卡并点开 → 逐场战斗（结算「下一关」可用则续战，跳到门票耗尽）→ 回关卡页。
@@ -1039,10 +1022,6 @@ class EventTask(EventStageMixin, EventCommonMixin, NikkeBaseTask):  # 活动任�
             return None  # 视为弹窗未就位。
         boxes = self.ocr(box=box, match=[_MISSION_SUBTITLE_TEXT])  # 区域内 OCR 部分匹配副标题关键词。
         return boxes[0] if boxes else None  # 命中即弹窗已就位。
-
-    def _claim_all_claimable(self):  # 当前帧「全部领取」是否重新可领（文字在且底色彩色）；遮罩盖住/过渡灰白均视为未就绪。
-        claim = self._find_claim_all()  # 弹窗底部「全部领取」文字框。
-        return claim is not None and self.is_feature_enabled(self._claim_button_box(claim))  # 文字在且底色彩色 = 第二段已就绪可领。
 
     def _claim_mission_rewards(self):  # 循环点「全部领取」直到按钮灰白；每轮点完等第二段重新可领，再回到按钮判态进入下一轮。
         for _ in range(_MISSION_CLAIM_MAX_CLICKS):  # 次数上限保护：点击未生效时不再无限循环。
