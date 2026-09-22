@@ -12,7 +12,10 @@ def _patch_openvino_telemetry():
     # backend_ga 同样用无超时的 urlopen。这里把两个后端的实际发送替换为直接返回。
     try:
         from openvino_telemetry.backend import backend_ga4, backend_ga
+    except ImportError:  # 当前 OCR 后端是 onnxruntime，未装 openvino 时跳过
+        return
 
+    try:
         def _noop_send(request_data):
             pass
 
@@ -198,11 +201,11 @@ def _patch_device_set_interaction():
     logger.info('patched DeviceManager.set_interaction to release focus pause on interaction change')
 
 
-_OCR_INIT_JOIN_TIMEOUT = 120  # 秒；CI 冷缓存下加载/编译 OpenVINO 模型可能耗时数十秒
+_OCR_INIT_JOIN_TIMEOUT = 120  # 秒；CI 冷缓存下加载/编译 OCR 推理模型可能耗时数十秒
 
 
 def _join_ocr_init_thread(executor=None):
-    # 等后台 DefaultOCRInit 线程收尾。框架起了这个守护线程（懒初始化 OCR、import openvino）
+    # 等后台 DefaultOCRInit 线程收尾。框架起了这个守护线程（懒初始化 OCR、import 推理后端）
     # 却从不 join；进程退出得比它快时，主线程会在解释器终结阶段卡在全局 import 锁上
     # （_imp.acquire_lock），锁被该线程占着，进程永不退出。
     if executor is None:

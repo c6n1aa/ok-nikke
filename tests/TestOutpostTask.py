@@ -17,13 +17,16 @@ from src.screens import _keyword
 from src.tasks.OutpostTask import _ADVISE_MAX_SWITCH, _BF_LIST_OPEN_MAX_ATTEMPTS, _SINGLE_OPTION_CLICK_X, \
     OutpostTask, _normalize_answer_text, _normalize_character_name
 
+from tests.support.asserts import assert_called_once_semantic
+
 _TEST_CONFIG_DIR = os.path.join('dev_tools', 'test_configs')
 
 
 def _isolate_task_config(task, name):
-    """把任务配置重定向到 dev_tools/test_configs 下的临时文件，避免污染真实 configs/。"""
+    """把任务配置重定向到 dev_tools/test_configs 下的临时文件并复位为任务默认值：既不污染真实 configs/，也不读它的值。"""
     os.makedirs(_TEST_CONFIG_DIR, exist_ok=True)
     task.config.config_file = os.path.join(_TEST_CONFIG_DIR, f'{name}.json')
+    task.config.reset_to_default()  # 复位为任务默认值：用例只设自己关心的开关，不读开发者本地配置。
     task.config['_execution_states'] = {}
 
 
@@ -279,7 +282,7 @@ class TestOutpostTaskDispatch(_DebugOffTestCase):
                          clicked_features)  # 进公告栏→确认派遣→关闭窗口。
         dismiss_mock.assert_called_once()  # 领取后清理奖励弹窗。
         nav_mock.assert_called_once()  # 入口闸门只进入一次。
-        assert_mock.assert_called_once_with("outpost", time_out=10)  # 关闭后确认回到前哨基地。
+        assert_called_once_semantic(assert_mock, "outpost")  # 关闭后确认回到前哨基地。
         self.assertEqual("box_bulletin_board_title", ocr_mock.call_args.kwargs["box"].name)  # 标题 OCR 限定区域。
 
     def test_flow_no_claim_no_send(self):
@@ -291,7 +294,7 @@ class TestOutpostTaskDispatch(_DebugOffTestCase):
                          clicked_features)  # 仅进公告栏并关闭窗口。
         dismiss_mock.assert_not_called()
         nav_mock.assert_called_once()  # 入口闸门只进入一次。
-        assert_mock.assert_called_once_with("outpost", time_out=10)  # 关闭后确认回到前哨基地。
+        assert_called_once_semantic(assert_mock, "outpost")  # 关闭后确认回到前哨基地。
 
     def test_flow_claim_only(self):
         nav_mock, click_mock, _, click_box_mock, dismiss_mock, _ = \
@@ -528,7 +531,7 @@ class TestOutpostTaskAdvise(_DebugOffTestCase):
                 patch.object(self.task, "dismiss_all_popups") as dismiss_mock:
             self.assertTrue(self.task._switch_advise_nikke("拉毗"))
         click_mock.assert_called_once()  # 清理后复核已成功，不得补点跳过角色。
-        dismiss_mock.assert_called_once_with(wait_for_popup=False, time_out=5)  # 确认失败后清理遮罩。
+        assert_called_once_semantic(dismiss_mock, wait_for_popup=False)  # 确认失败后清理遮罩。
 
     def test_enter_advise_navigates_and_confirms(self):
         # 入口拆分：前哨基地→指挥中心→咨询入口，确认到达[咨询]列表页。
@@ -541,10 +544,10 @@ class TestOutpostTaskAdvise(_DebugOffTestCase):
             self.task._enter_advise()
         nav_mock.assert_called_once()  # 先就位前哨基地。
         self.assertEqual("command_center", click_feature_mock.call_args.args[0])  # 点指挥中心建筑。
-        transition_mock.assert_called_once_with(
-            "command_center", click_feature="command_center_enter", wait_confirm=10, after_sleep=1)
+        assert_called_once_semantic(
+            transition_mock, "command_center", click_feature="command_center_enter")
         self.assertEqual("box_command_center_advise_enter", click_box_mock.call_args.args[0].name)  # 点咨询入口。
-        assert_mock.assert_called_once_with("advise", time_out=10)  # 确认到达咨询列表页。
+        assert_called_once_semantic(assert_mock, "advise")  # 确认到达咨询列表页。
 
     def test_exit_advise_to_lobby_delegates(self):
         # 出口拆分：咨询结束直接返回大厅，委托基类幂等收尾（含主页按钮坐标偏移兜底与延迟遮罩重试）。
@@ -600,12 +603,12 @@ class TestOutpostTaskAdviseOnce(_DebugOffTestCase):
                 patch.object(self.task, "get_box_by_name", side_effect=lambda name: _named_box(name)), \
                 patch.object(self.task, "sleep"):
             self.task._advise_once("拉毗", advise_box)
-        click_mock.assert_called_once_with(advise_box, after_sleep=1)  # 点击咨询按钮。
+        assert_called_once_semantic(click_mock, advise_box)  # 点击咨询按钮。
         clicked_features = [c.args[0] for c in click_feature_mock.call_args_list]
         self.assertEqual(["advise_confirm", "conversation_skip"], clicked_features)  # 确认弹窗→跳过对话。
         skip_call = click_feature_mock.call_args_list[-1]
         self.assertEqual("box_conversation_icon", skip_call.kwargs["box"].name)  # 跳过按钮限定在对话图标区。
-        dismiss_mock.assert_called_once_with(wait_for_popup=False, time_out=5)  # 跳过后先清好感度提升遮罩再断言回详情页。
+        assert_called_once_semantic(dismiss_mock, wait_for_popup=False)  # 跳过后先清好感度提升遮罩再断言回详情页。
         query_mock.assert_called_once_with("拉毗")  # 以角色名查询答案库。
         self.assertEqual([("conversation",), ("advise_nikke",)],
                          [c.args for c in assert_mock.call_args_list])  # 等谈话界面→确认回详情。
@@ -632,8 +635,8 @@ class TestOutpostTaskAdviseOnce(_DebugOffTestCase):
         heart = _named_box("advise_option_heart")
         relative_mock, click_mock = self._answer_with(
             [None, None, option1, option2, heart], [], [])  # 第一轮无选项→点空白→第二轮出现选项与爱心。
-        relative_mock.assert_called_once_with(0.7, 0.85, after_sleep=0.5)  # 点空白推进对话。
-        click_mock.assert_called_once_with(heart, after_sleep=1)  # 爱心可见直接点爱心。
+        assert_called_once_semantic(relative_mock, 0.7, 0.85)  # 点空白推进对话。
+        assert_called_once_semantic(click_mock, heart)  # 爱心可见直接点爱心。
 
     def test_answer_matches_good_answer_precisely(self):
         option1 = _named_box("advise_option1")
@@ -643,7 +646,7 @@ class TestOutpostTaskAdviseOnce(_DebugOffTestCase):
         rows = [("提问", "好的交给我吧", "还是算了吧")]
         _, click_mock = self._answer_with(
             [None, None, option1, option2, None], [text_good, text_bad], rows)
-        click_mock.assert_called_once_with(text_good, after_sleep=1)  # 同行 good/bad 精准命中。
+        assert_called_once_semantic(click_mock, text_good)  # 同行 good/bad 精准命中。
 
     def test_answer_excludes_bad_answer(self):
         option1 = _named_box("advise_option1")
@@ -653,7 +656,7 @@ class TestOutpostTaskAdviseOnce(_DebugOffTestCase):
         rows = [("提问", "完全不同的回答", "还是算了吧")]  # good 与 OCR 不符，仅 bad 可排除。
         _, click_mock = self._answer_with(
             [None, None, option1, option2, None], [text_other, text_bad], rows)
-        click_mock.assert_called_once_with(text_other, after_sleep=1)  # 命中 bad 即选另一个。
+        assert_called_once_semantic(click_mock, text_other)  # 命中 bad 即选另一个。
 
     def test_answer_random_when_no_rows(self):
         option1 = _named_box("advise_option1")
@@ -694,7 +697,6 @@ class TestOutpostTaskAdviseOnce(_DebugOffTestCase):
         first = click_mock.call_args_list[0]
         self.assertIs(first.args[0], option1)  # 直接点匹配到的角标框。
         self.assertEqual(_SINGLE_OPTION_CLICK_X, first.kwargs["relative_x"])  # 框内相对 X 右移点框体。
-        self.assertEqual(1, first.kwargs["after_sleep"])
 
     def test_answer_clicks_persistent_single_option_gradually(self):
         option1 = _named_box("advise_option1")

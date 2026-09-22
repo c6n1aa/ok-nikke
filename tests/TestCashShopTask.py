@@ -8,13 +8,16 @@ from ok.feature.Box import Box
 from ok.task.exceptions import WaitFailedException
 from ok.test.TaskTestCase import TaskTestCase
 
+from tests.support.asserts import assert_called_once_semantic
+
 _TEST_CONFIG_DIR = os.path.join('dev_tools', 'test_configs')
 
 
 def _isolate_task_config(task, name):
-    """把任务配置重定向到 dev_tools/test_configs 下的临时文件，避免污染真实 configs/。"""
+    """把任务配置重定向到 dev_tools/test_configs 下的临时文件并复位为任务默认值：既不污染真实 configs/，也不读它的值。"""
     os.makedirs(_TEST_CONFIG_DIR, exist_ok=True)
     task.config.config_file = os.path.join(_TEST_CONFIG_DIR, f'{name}.json')
+    task.config.reset_to_default()  # 复位为任务默认值：用例只设自己关心的开关，不读开发者本地配置。
     task.config['_execution_states'] = {}
 
 
@@ -70,8 +73,8 @@ class TestCashShopTask(_DebugOffTestCase):
                 patch.object(self.task, "wait_click_feature") as click_mock, \
                 patch.object(self.task, "wait_screen", return_value=True) as wait_mock:
             self.task._enter_cash_shop()
-        click_mock.assert_called_once_with("cash_shop", time_out=10, raise_if_not_found=True, after_sleep=1)
-        wait_mock.assert_called_once_with("cash_shop", time_out=10)
+        assert_called_once_semantic(click_mock, "cash_shop", raise_if_not_found=True)
+        assert_called_once_semantic(wait_mock, "cash_shop")
 
     def test_done_keys(self):
         self.assertEqual(
@@ -150,9 +153,9 @@ class TestCashShopTask(_DebugOffTestCase):
                 patch.object(self.task, "assert_screen") as assert_mock:
             self.task._switch_nav("cash_shop_limited_time_page", "cash_shop_nav_limited_time_package")
         box_mock.assert_called_once_with("box_cash_shop_nav_bar")
-        click_mock.assert_called_once_with("cash_shop_nav_limited_time_package", box=nav_box,
-                                           time_out=10, raise_if_not_found=True, after_sleep=1)
-        assert_mock.assert_called_once_with("cash_shop_limited_time_page", time_out=10)
+        assert_called_once_semantic(click_mock, "cash_shop_nav_limited_time_package", box=nav_box,
+                                    raise_if_not_found=True)
+        assert_called_once_semantic(assert_mock, "cash_shop_limited_time_page")
 
     def test_ordinary_packs_skip_done_tabs(self):
         self.task.mark_done("cash_shop_daily", "day")

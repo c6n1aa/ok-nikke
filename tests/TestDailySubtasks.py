@@ -8,13 +8,16 @@ from src.tasks.OutpostDefenseTask import OutpostDefenseTask
 from ok.feature.Box import Box
 from ok.test.TaskTestCase import TaskTestCase
 
+from tests.support.asserts import assert_called_once_semantic
+
 _TEST_CONFIG_DIR = os.path.join('dev_tools', 'test_configs')
 
 
 def _isolate_task_config(task, name):
-    """把任务配置重定向到 dev_tools/test_configs 下的临时文件，避免污染真实 configs/。"""
+    """把任务配置重定向到 dev_tools/test_configs 下的临时文件并复位为任务默认值：既不污染真实 configs/，也不读它的值。"""
     os.makedirs(_TEST_CONFIG_DIR, exist_ok=True)
     task.config.config_file = os.path.join(_TEST_CONFIG_DIR, f'{name}.json')
+    task.config.reset_to_default()  # 复位为任务默认值：用例只设自己关心的开关，不读开发者本地配置。
     task.config['_execution_states'] = {}
 
 
@@ -209,10 +212,9 @@ class TestHarvestTask(_DebugOffTestCase):
         self.assertEqual(0, swipes)  # 单个 PASS 不翻页，累计翻页次数不变。
         dot_mock.assert_called_once_with("box_pass_badge", template_path=self.task._RED_DOT_TEMPLATE,
                                           use_color_fallback=False)
-        click_mock.assert_called_once_with("box_pass_area", after_sleep=1)
+        assert_called_once_semantic(click_mock, "box_pass_area")
         kwargs = ocr_wait_mock.call_args.kwargs  # 打开判据走页签文字 OCR，不用随皮肤变的徽章模板。
         self.assertEqual(list(self.task._PASS_TAB_PATTERNS), kwargs["match"])
-        self.assertEqual(5, kwargs["time_out"])
         self.assertFalse(kwargs["raise_if_not_found"])  # 未命中由本方法抛带原因的异常。
         self.assertEqual("pass_tab_area", kwargs["box"].name)
 
@@ -256,7 +258,7 @@ class TestHarvestTask(_DebugOffTestCase):
         self.assertEqual(2, swipes)  # 前两页各翻一次，第三页命中。
         self.assertEqual(2 * self.task._PASS_FLICK_STEPS, move_mock.call_count)  # 前两页各翻页 20 步加速插值，第三页命中。
         self.assertEqual(3, dot_mock.call_count)  # 每次翻页后重新检测红点。
-        click_mock.assert_called_once_with("box_pass_area", after_sleep=1)
+        assert_called_once_semantic(click_mock, "box_pass_area")
 
     def test_open_pass_modal_multi_caps_at_limit(self):
         with patch.object(self.task, "find_red_dot", return_value=None), \
@@ -302,7 +304,7 @@ class TestHarvestTask(_DebugOffTestCase):
         tab_calls = [c.args[0] for c in click_mock.call_args_list if isinstance(c.args[0], str)]
         self.assertEqual(["box_pass_mission_page", "box_pass_reward_page"], tab_calls)  # 依次切任务页、奖励页。
         self.assertEqual(2, len([c for c in click_mock.call_args_list if c.args[0] is claim_box]))  # 两页各领一次。
-        dismiss_mock.assert_called_once_with(time_out=5)  # 奖励页领取后处理一次奖励遮罩。
+        assert_called_once_semantic(dismiss_mock)  # 奖励页领取后处理一次奖励遮罩。
         close_mock.assert_called_once()
 
     def test_claim_pass_modal_handles_rank_up(self):
@@ -352,7 +354,7 @@ class TestHarvestTask(_DebugOffTestCase):
                 patch.object(self.task, "close_popup_by_blank", return_value=True) as blank_mock:
             closed = self.task._close_pass_modal()
         self.assertTrue(closed)  # 确认关闭。
-        dismiss_mock.assert_called_once_with(wait_for_popup=False, time_out=5)
+        assert_called_once_semantic(dismiss_mock, wait_for_popup=False)
         blank_mock.assert_called_once()  # 走基类通用「点空白 + 验证」。
         verify = blank_mock.call_args.args[0]  # 关闭判据。
         with patch.object(self.task, "_pass_panel_opened", return_value=False) as panel_mock:

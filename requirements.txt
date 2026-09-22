@@ -20,6 +20,8 @@ deprecation==2.1.0 ; sys_platform == 'win32'
     # via adbutils
 evdev==2.0.0 ; sys_platform == 'win32' and 'linux' in sys_platform
     # via pynput
+flatbuffers==25.12.19 ; sys_platform == 'win32'
+    # via onnxruntime
 idna==3.19 ; sys_platform == 'win32'
     # via requests
 mouse==0.7.1 ; sys_platform == 'win32'
@@ -27,8 +29,8 @@ mouse==0.7.1 ; sys_platform == 'win32'
 numpy==2.5.3 ; sys_platform == 'win32'
     # via
     #   ok-script
+    #   onnxruntime
     #   opencv-python
-    #   openvino
     #   shapely
 ok-d3dshot==0.1.5 ; sys_platform == 'win32'
     # via ok-script
@@ -36,22 +38,24 @@ ok-script==2.0.6 ; sys_platform == 'win32'
     # via ok-nikke
 onnxocr-ppocrv5==0.0.22 ; sys_platform == 'win32'
     # via ok-script
+onnxruntime==1.30.0 ; sys_platform == 'win32'
+    # via ok-nikke
 opencc==1.2.0 ; sys_platform == 'win32'
     # via ok-script
 opencv-python==5.0.0.93 ; sys_platform == 'win32'
     # via ok-nikke
-openvino==2026.3.1 ; sys_platform == 'win32'
-    # via ok-nikke
-openvino-telemetry==2025.2.0 ; sys_platform == 'win32'
-    # via openvino
 packaging==26.3 ; sys_platform == 'win32'
-    # via deprecation
+    # via
+    #   deprecation
+    #   onnxruntime
 pillow==12.3.0 ; sys_platform == 'win32'
     # via
     #   adbutils
     #   ok-d3dshot
     #   ok-script
     #   onnxocr-ppocrv5
+protobuf==7.36.2 ; sys_platform == 'win32'
+    # via onnxruntime
 psutil==7.2.2 ; sys_platform == 'win32'
     # via
     #   ok-script

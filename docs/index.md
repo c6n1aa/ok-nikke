@@ -7,7 +7,7 @@ ok-nikke 是基于 [ok-script](https://github.com/ok-oldking/ok-script) 的《�
 ## 功能
 
 - **输入方式**：`SyntheticTouch` 走合成触控指针（WM_POINTER）绕开游戏输入过滤，需要游戏窗口位于前台。截图优先使用 WGC 后台捕获。任务运行期间游戏窗口失焦或不在前台会自动暂停，切回后继续。
-- **图像识别**：OpenCV 模板匹配（COCO 标注管理素材）结合 onnxocr（PaddleOCR v5 + OpenVINO）识别文字与按钮。
+- **图像识别**：OpenCV 模板匹配（COCO 标注管理素材）结合 onnxocr（PaddleOCR v5 + onnxruntime）识别文字与按钮。
 - **分辨率自适应**：支持 16:9（最低 1600×900），素材以 2560×1440 为基准，按当前分辨率自动缩放匹配。
 - **完成状态**：按日/周记录任务完成情况，避免重复执行。
 

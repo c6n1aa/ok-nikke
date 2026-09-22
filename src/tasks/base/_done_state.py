@@ -72,6 +72,22 @@ class DoneStateMixin:
         self.config[self._execution_states_key] = states
         self.config.save_file()  # 同上，手动保存确保删除立即生效
 
+    def clear_done_matching(self, predicate) -> int:
+        """按条件清除完成状态键，返回清除的数量。
+
+        predicate: 完成键 -> 是否清除。只动命中的键，其余保持不变；没有命中时不落盘
+        （避免无谓的配置写入）。身份化动态键族（键名运行期才能确定）用它整族清理。
+        """
+        states = dict(self.config.get(self._execution_states_key) or {})
+        matched = [key for key in states if predicate(key)]
+        if not matched:
+            return 0
+        for key in matched:
+            states.pop(key, None)
+        self.config[self._execution_states_key] = states
+        self.config.save_file()  # 同 clear_done：内容变化需手动保存。
+        return len(matched)
+
     def is_completed(self) -> bool:
         """判断任务是否整体已完成：所有完成状态项均已完成。
 

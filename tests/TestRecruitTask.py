@@ -14,9 +14,10 @@ _TEST_CONFIG_DIR = os.path.join('dev_tools', 'test_configs')
 
 
 def _isolate_task_config(task, name):
-    """把任务配置重定向到 dev_tools/test_configs 下的临时文件，避免污染真实 configs/。"""
+    """把任务配置重定向到 dev_tools/test_configs 下的临时文件并复位为任务默认值：既不污染真实 configs/，也不读它的值。"""
     os.makedirs(_TEST_CONFIG_DIR, exist_ok=True)
     task.config.config_file = os.path.join(_TEST_CONFIG_DIR, f'{name}.json')
+    task.config.reset_to_default()  # 复位为任务默认值：用例只设自己关心的开关，不读开发者本地配置。
     task.config['_execution_states'] = {}
 
 

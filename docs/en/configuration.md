@@ -38,7 +38,7 @@ The `windows` section:
 
 ## Recognition
 
-- `ocr`: uses `onnxocr` with `use_openvino` enabled.
+- `ocr`: uses `onnxocr` with the `onnxruntime` backend; switching back to OpenVINO requires installing `openvino` and setting `use_openvino` to `True` (the OpenVINO CPU backend accumulates memory per OCR input size).
 - `template_matching`: points to `coco_feature_json` (`assets/coco_annotations.json`) plus default threshold/offset. Asset conventions are described in [Screen recognition & failure recovery](screen-and-recovery.md).
 
 ## Tasks and UI

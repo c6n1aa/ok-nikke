@@ -10,6 +10,8 @@ from src.config import config
 from src.screens import LOGIN_PAGE_PATTERN, SCREENS, _keyword
 from src.tasks.HarvestTask import HarvestTask
 
+from tests.support.asserts import assert_called_once_semantic
+
 
 class TestScreenRecovery(TaskTestCase):
     task_class = HarvestTask
@@ -341,7 +343,7 @@ class TestScreenRecovery(TaskTestCase):
         self.assertTrue(result)
         find_mock.assert_called_once_with("common_home")
         click_mock.assert_called_once()
-        lobby_mock.assert_called_once_with(time_out=30, raise_if_not_found=False)
+        assert_called_once_semantic(lobby_mock, raise_if_not_found=False)
 
     def test_recover_to_lobby_skips_when_already_lobby(self):
         with patch.object(self.task, "next_frame"), \
@@ -448,7 +450,7 @@ class TestScreenRecovery(TaskTestCase):
                 patch.object(self.task, "click_box") as click_mock:
             result = self.task._try_close_one_popup()
         self.assertTrue(result)
-        click_mock.assert_called_once_with(proceed, after_sleep=1)  # 命中拆框提示文字并点击关闭遮罩。
+        assert_called_once_semantic(click_mock, proceed)  # 命中拆框提示文字并点击关闭遮罩。
         patterns = ocr_mock.call_args.kwargs["match"]  # 传给 OCR 的关键词。
         self.assertTrue(all(isinstance(p, re.Pattern) for p in patterns))  # 全部关键词均为正则（部分匹配）。
         self.assertTrue(any(p.search("点击进行下一") for p in patterns))  # 拆框文本可被部分匹配命中。
@@ -541,7 +543,7 @@ class TestScreenRecovery(TaskTestCase):
                 patch.object(self.task, "is_screen", return_value=True), \
                 patch.object(self.task, "dismiss_all_popups") as dismiss_mock:
             self.assertTrue(self.task.ensure_screen("子页", click_feature="入口特征"))
-        wait_mock.assert_called_once_with("子页", time_out=5)  # 仍轮询目标页。
+        assert_called_once_semantic(wait_mock, "子页")  # 仍轮询目标页。
         dismiss_mock.assert_not_called()  # 首轮即命中，直接返回。
 
     def test_ensure_screen_lobby_target_is_never_short_circuited(self):

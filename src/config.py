@@ -53,8 +53,8 @@ config = {
         'lib': 'onnxocr',
         'auto_simplify': False, #自动繁体转简体, 需要ppocrv5等可以识别繁体的库
         'params': {
-            'use_openvino': True,
-            'use_npu': False
+            'use_openvino': False, #False=onnxruntime 后端；OpenVINO CPU 会按 OCR 输入尺寸累积内存
+            'use_npu': False #仅 OpenVINO 后端生效
         }
     },
     'windows': {  # Windows游戏请填写此设置

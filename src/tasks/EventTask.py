@@ -1,14 +1,15 @@
+import hashlib  # 哈希模块，活动身份段在归一后为空时回落该键的短哈希（保证身份非空且稳定）。
 import random  # 随机模块，挑战关卡点击落点在区间内随机取偏移（避免每次点同一像素）。
-import re  # 正则模块，入口关键词用 OCR 部分匹配（忽略大小写）。
+import re  # 正则模块，入口关键词用 OCR 部分匹配（忽略大小写），身份段白名单归一也用正则。
 
 import cv2  # OpenCV，列表滚动前后像素对比判到底/到顶。
 
-from ok.feature.Box import Box, find_boxes_by_name  # 行窄带的 Box（行锚点切片 OCR 用）+ 复刻 ocr(match=...) 的按名过滤（入口定位用）。
+from ok.feature.Box import Box, find_boxes_by_name  # 任务侧矩形构造（入口/行框/按钮区域）+ 复刻 ocr(match=...) 的按名过滤（入口定位用）。
 
 from ok.task.exceptions import WaitFailedException  # 返回大厅失败等流程断言抛出的等待失败异常，由 try_step 恢复。
 
 from src import event_calendar  # 官方活动日历缓存 + 活动图行匹配（纯本地读取，刷新是其唯一联网入口）。
-from src import event_stage  # 活动关卡页 OCR 解析（纯逻辑：编号/状态/序列）。
+from src import event_stage  # 活动关卡页读取策略（文本判据 + 几何切片 + 解析 + OCR 流水线；OCR 以回调注入）。
 from src.tasks.NikkeBaseTask import NikkeBaseTask  # 项目基类，所有任务统一继承它。
 
 # 大厅右侧「活动」入口图标特征（已标注进 coco）。
@@ -24,31 +25,35 @@ _MAX_CARDS = 10  # 列表最多遍历的滚动位置数（卡片数不定，用�
 
 # 列表滚动手势与到底判据常量（实机按滚动步长精确性微调）。
 _SCROLL_SWIPE_DURATION = 2  # 滚动手势 duration 参数（swipe 步数 = duration/100，与框架 pynput/post_message 同口径；2 即 1 步快速甩动）。
-_SCROLL_AFTER_SLEEP = 1.5  # 滚动后动画停稳等待（秒）。
+_SCROLL_AFTER_SLEEP = 1.8  # 滚动后动画停稳等待（秒）。
 _SCROLL_TOP_MAX_SWIPES = 8  # 归一化到顶部的最多下滑次数（防死循环）。
 _SCROLL_UNCHANGED_RATIO = 0.02  # 列表区滚动前后像素差异比例阈值：低于视为画面无变化（到底/到顶）。
 _SWIPE_START_RATIO = 0.8  # 滚动手势起点（占滚动区高度比例）。
 _SWIPE_END_RATIO = 0.55  # 滚动手势终点（占滚动区高度比例）。
-_STAGE_SWIPE_START_RATIO = 2 / 3  # 关卡列表滚动手势起点：从区域内垂直 2/3 处开始。
-_STAGE_SCAN_MAX_SCROLLS = 6  # 关卡列表跨屏扫描的最多下滚次数（防死循环）。
+_STAGE_SWIPE_START_RATIO = 2 / 3  # 关卡列表滚动手势起点：从区域内垂直 2/3 处开始（避开标题与底部导航）。
+_STAGE_SCAN_MAX_SCROLLS = 6  # 关卡列表跨屏查找的最多下滚次数（防死循环）。
 
 _STORY_MODES = ("NORMAL", "HARD")  # 剧情关卡难度选项（沿用游戏内英文标签）；难度选择未实现，配置项暂隐藏入口。
 
-# 活动关卡页（剧情子流程）区域特征与行切片参数（解析规则见 src/event_stage.py）。
-_STAGE_LIST_BOX = "box_event_stage_list"  # 关卡列表区（提供横向范围；OCR 时纵向拉满整屏，见 _stage_list_box）。
-_STAGE_MODE_BOX = "box_event_stage_mode"  # 关卡页难度区（NORMAL / HARD）。
-_SLICE_GAP_RATIO = 1.5  # 相邻锚点间距超过行距的该倍数 = 中间漏了一行，按中点外推补一条。
-_DEDUP_RATIO = 40 / 1440  # 多层 OCR 同一元素的纵向去重容差（占屏高比例）。
-_UNIFORM_MAX_BANDS = 8  # 无行锚点时的兜底切片条数上限（列表区高度 ÷ 标定行距的估计上限，防病态参数刷 OCR）。
+# 活动关卡页（剧情子流程）区域特征（解析规则与切片参数见 src/event_stage.py）。
+_STAGE_LIST_BOX = "box_event_stage_list"  # 关卡列表区（只取横向 x/width：纵向标注逐期不同，解析时拉满整屏，见 event_stage.list_strip）。
+_STAGE_MODE_BOX = "box_event_stage_mode"  # 关卡页难度区（NORMAL / HARD）；难度选择未实现，暂未接线。
 
 # 剧情执行链（点行 → 剧情跳过 → 连续战斗 → 回关卡页）参数（实机按加载/结算动画时长校准）。
 _STORY_BATTLE_TIMEOUT = 240  # 单场战斗结束等待上限（秒），与其它任务的战斗等待一致。
 _STORY_MAX_BATTLES = 20  # 连续「下一关」链的安全上限（防结算按钮识别抖动导致死循环）。
+_STORY_FIELD_CHANGED_FEATURE = "event_story_field_changed"  # 大活动（FieldHub）换地区提示按钮（coco 已标注）：点完回到活动地区页。
+_STORY_FIELD_CHANGED_WAIT = 5  # 换地区提示的容错等待窗口（秒）：只在「战斗已结束/未开始」时付，详见 _field_changed_stop。
+_STORY_MAX_PUSH_ROUNDS = 10  # 换地区后重新进关卡页继续推图的轮次上限（防提示识别抖动导致死循环；一次运行连清多个地区属正常）。
 _STORY_DIALOG_WAIT = 8  # 点关卡/下一关/结算返回后等剧情对话界面或战斗界面出现的窗口（秒）。
 _STORY_SKIP_MAX = 3  # 单次剧情跳过的最多点击次数（剧情可能分段）。
 _STAGE_ENTER_TIMEOUT = 8  # 点关卡行后等界面落点的窗口（推图：离开列表 / 进详情页；扫荡：详情页就位）；加载慢导致误判时调大。
 _STAGE_DETAIL_BATTLE_BOX = "box_stage_detail_battle"  # 关卡详情页「战斗」区域（推图判态：彩色可用 = 该关可推）。
-_BATTLE_AFTER_SLEEP = 10  # 点「下一关」/结算按钮后等待下一场加载（秒），同 ArkTask 爬塔链。
+_BATTLE_AFTER_SLEEP = 5  # 点「下一关」/结算按钮后等待下一场加载（秒），同 ArkTask 爬塔链。
+# 等待循环的采样间隔（秒）：ok 的 wait_condition 循环体内没有 sleep，逐帧抓帧+匹配实测约 54 fps
+# （wait_battle_finish 的注释也写明要节流避免与游戏抢 CPU）。挂在 post_action 上只降低采样频率，
+# 容错窗口与判据不变；条件命中时框架直接返回，不付这段间隔。
+_STORY_POLL_INTERVAL = 0.3
 
 # 扫荡（关卡详情页「快速战斗」）参数（实机按弹窗动画与结算时长校准）。
 _SWEEP_STAGES = ("1-11", "1-09", "1-07")  # 「扫荡关卡」下拉选项：大多数活动都存在的可重复通关关卡。
@@ -98,6 +103,18 @@ _MISSION_TAB_SWITCH_TIMEOUT = 5  # 点栏目标签后等副标题变化的窗口
 _MISSION_CLAIM_MAX_CLICKS = 20  # 单次领取循环的点击上限（点击未生效时防死循环）。
 _MISSION_CLAIM_SETTLE_TIMEOUT = 5  # 点击「全部领取」后等第二段重新可领的观察窗（秒）。
 _MISSION_CLAIM_SETTLE = 1.5  # 第二段重新可领后的稳定确认时间（秒），吸收按钮入场/位移动画。
+
+# OCR 对游戏内美术字的罗马数字吐 Unicode 码点而非 ASCII 字母：实测 2560x1440 下菜单栏「STORY II」被识别为
+# "STORYⅡI"（U+2161 ROMAN NUMERAL TWO）或 "STORYⅢ"（U+2162 ROMAN NUMERAL THREE），
+# 不归一的话只认 ASCII 的 STORY 关键词永远匹配不上，剧情入口会静默回落到 STORY I。
+_ROMAN_NUMERALS = {0x2160 + index: "I" * (index + 1) for index in range(12)}  # Ⅰ~Ⅻ（U+2160~U+216B）-> 等长 ASCII I 串。
+
+
+def normalize_roman_numerals(text):  # 入口 OCR 文本 -> Unicode 罗马数字还原成 ASCII I 串（Ⅱ -> II、Ⅲ -> III）。
+    if not isinstance(text, str):  # 非文本（无文本的框）原样返回。
+        return text  # 无需归一。
+    return "".join(_ROMAN_NUMERALS.get(ord(char), char) for char in text)  # 逐字符查表，未命中原样保留。
+
 
 # 剧情入口关键词（探测顺序即优先级；_ENTRIES['剧情'] 直接引用，大小活动差异由命中的关键词区分）。
 # 大活动菜单页是 STORY I/II，小活动主页与大活动剧情子页面是「加成奖励妮姬」。
@@ -169,16 +186,56 @@ _ENTRY_EXTRA_CLICK_Y_OFFSET = {
 # 小游戏注册表钩子（v1 预留，未实现）：实机接入各小游戏独立流程时填充。
 MINIGAMES = {}
 
+# ---- 完成状态：按活动身份分键（键格式见 event_done_key） ----
+
+_EVENT_KEY_PREFIX = "event_"  # 完成状态键前缀：event_<活动身份>[_<子流程>]，与旧版聚合键 event 区分。
+_EVENT_KEY_MAX = 48  # 身份段长度上限：日历键是外部数据，截断避免脏键把配置撑大。
+_EVENT_FLOW_PERIOD = "day"  # 活动子流程完成周期（游戏日常 04:00 刷新，与活动内的次数/门票同周期）。
+_PER_EVENT_FLOWS = {  # 需要按活动身份各记一次的子流程：子流程名 -> 键内 ASCII 段。
+    "签到": "checkin",  # 签到印章：面板「全部领取」与登录奖励同字，重复进入会走误判链，按活动记一次。
+    "商店": "shop",  # 商店：购买消耗资源、非幂等，必须按活动分键（流程实现时直接复用本键）。
+}
+_LEGACY_DONE_KEY = "event"  # 旧版本的活动聚合键：只清不写（保留在 done_keys 里仅作「本任务有完成状态」的声明锚）。
+_BIG_EVENT_TYPE = "FieldHubEvent"  # 日历里的大活动类型（地图页 + 签到印章）；不落此类型的即小活动形态。
+
+_IDENTITY_SAFE_PATTERN = re.compile(r"[^0-9A-Za-z_]+")  # 身份段白名单：非字母数字下划线一律归一为下划线。
+
+
+def event_identity(key):  # 日历 banner 键 -> 身份段（跨运行稳定、配置可读）。
+    """日历条目 key -> 活动身份段：去 EVENT_BANNER_ 前缀 + 白名单归一 + 长度截断。
+
+    日历 key 是外部数据，白名单归一后再进配置键，避免脏键把 configs 写坏；
+    归一后为空（整串都是非法字符）时回落该 key 的 md5 短哈希，保证身份非空且同键稳定。
+    """
+    raw = event_calendar.strip_banner_prefix(key)  # 展示名（去掉 banner 前缀，与日志里的活动名一致）。
+    safe = _IDENTITY_SAFE_PATTERN.sub("_", raw).strip("_")[:_EVENT_KEY_MAX]  # 白名单归一 + 首尾去下划线 + 截断。
+    if safe:  # 归一后仍有可用字符。
+        return safe  # 用归一结果作身份。
+    return hashlib.md5(str(key).encode()).hexdigest()[:8]  # 兜底：确定性短哈希。
+
+
+def event_done_key(identity, flow=None):  # 活动身份（+ 子流程）-> 完成状态键。
+    """活动身份 -> 完成状态键：聚合键 event_<身份>，子流程键 event_<身份>_<流程>。"""
+    if not identity:  # 身份为空说明调用方漏了判断。
+        raise ValueError("event identity is required")  # 显式报错，避免写出 event_None 这类脏键。
+    base = f"{_EVENT_KEY_PREFIX}{identity}"  # 聚合键：该活动本周期内是否已处理。
+    return base if not flow else f"{base}_{flow}"  # 带子流程段时拼子流程键。
+
 
 class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通用内容（签到/剧情/挑战/任务/商店）。
 
-    done_keys = {"event": "day"}  # 完成状态：活动聚合一个「日」周期键（不做大小活动/子流程分键，避免串台）。
+    # 完成状态：真实键按活动身份动态生成（event_<身份>[_<流程>]，见 event_done_key），
+    # 本表只作「本任务有完成状态」的声明锚（任务卡的「重置完成状态」按钮据此显示），不参与读写；
+    # is_completed/clear_done_all 已覆盖为按身份判定与整族清理，旧版聚合键 event 只清不写。
+    done_keys = {_LEGACY_DONE_KEY: "day"}
 
     def __init__(self, *args, **kwargs):  # 初始化任务元数据与配置。
         super().__init__(*args, **kwargs)  # 必须先调用父类初始化。
         self.name = "活动"  # 任务显示名称。
         self.description = "自动处理限时活动，活动首次开放时需手动进入并配队（剧情(BETA)/扫荡/挑战/任务/商店/签到印章）。"  # 任务说明。
         self._current_event = None  # 当前处理的活动（日历条目）；失败恢复回大厅后重入时用它 banner 定位。
+        self._event_identity = None  # 当前处理的活动身份（完成状态键用）；接管路径也会填，但那条是非权威身份。
+        self._identity_authoritative = False  # 身份是否来自日历 key（权威）；只有权威身份允许写完成状态。
         self.default_config.update({  # 子流程专属设置，独立持久化到 configs/。
             "签到": True,  # 是否收取活动签到印章奖励（仅大活动）。
             "剧情": False,  # 是否推进活动剧情。
@@ -225,26 +282,75 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
 
     # ---- 入口编排 ----
 
-    def run(self):  # 任务执行入口：完成状态短路 → 接管（已在活动内）/大厅闸门+列表遍历 → 统一返回大厅收尾。
+    def run(self):  # 任务执行入口：已在活动内→就地接管（含日历外的往期活动/档案馆）；否则按日历完成状态短路或走列表。
         self.log_info("活动任务开始")  # 记录任务开始。
-        if self.is_done("event", "day"):  # 本周期内已完成则直接跳过（放最前，避免无谓地动游戏窗口）。
-            self.log_info("今日活动已完成，跳过")  # 记录跳过原因。
-            return  # 结束任务。
-        if self._probe_event_context():  # 用户已手动进入活动（主页或关卡页/详情页）：就地接管，省去「回大厅再重进」。
+        if self._probe_event_context():  # 已在活动内：一律就地接管，先判它再判日历完成状态。
+            # 顺序不能反：往期活动/档案馆页面不在日历里，先过「在架活动均已完成」的短路会让这类页面本轮什么都不做。
+            # 本判据只读帧（is_screen/特征匹配），不点击、不置前，所以对「不在活动内」的正常路径没有额外代价。
             self.log_info("已在活动内，就地接管处理")  # 记录接管分支。
             if not self.try_step(self._takeover_event, name="活动接管", raise_on_fail=False):  # 接管流程用恢复协议包裹。
                 self.log_warning("活动接管处理多次失败，本周期不标记完成")  # 记录失败原因。
                 return  # 不标记完成，下次可重试。
-        else:  # 正常路径：先就位大厅，再遍历活动列表。
-            if not self.ensure_screen("lobby", raise_on_fail=False):  # 就位游戏大厅（幂等闸门：含冷启动引导与弹窗清理），失败则中止。
-                self.log_error("未能进入游戏大厅，中止活动任务")  # 记录中止原因。
+            if not self._todo_events():  # 接管已覆盖全部待处理活动（或日历没有待处理活动）：无需再走列表。
+                self.log_info("接管已覆盖全部待处理活动，直接收尾")  # 记录提前收尾原因。
+                self._finish_run()  # 剪枝 + 返回大厅 + 收尾日志。
                 return  # 结束任务。
-            if not self.try_step(self._process_event_list, name="活动列表处理", raise_on_fail=False):  # 列表处理整体流程以大厅为起点，用恢复协议包裹。
-                self.log_warning("活动列表处理多次失败，本周期不标记完成")  # 记录失败原因。
-                return  # 不标记完成，下次可重试。
-        self.mark_done("event", "day")  # 记录本周期已完成（全部卡片处理成功才落盘，失败在上一分支已返回）。
+            # 接管只处理了当前这一页（往期活动页/日历外活动页做不了 banner 定位）：在架活动仍需回大厅按列表处理。
+            self.log_info("接管后仍有待处理活动，回大厅按列表继续处理")  # 记录转列表处理原因。
+        elif self._all_live_events_done():  # 不在活动内且在架活动均已按身份完成：跳过（纯本地快照判定：不联网、不动窗口）。
+            self.log_info("今日活动均已完成，跳过")  # 记录跳过原因。
+            return  # 结束任务。
+        if not self.ensure_screen("lobby", raise_on_fail=False):  # 就位游戏大厅（幂等闸门：含冷启动引导与弹窗清理），失败则中止。
+            self.log_error("未能进入游戏大厅，中止活动任务")  # 记录中止原因。
+            return  # 结束任务。
+        if not self.try_step(self._process_event_list, name="活动列表处理", raise_on_fail=False):  # 列表处理整体流程以大厅为起点，用恢复协议包裹。
+            self.log_warning("活动列表处理多次失败，本周期不标记完成")  # 记录失败原因。
+            return  # 不标记完成，下次可重试。
+        self._finish_run()  # 剪枝 + 返回大厅 + 收尾日志。
+
+    def _finish_run(self):  # 运行收尾：清理已轮换活动的完成状态键 → 返回大厅 → 记录完成。
+        # 完成状态由 _process_event_list 逐个活动落盘（身份化键），接管路径只读不写：此处只做键的剪枝与收尾。
+        self._prune_identity_keys()  # 清掉不在当前活动清单里的旧身份键（活动轮换后完成状态不再累积）。
         self._exit_to_lobby()  # 统一返回大厅收尾（基类幂等实现）。
         self.log_info("活动任务完成")  # 记录任务完成。
+
+    # ---- 完成状态：按活动身份判定 / 清理 ----
+
+    def _live_identities(self):  # 在架活动身份列表（纯本地快照读，用于完成判定与剪枝，不联网）。
+        return [event_identity(event.key) for event in self._pending_events(refresh=False)]  # 日历 key -> 身份段。
+
+    def _all_live_events_done(self):  # 在架活动是否已全部按身份完成；无活动数据时 False（不谎报完成）。
+        identities = self._live_identities()  # 在架活动身份。
+        return bool(identities) and all(self.is_done(event_done_key(identity), "day") for identity in identities)  # 全部完成才算完成。
+
+    def _todo_events(self):  # 本日尚未处理的活动（在架活动里滤掉已完成身份），是列表遍历的实际目标集合。
+        return [event for event in self._pending_events()  # 待处理活动快照（快照过期才联网刷新）。
+                if not self.is_done(event_done_key(event_identity(event.key)), "day")]  # 身份键已完成则该活动本日不再处理。
+
+    def is_completed(self):  # 覆盖基类：完成口径 = 在架活动是否已全部按身份完成（与 run 的短路判据同源，UI 与行为一致）。
+        if self._in_debug():  # debug 模式不判完成（同基类：便于反复调试）。
+            return False  # 直接返回未完成。
+        return self._all_live_events_done()  # 纯本地快照判定，UI 刷新不触发联网。
+
+    def clear_done_all(self):  # 覆盖基类：完成键是身份化动态键，按前缀整族清理（含历史身份与旧版聚合键）。
+        removed = self.clear_done_matching(  # 走基类清理工具，完成状态的读写细节留在 DoneStateMixin。
+            lambda key: key.startswith(_EVENT_KEY_PREFIX) or key == _LEGACY_DONE_KEY)  # 活动身份键族 + 旧版聚合键。
+        self.log_debug(f"已清除 {removed} 条活动完成状态")  # 记录清理数量，便于排查。
+
+    def _prune_identity_keys(self):  # 清理配置里已不在当前活动清单里的身份键（活动轮换后完成状态不再累积）。
+        identities = set(self._live_identities())  # 当前快照的在架活动身份。
+        if not identities:  # 无本地活动清单（离线/无快照）：不动，避免把好数据删掉。
+            return  # 结束清理。
+
+        def stale(key):  # 该键是否属于已轮换掉的身份（含其子流程键）。
+            if not key.startswith(_EVENT_KEY_PREFIX):  # 非身份键。
+                return key == _LEGACY_DONE_KEY  # 旧版聚合键顺手清掉。
+            rest = key[len(_EVENT_KEY_PREFIX):]  # 去掉前缀后的「身份[_流程]」段。
+            return not any(rest == identity or rest.startswith(identity + "_") for identity in identities)  # 身份段不在在架清单内。
+
+        removed = self.clear_done_matching(stale)  # 清掉轮换前遗留的身份键。
+        if removed:  # 只在确实清理时记日志。
+            self.log_debug(f"清理已轮换活动的完成状态 {removed} 条")  # 记录清理数量。
 
     def _probe_event_main(self):  # 探测当前是否处于活动主页。
         return self.is_screen("event_main")  # 单帧判定（进入后的动画容忍由 _enter_and_probe 的轮询负责）。
@@ -279,16 +385,80 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
             raise WaitFailedException("未找到活动子页面返回按钮")  # 抛异常由 try_step/transition 处理。
         self.click_box(back, after_sleep=1)  # 点击返回键。
 
-    def _takeover_event(self):  # 接管流程：已在活动内时先回到菜单页，再逐入口探测执行已开启子流程。
-        self._ensure_event_menu()  # 子页面先退回菜单页（菜单带不在子页面上）。
-        self._run_event_subflows()  # 在菜单页内按 _ENTRIES 探测各功能入口并执行。
+    def _takeover_event(self):  # 接管流程：已在活动内时先回菜单页，用屏幕形态反推活动身份，再逐入口探测执行已开启子流程。
+        try:  # 子页面先退回菜单页（菜单带不在子页面上，形态判据也只在菜单页成立）。
+            self._ensure_event_menu()  # 已在菜单页时是 no-op。
+        except WaitFailedException:  # 往期活动/档案馆页面结构不同：退不回去就按当前页面继续，不让整条接管失败。
+            # 这类页面不是活动子页面，返回键会把页面带出活动；宁可留在当前页让子流程各自探测入口
+            # （剧情入口在往期活动页上通常仍可探测），也不要一路往上退把用户带跑。
+            self.log_warning("接管时未能退回活动菜单页（可能是往期活动/档案馆页面），按当前页面继续")  # 记录降级原因。
+        identity = self._resolve_takeover_identity()  # 接管身份：屏幕形态 + 本地日历候选反推，判不出为 None。
+        self._event_identity = identity  # 身份只供读取：接管不是权威来源，不写完成状态（见 _mark_subflow_done）。
+        self._identity_authoritative = False  # 明确非权威：身份键只读。
+        try:  # 无论流程怎么退出都要复位身份上下文。
+            # 接管不做整体短路：当前页可能是日历里没有的往期活动（档案馆，通常只开放剧情），
+            # 身份要么判不出、要么恰好撞上别的候选——一旦整体跳过，就把「往期活动的剧情推进」也一起跳过了。
+            # 非幂等流程（签到/商店）由各自的 _subflow_completed 读身份键跳过，幂等流程（剧情/挑战/任务）照跑。
+            if identity:  # 形态 + 候选唯一命中：身份可用于读身份键。
+                self.log_info(f"接管身份推断为 {identity}（只读，不落完成状态）")  # 记录身份来源与权限。
+            else:  # 形态判不出/候选不唯一/无本地日历。
+                self.log_info("接管路径未能判定活动身份（可能是日历外的往期活动），按身份未知处理")  # 记录降级原因。
+            self._run_event_subflows()  # 在菜单页内按 _ENTRIES 探测各功能入口并执行。
+        finally:  # 复位身份上下文，运行内不残留。
+            self._event_identity = None  # 清空身份。
+
+    def _probe_event_form(self):  # 当前活动页形态：返回 (是否大活动形态, 是否小活动形态)，两者互斥才可用。
+        big = self._probe_entry("签到")  # 大活动地图页独有「签到印章」入口。
+        small = self._entry_box("剧情", patterns=[_STORY_SUB_PATTERN]) is not None  # 小活动/剧情子页面独有的「加成奖励妮姬」入口。
+        return big, small  # 都命中或都不命中 = 形态判不出。
+
+    def _resolve_takeover_identity(self):  # 接管路径的活动身份：本地日历候选 + 屏幕形态自证；判不出返回 None。
+        """接管路径没有列表定位结果，只能反推身份：用「大/小活动形态」筛日历候选。
+
+        形态与日历类型（FieldHubEvent = 大活动）必须一致，且恰好剩一个候选才算确定；
+        判不出（无快照 / 形态同真同假 / 候选不唯一）一律返回 None，调用方按「身份未知」处理
+        （不读也不写身份键），宁可重复跑一遍幂等流程，也不冒误标到别的活动头上的风险。
+        """
+        events = self._pending_events(refresh=False)  # 纯本地快照：接管路径不新增联网。
+        if not events:  # 无本地活动清单。
+            self.log_debug("无本地活动清单，接管路径不判定活动身份")  # 记录降级原因。
+            return None  # 身份未知。
+        big, small = self._probe_event_form()  # 形态探针只跑一次（各一次区域 OCR）。
+        if big == small:  # 都命中/都不命中：形态无法消歧。
+            self.log_warning("活动形态判不出（签到印章与加成入口同真同假），接管路径不判定活动身份")  # 记录降级原因。
+            return None  # 身份未知。
+        matched = [event for event in events if (event.event_type == _BIG_EVENT_TYPE) == big]  # 形态与日历类型一致的候选。
+        if len(matched) != 1:  # 无候选或多个候选：无法唯一确定当前活动。
+            self.log_warning(f"活动候选不唯一（形态命中 {len(matched)} 个，日历共 {len(events)} 个），接管路径不判定活动身份")  # 记录降级原因。
+            return None  # 身份未知。
+        return event_identity(matched[0].key)  # 唯一命中：返回该候选的身份段。
+
+    def _subflow_key(self, label):  # 子流程的身份化完成键；身份未知或该流程不按身份记时返回 None。
+        slug = _PER_EVENT_FLOWS.get(label)  # 该流程是否按活动身份各记一次。
+        if not slug or not self._event_identity:  # 不按身份记，或当前身份未知。
+            return None  # 无身份化完成键。
+        return event_done_key(self._event_identity, slug)  # event_<身份>_<流程>。
+
+    def _subflow_completed(self, label):  # 该子流程在本活动本周期内是否已记录完成（身份未知时按未完成处理）。
+        key = self._subflow_key(label)  # 身份化完成键。
+        return key is not None and self.is_done(key, _EVENT_FLOW_PERIOD)  # 有键且本周期已完成。
+
+    def _mark_subflow_done(self, label):  # 记录该子流程在本活动本周期已完成；非权威身份只读，不落盘。
+        key = self._subflow_key(label)  # 身份化完成键。
+        if key is None:  # 身份未知或该流程不按身份记。
+            return  # 无需落盘。
+        if not self._identity_authoritative:  # 接管路径的身份是推断出来的：写错会把别的活动误标成本周期已完成。
+            self.log_debug(f"{label} 完成状态未落盘（活动身份非权威来源）")  # 记录未落盘原因。
+            return  # 只读身份不落盘。
+        self.mark_done(key, _EVENT_FLOW_PERIOD)  # 记录本周期已完成。
+        self.log_info(f"{label} 完成状态已记录：{key}")  # 记录落盘键，便于排查串台。
 
     # ---- 列表处理 ----
 
-    def _process_event_list(self):  # 活动列表处理主循环：大厅→列表页→逐位置滚动→banner 定位剧情活动并进入处理，最后返回大厅。
-        events = self._pending_events()  # 待处理剧情活动（日历快照取最新 2 个）。
-        if not events:  # 无活动图/日历数据时无法定位，直接结束。
-            self.log_info("无待处理剧情活动（日历无数据），结束列表处理")  # 记录结束原因。
+    def _process_event_list(self):  # 活动列表处理主循环：大厅→列表页→逐位置滚动→banner 定位待处理活动并进入处理，最后返回大厅。
+        events = self._todo_events()  # 待处理活动：在架活动里本日尚未完成身份键的那些。
+        if not events:  # 无日历数据或本日已全部处理完时不必进列表页。
+            self.log_info("无待处理剧情活动（日历无数据或今日均已完成），结束列表处理")  # 记录结束原因。
             return  # 结束列表处理（由 run 统一收尾）。
         processed = set()  # 本运行内已处理的活动 key（双活动去重，不落持久状态）。
         unmatched = {event.key for event in events}  # 本运行尚未匹配到卡片的活动（遍历结束仍在 = 列表里没有）。
@@ -302,11 +472,20 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
                 row = self._find_event_row(event)  # banner 匹配定位该活动所在行。
                 if row is None:  # 当前滚动位置没有该活动。
                     continue  # 下一个活动。
+                identity = event_identity(event.key)  # 列表路径拿到日历 key：身份权威，允许读写身份键。
                 self._current_event = event  # 记录当前活动，供子流程失败恢复回大厅后重入时 banner 定位。
+                self._event_identity = identity  # 子流程按它落身份化完成状态。
+                self._identity_authoritative = True  # 权威身份：允许落盘。
                 self._enter_and_probe(row)  # 点击进入并确认是活动，命中则执行子流程。
                 self._current_event = None  # 处理结束清除上下文，避免下次重入定位到错误活动。
+                self._event_identity = None  # 同步清除身份，避免后续流程误用别的活动的身份。
+                self._identity_authoritative = False  # 身份权限同步复位。
                 processed.add(event.key)  # 记录已处理。
                 unmatched.discard(event.key)  # 已定位到卡片，不再算未匹配。
+                # 卡片定位到即视为本日已处理（含命中卡片但未确认进入活动的误命中）：与旧版聚合键的落盘口径一致，
+                # 避免下一次运行为了同一个活动再扫一遍列表。
+                self.mark_done(event_done_key(identity), "day")  # 记录该活动本日已完成。
+                self.log_info(f"活动 {identity} 本日完成状态已记录")  # 记录落盘键，便于排查串台。
                 if not self._recover_to_lobby():  # 活动页返回键直接回大厅，此处确认已回大厅。
                     raise WaitFailedException("活动处理结束未回到大厅")  # 抛异常由 try_step 恢复。
                 if not unmatched:  # 剩余待处理活动都已定位处理，没有第二张卡要扫，无需再进列表点 event_icon。
@@ -317,7 +496,9 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
             if not unmatched:  # 全部待处理活动均已定位处理，无需再往下滚动找卡片。
                 break  # 提前结束遍历。
         for key in unmatched:  # 全部位置扫完仍未匹配到卡片：活动未上架/已下架，或保底包已过期。
-            self.log_warning(f"活动 {key} 在列表页未匹配到卡片（未上架/已下架，或保底包已过期）")  # 记录便于排查。
+            self.log_warning(f"活动 {key} 在列表页未匹配到卡片（未上架/已下架，或保底包已过期），本日不再重试")  # 记录便于排查。
+            # 未匹配也按「本日已处理」落盘：否则此后每次运行都会为了这张不存在的卡片把列表重新扫一遍。
+            self.mark_done(event_done_key(event_identity(key)), "day")  # 记录该活动本日已完成（未上架/已下架口径）。
         self._exit_to_lobby()  # 收尾返回大厅（run 里还会再幂等确认一次）。
 
     def _reposition_list(self, step):  # 进入列表页并滚动到第 step 个位置，返回是否定位成功（到底返回 False）。
@@ -336,8 +517,8 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
         except ValueError:  # 特征缺失。
             return None  # 视为不可用。
 
-    def _list_area_box(self, box_name=event_calendar.SEARCH_BOX):  # 滚动/扫描区（默认活动列表的 box_event_banner_area），缺失返回 None。
-        return self._optional_box(box_name)  # 区域缺失视为不可滚动。
+    def _list_area_box(self):  # 活动列表滚动/扫描区（box_event_banner_area），缺失返回 None。
+        return self._optional_box(event_calendar.SEARCH_BOX)  # 区域缺失视为不可滚动。
 
     def _list_area_frame(self, box):  # 截取列表区当前帧（无帧/越界返回 None），供滚动前后像素对比。
         frame = self.frame  # 取当前帧；无帧（单测 mock）返回 None。
@@ -355,14 +536,14 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
         diff = cv2.absdiff(before, after)  # 逐像素绝对差。
         return float((diff > 10).sum()) / diff.size > _SCROLL_UNCHANGED_RATIO  # 显著变化像素占比超阈值才视为有变化。
 
-    def _swipe_list_up(self, box, start_ratio=_SWIPE_START_RATIO, end_ratio=_SWIPE_END_RATIO):  # 在列表区上滑（内容上移，露出下方行）。
+    def _swipe_list_up(self, box, start_ratio=_SWIPE_START_RATIO):  # 在给定列表区上滑（内容上移，露出下方行）。
         x = box.x + box.width // 2  # 列表区水平中点。
-        self.swipe(x, box.y + box.height * start_ratio, x, box.y + box.height * end_ratio,
+        self.swipe(x, box.y + box.height * start_ratio, x, box.y + box.height * _SWIPE_END_RATIO,
                    duration=_SCROLL_SWIPE_DURATION, after_sleep=_SCROLL_AFTER_SLEEP)  # 自下往上滑。
 
-    def _swipe_list_down(self, box, start_ratio=_SWIPE_START_RATIO, end_ratio=_SWIPE_END_RATIO):  # 在列表区下滑（内容下移，回到顶部）。
+    def _swipe_list_down(self, box, start_ratio=_SWIPE_START_RATIO):  # 在给定列表区下滑（内容下移，回到顶部）。
         x = box.x + box.width // 2  # 列表区水平中点。
-        self.swipe(x, box.y + box.height * end_ratio, x, box.y + box.height * start_ratio,
+        self.swipe(x, box.y + box.height * _SWIPE_END_RATIO, x, box.y + box.height * start_ratio,
                    duration=_SCROLL_SWIPE_DURATION, after_sleep=_SCROLL_AFTER_SLEEP)  # 自上往下滑（与上滑互为镜像）。
 
     def _scroll_area(self, swipe, box, start_ratio, max_steps):  # 用给定手势逐次滑动，返回画面实际发生变化的滑动次数。
@@ -375,26 +556,26 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
             before = after  # 更新基准继续滑动。
         return max_steps  # 每一步都生效。
 
-    def _scroll_list_to_top(self, box_name=event_calendar.SEARCH_BOX, start_ratio=_SWIPE_START_RATIO):  # 把列表滚动到顶部：连续下滑，画面不再变化即视为到顶。
-        box = self._list_area_box(box_name)  # 列表滚动区。
+    def _scroll_list_to_top(self, box=None, start_ratio=_SWIPE_START_RATIO):  # 把列表滚动到顶部：连续下滑，画面不再变化即视为到顶。
+        box = self._list_area_box() if box is None else box  # 缺省活动列表的 banner 区；关卡列表传自己的竖条。
         if box is None:  # 区域缺失。
             return  # 无法滚动。
         self._scroll_area(self._swipe_list_down, box, start_ratio, _SCROLL_TOP_MAX_SWIPES)  # 下滑到画面不再变化或次数上限。
 
-    def _scroll_list_down(self, steps, box_name=event_calendar.SEARCH_BOX, start_ratio=_SWIPE_START_RATIO):  # 向下滚动 steps 步，返回是否发生实际滚动（到底返回 False）。
+    def _scroll_list_down(self, steps, box=None, start_ratio=_SWIPE_START_RATIO):  # 列表向下滚动 steps 步，返回是否发生实际滚动（到底返回 False）。
         if steps <= 0:  # 无下滚需求。
             return True  # 视为位置有效。
-        box = self._list_area_box(box_name)  # 列表滚动区。
+        box = self._list_area_box() if box is None else box  # 缺省活动列表的 banner 区；关卡列表传自己的竖条。
         if box is None:  # 区域缺失。
             return False  # 不可滚动视为到底。
         return self._scroll_area(self._swipe_list_up, box, start_ratio, steps) >= steps  # 少滚一步即视为到底。
 
-    def _pending_events(self):  # 待处理剧情活动快照：本地读快照，过期才刷新（唯一联网入口，不抛异常）。
+    def _pending_events(self, refresh=True):  # 待处理剧情活动快照：本地读快照；快照缺失/过期时按 refresh 决定是否联网刷新。
         snapshot = event_calendar.load_snapshot()  # 应用启动已在后台静默刷新，纯本地读。
-        if snapshot is None:  # 无快照（首次运行/缓存缺失）。
+        if refresh and (snapshot is None or not snapshot.is_fresh(600)):  # 无快照或快照超过 600s TTL，且允许联网。
             snapshot = event_calendar.refresh()  # 刷新（内部含保底包兜底，不抛异常）。
-        elif not snapshot.is_fresh(600):  # 快照超过 600s TTL。
-            snapshot = event_calendar.refresh()  # 刷新日历与活动图。
+        if snapshot is None:  # 不联网且没有本地快照（首次运行且离线）。
+            return []  # 无本地数据即无待处理活动。
         return list(snapshot.pick_events(2))  # 按 start_time 倒序取最新 2 个未过期剧情活动（end_time=0 视为未知保留）。
 
     def _find_event_row(self, event):  # 用官方活动图在列表内 banner 匹配定位该活动所在行，返回行 Box 或 None。
@@ -420,11 +601,12 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
         self._wait_menu_ready()  # 等菜单栏渲染并停稳再探测（标题先于菜单出现，过早探测会误判子流程全跳过）。
         return True  # 已确认为活动主页。
 
-    def _enter_and_probe(self, row_box):  # 进入活动并执行子流程（列表处理路径）；非活动条目退回大厅。
+    def _enter_and_probe(self, row_box):  # 进入活动并执行子流程（列表处理路径）；返回是否确认为活动。
         if self._enter_event(row_box):  # 确认为活动主页（含菜单就绪等待）。
             self._run_event_subflows()  # 进入后按 _ENTRIES 探测各功能入口并执行。
-        else:  # 抽卡/登录奖励等非活动条目。
-            self._recover_to_lobby()  # 退回大厅（活动页返回键直接回大厅，此处用恢复协议兜底）。
+            return True  # 已确认为活动并处理完子流程。
+        self._recover_to_lobby()  # 退回大厅（活动页返回键直接回大厅，此处用恢复协议兜底）。
+        return False  # 抽卡/登录奖励等非活动条目。
 
     def _locate_event_row(self, event):  # 在活动列表页内自上而下滚动定位指定活动的卡片行，返回行 Box；未找到返回 None。
         self._scroll_list_to_top()  # 归一到顶部再逐位下滚（进入列表页时可能停在任意滚动位置）。
@@ -488,6 +670,8 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
             return None  # 无法定位。
         for region, extra in self._entry_regions(label):  # 逐区（专属区 + 大小活动菜单带各一区）。
             boxes = self.ocr(box=region)  # 该区域一次 OCR（不按关键词过滤，供多关键词复用）。
+            for box in boxes:  # 就地归一识别文本（Ⅱ/Ⅲ -> II/III）：关键词匹配与后续 name 判据（_is_story_main_entry）共用。
+                box.name = normalize_roman_numerals(box.name)  # 归一后的文本即命中框名称。
             for pattern in patterns:  # 按优先级逐个关键词过滤（STORY II 先于 STORY I）。
                 matched = find_boxes_by_name(boxes, self.fix_match_regex([pattern]))  # 与 ocr(match=...) 相同的部分匹配语义。
                 if matched:  # 命中该关键词。
@@ -530,14 +714,21 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
                 return True  # 命中即返回，无需查其余区域。
         return False  # 未命中。
 
-    def _do_checkin(self):  # 签到子流程：开关 → 探测 → try_step（仅大活动有签到印章入口）。
+    def _do_checkin(self):  # 签到子流程：开关 → 本活动完成状态 → 探测 → try_step → 落身份化完成状态。
         if not self.config.get("签到"):  # 用户未启用签到子流程。
             self.log_info("签到未开启，跳过")  # 记录跳过原因。
+            return  # 结束本子流程。
+        if self._subflow_completed("签到"):  # 本活动本周期内已领过（身份键命中）。
+            self.log_info("本活动签到印章本周期已完成，跳过")  # 记录跳过原因（避免重入奖励面板走登录奖励误判链）。
             return  # 结束本子流程。
         if not self._probe_entry("签到"):  # 探测不到 = 当期小活动无此功能入口。
             self.log_info("未探测到签到入口（小活动无此功能），跳过")  # 记录跳过原因。
             return  # 结束本子流程。
-        if not self.try_step(self._flow_checkin, name="签到", raise_on_fail=False):  # 签到整体流程用恢复协议包裹（自足重入）。
+        if self._entry_locked_skip("签到"):  # 往期活动/未开放入口：文字可读但点击无效。
+            return  # 结束本子流程。
+        if self.try_step(self._flow_checkin, name="签到", raise_on_fail=False):  # 签到整体流程用恢复协议包裹（自足重入）。
+            self._mark_subflow_done("签到")  # 成功才记录完成状态。
+        else:  # 恢复重试耗尽。
             self.log_warning("签到子流程多次失败，跳过")  # 记录失败原因。
 
     def _do_story(self):  # 剧情子流程：开关（剧情/扫荡任一开启）→ 探测（STORY II/I/加成 任一）→ try_step。
@@ -557,6 +748,8 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
         if not self._probe_entry("挑战"):  # 探测不到挑战入口。
             self.log_info("未探测到挑战入口，跳过")  # 记录跳过原因。
             return  # 结束本子流程。
+        if self._entry_locked_skip("挑战"):  # 往期活动/未开放入口：文字可读但点击无效。
+            return  # 结束本子流程。
         if not self.try_step(self._flow_challenge, name="挑战", raise_on_fail=False):  # 挑战整体流程用恢复协议包裹。
             self.log_warning("挑战子流程多次失败，跳过")  # 记录失败原因。
 
@@ -567,17 +760,26 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
         if not self._probe_entry("任务"):  # 探测不到 = 当期活动无任务入口（大活动入口在 box_event_menu_mission 区）。
             self.log_info("未探测到任务入口，跳过")  # 记录跳过原因。
             return  # 结束本子流程。
+        if self._entry_locked_skip("任务"):  # 往期活动/未开放入口：文字可读但点击无效。
+            return  # 结束本子流程。
         if not self.try_step(self._flow_mission, name="任务", raise_on_fail=False):  # 任务整体流程用恢复协议包裹。
             self.log_warning("任务子流程多次失败，跳过")  # 记录失败原因。
 
-    def _do_shop(self):  # 商店子流程：开关（默认关闭）→ 探测 → try_step（非幂等流程，留 v1.5）。
+    def _do_shop(self):  # 商店子流程：开关（默认关闭）→ 本活动完成状态 → 探测 → try_step（非幂等流程，留 v1.5）。
         if not self.config.get("商店"):  # 用户未启用商店子流程（v1 默认关闭）。
             self.log_info("商店未开启，跳过")  # 记录跳过原因。
+            return  # 结束本子流程。
+        if self._subflow_completed("商店"):  # 本活动本周期内已购买过（身份键命中）：非幂等流程不得重跑。
+            self.log_info("本活动商店本周期已完成，跳过")  # 记录跳过原因。
             return  # 结束本子流程。
         if not self._probe_entry("商店"):  # 探测不到商店入口。
             self.log_info("未探测到商店入口，跳过")  # 记录跳过原因。
             return  # 结束本子流程。
-        if not self.try_step(self._flow_shop, name="商店", raise_on_fail=False):  # 商店整体流程用恢复协议包裹。
+        if self._entry_locked_skip("商店"):  # 往期活动/未开放入口：文字可读但点击无效。
+            return  # 结束本子流程。
+        if self.try_step(self._flow_shop, name="商店", raise_on_fail=False):  # 商店整体流程用恢复协议包裹。
+            self._mark_subflow_done("商店")  # 成功才记录完成状态（失败不落盘，下次可重试）。
+        else:  # 恢复重试耗尽。
             self.log_warning("商店子流程多次失败，跳过")  # 记录失败原因。
 
     def _flow_checkin(self):  # 签到印章流程（自足重入）：进签到界面 → 等 SD 小人到达 → 全部领取 → 点返回回活动菜单页。
@@ -632,155 +834,51 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
 
     # ---- 剧情关卡页 OCR 与解析（横向标注整屏竖条 → 行锚点/均匀切片降级） ----
 
-    def _stage_list_box(self):  # 关卡列表检索区 Box：横向用 coco 标注，纵向拉满整屏。
-        """标注框只在一期活动上标定：横向跨期稳定，纵向逐期不同（按标注 y/高裁剪会切掉别的活动的行）。
-        故只沿用标注横向范围，纵向用整屏，交给解析层按内容筛行。"""
+    def _stage_list_box(self):  # 关卡列表竖条：横向用 coco 标注，纵向拉满整屏（标注框纵向逐期不同）。
         box = self._optional_box(_STAGE_LIST_BOX)  # 标注框。
         if box is None:  # 特征缺失。
             self.log_warning(f"缺少区域特征: {_STAGE_LIST_BOX}")  # 记录缺失，便于排查。
             return None  # 无法定位列表区时为 None。
-        if self.height and self.height > 0:  # 有有效屏高：纵向拉满。
-            return Box(box.x, 0, box.width, self.height, confidence=box.confidence, name=box.name)  # 同横向范围的整屏竖条。
-        return box  # 无屏高（单测/无帧）：保守用标注框。
+        return event_stage.list_strip(box, self.height)  # 横向沿用标注范围、纵向整屏；无有效屏高时保守用标注框。
 
-    def _ocr_blocks(self, box):  # 一次区域 OCR -> 解析层 Block 列表（整图坐标）。
-        return [event_stage.Block(text=item.name, score=item.confidence, x1=item.x, y1=item.y,
-                                  x2=item.x + item.width, y2=item.y + item.height)
-                for item in self.ocr(box=box) if item.name]  # 空文本块丢弃。
-
-    def _block_kind(self, block):  # 块类别（去重只在同类别之间进行）。
-        if event_stage.stage_id_candidates(block.text):  # 编号块。
-            return "number"
-        status = event_stage.match_status(block.text)  # 状态文案块。
-        if status:  # clear / repeat / locked 各自成类：同一行的 CLEAR 印章与 REPEAT 图标都有效，不能被去重挤掉。
-            return status
-        return "other"  # 锚点等其它块。
-
-    def _dedup_blocks(self, blocks):  # 多层 OCR 的重复块：同类别且纵向邻近时只保留置信度最高的一块。
-        tolerance = max(1.0, self.height * _DEDUP_RATIO)  # 去重容差（按屏高缩放）。
-        kept = []  # 已保留的（块, 类别）。
-        for block in sorted(blocks, key=lambda item: item.score, reverse=True):  # 高分优先保留。
-            kind = self._block_kind(block)  # 当前块类别。
-            if all(kind != other_kind or abs(block.center_y - other.center_y) > tolerance
-                   for other, other_kind in kept):  # 与同类已保留块不重叠即保留。
-                kept.append((block, kind))
-        return [block for block, _ in kept]  # 返回去重后的块（顺序不敏感，解析层会排序）。
+    def _ocr_region(self, box):  # 唯一的 OCR 缝：裁剪 → 按需预放大 → 引擎 OCR → 坐标映射回整图。
+        """检测器只压缩超限的最长边、不放大输入，低分辨率下小字就没了：这里按 ocr_upscale 补像素
+        （整屏竖条几乎不放大，按行距切的行块放大到上限），再把结果框映射回整图坐标。"""
+        frame = self.frame  # 当前帧（无帧时引擎也没得读）。
+        if frame is None:
+            return []
+        upscale = event_stage.ocr_upscale(box, self._stage_scale())  # 1.0 = 不放大（按原生尺寸送）。
+        x, y = int(box.x), int(box.y)  # 裁剪区左上角（映射回整图用）。
+        crop = frame[y:y + int(box.height), x:x + int(box.width)]
+        if upscale > 1.0:  # 检测器不会替我们放大，只能自己放大后再送。
+            crop = cv2.resize(crop, None, fx=upscale, fy=upscale, interpolation=cv2.INTER_CUBIC)
+        return [event_stage.to_block(item, box, upscale)  # 引擎返回的是放大后裁剪图坐标。
+                for item in self.ocr(frame=crop) if item.name]  # 空文本块丢弃。
 
     def _stage_scale(self):  # 当前分辨率相对 2560x1440 标定截图的缩放比（0 = 无有效分辨率，兜底按标定值）。
         return event_calendar.screen_scale(self.width, self.height)
 
-    def _stage_row_pitch(self, anchors):  # 行距：锚点 y 中心间距的中位数（先剔除漏行造成的双倍间距）。
-        centers = sorted(block.center_y for block in anchors)  # 锚点按 y 排序。
-        gaps = [b - a for a, b in zip(centers, centers[1:]) if b - a > 1]  # 相邻间距。
-        if not gaps:  # 单锚点/无锚点。
-            fallback = event_stage.row_pitch_fallback(self._stage_scale())  # 兜底行距（按分辨率缩放）。
-            self.log_debug(f"行距兜底：锚点 {len(anchors)} 个测不出间距，用 {fallback:.0f}px")  # 行距来源便于实机校准。
-            return fallback
-        regular = [gap for gap in gaps if gap <= min(gaps) * _SLICE_GAP_RATIO]  # 剔除漏行位置的双倍间距。
-        regular.sort()
-        pitch = regular[len(regular) // 2]  # 正常行距的中位数。
-        self.log_debug(f"行距估计：锚点间距 {[round(gap) for gap in gaps]} -> {pitch:.0f}px")  # 行距来源便于实机校准。
-        return pitch
-
-    def _band_box(self, list_box, center_y, pitch):  # 列表区内以 center_y 为中心的行窄带 Box。
-        return Box(list_box.x, int(center_y - pitch / 2), list_box.width, int(pitch))
-
-    def _anchor_bands(self, anchors, list_box):  # 锚点 -> 逐行切片窄带；相邻锚点间隔过大时按中点外推补一行。
-        pitch = self._stage_row_pitch(anchors)  # 行距。
-        centers = sorted(block.center_y for block in anchors)  # 锚点中心 y。
-        bands = []  # 窄带列表。
-        for index, center in enumerate(centers):  # 每个锚点一条窄带。
-            bands.append(self._band_box(list_box, center, pitch))
-            if index + 1 < len(centers):  # 与下一个锚点比较间隔。
-                gap = centers[index + 1] - center
-                if gap > pitch * _SLICE_GAP_RATIO:  # 间隔约两倍行距 = 中间那行漏检。
-                    bands.append(self._band_box(list_box, (center + centers[index + 1]) / 2, pitch))
-        self.log_debug(f"锚点切片：{len(centers)} 个锚点、行距 {pitch:.0f}px -> {len(bands)} 条窄带")  # 切片概览。
-        return bands  # 可能是外推补齐的行数。
-
-    def _uniform_bands(self, list_box):  # 无行锚点的兜底切片：按标定行距（含分辨率缩放）在列表区自上而下切等距窄带。
-        pitch = event_stage.row_pitch_fallback(self._stage_scale())  # 兜底行距（2560x1440 标定值按当前缩放比缩放）。
-        bands = []  # 窄带列表。
-        center = list_box.y + pitch / 2  # 首条带中心：列表区顶往下半个行距（行首文字通常不在区域最顶端）。
-        while center < list_box.y + list_box.height and len(bands) < _UNIFORM_MAX_BANDS:  # 逐行下移直到区域底部或条数上限。
-            bands.append(self._band_box(list_box, center, pitch))  # 整列表宽 × 一个行距的行窄带。
-            center += pitch  # 下移一行。
-        self.log_debug(f"均匀切片：行距 {pitch:.0f}px -> {len(bands)} 条窄带（列表区高 {list_box.height}px）")  # 切片概览便于校准。
-        return bands  # 条数 = 列表区高度 ÷ 行距（封顶 _UNIFORM_MAX_BANDS）。
-
-    def _stage_blocks(self, list_box):  # 列表区 OCR；编号读不全时降级切片补扫（有锚点按锚点切，无锚点按标定行距均匀切）并去重。
-        blocks = self._ocr_blocks(list_box)  # 第一层：列表区（整屏竖条）OCR。
-        self.log_debug(f"列表区 OCR {len(blocks)} 块：{[block.text for block in blocks]}")  # 原始文本便于排查识别问题。
-        anchors = [block for block in blocks if event_stage.is_anchor(block.text)
-                   and not event_stage.stage_id_candidates(block.text)]  # 行锚点（含 eni/vent 残片）。
-        numbers = event_stage.count_numbers(blocks)  # 编号块数。
-        if numbers and numbers >= len(anchors):  # 读到编号且不比锚点少 = 无需降级（普通页多为「有编号、无锚点」）。
-            return blocks
-        if anchors:  # 有锚点：按锚点 y 逐行切片（低对比页里锚点是唯一可靠的行定位信号）。
-            bands = self._anchor_bands(anchors, list_box)  # 逐行窄带（间距过大时按中点外推补条）。
-            self.log_info(f"编号块 {numbers} 个 < 锚点 {len(anchors)} 个，按行锚点切片补扫")  # 记录降级原因。
-        else:  # 连行锚点都没有（行首文案换成了非 EVENT 家族，或整行是图形）：按标定行距均匀切片补扫。
-            bands = self._uniform_bands(list_box)  # 均匀窄带。
-            self.log_info(f"编号块 {numbers} 个且无行锚点，按标定行距均匀切片补扫 {len(bands)} 条")  # 记录降级原因。
-        for band in bands:  # 逐行切片 OCR（第三层）。
-            blocks.extend(self._ocr_blocks(band))
-        merged = self._dedup_blocks(blocks)  # 合并两层结果并去重。
-        self.log_debug(f"切片补扫去重：{len(blocks)} -> {len(merged)} 块：{[block.text for block in merged]}")  # 去重效果。
-        return merged
-
-    def _parse_rows(self, box, blocks):  # 解析成行条目，并按编号序列缺口补扫缺失行后重解析（只补一轮）。
-        list_rect = (box.x, box.y, box.width, box.height)  # 解析层用的列表区矩形。
-        rows = event_stage.parse(blocks, list_box=list_rect, scale=self._stage_scale())  # 首次解析（兜底行距按分辨率缩放）。
-        gaps = event_stage.sequence_gaps(rows)  # 编号序列缺口（中间漏行的位置估计）。
-        if not gaps:  # 编号连续。
-            return rows  # 无需补扫。
-        self.log_info(f"编号序列缺口 {len(gaps)} 处，补扫缺失行")  # 记录补扫原因。
-        for center_y, height in gaps:  # 逐个缺口区补扫。
-            blocks.extend(self._ocr_blocks(self._band_box(box, center_y, height)))  # 取整列表宽度的高带，覆盖两侧已知行之间（蛇形同带的行也能扫到）。
-        repaired = event_stage.parse(self._dedup_blocks(blocks), list_box=list_rect,  # 合并去重后重解析。
-                                     scale=self._stage_scale())
-        self.log_debug(f"缺口补扫：{len(rows)} -> {len(repaired)} 行")  # 补扫效果便于核对。
-        return repaired
-
-    def _stage_rows(self, list_box=None):  # 关卡页列表区 -> 行条目列表（编号/状态/行框）；区域缺失返回空列表。
+    def _stage_rows(self, list_box=None):  # 关卡页列表区 -> 可选关卡行（编号 + 行框）；区域缺失返回空列表。
         box = list_box if list_box is not None else self._stage_list_box()  # 列表区。
         if box is None:  # 区域缺失。
             return []  # 无法解析。
-        self.log_debug(f"关卡列表区 {box}，分辨率缩放比 {self._stage_scale():.3f}")  # 区域与分辨率参数便于核对。
-        blocks = self._stage_blocks(box)  # 两级 OCR 块。
-        rows = self._parse_rows(box, blocks)  # 解析 + 序列缺口修复。
-        self.log_info(f"关卡页解析：{len(rows)} 行，状态 {[row.status for row in rows]}")  # 记录解析结果便于实机核对。
-        self.log_debug(f"关卡页行明细：{[(row.stage_id, row.status, row.source, row.box) for row in rows]}")  # 编号/状态/来源/行框。
+        scale = self._stage_scale()  # 分辨率缩放比（兜底行距按它缩放）。
+        self.log_debug(f"关卡列表区 {box}，分辨率缩放比 {scale:.3f}")  # 区域与分辨率参数便于核对。
+        rows, notes = event_stage.read_rows(self._ocr_region, box, self.height, scale)  # 分层 OCR → 切片降级 → 缺口补扫。
+        for note in notes:  # 策略轨迹在下层产生、在这里按任务日志级别呈现。
+            self.log_info(note)
+        self.log_info(f"关卡页解析：{len(rows)} 个可选关卡 {[row.stage_id for row in rows]}")  # 记录解析结果便于实机核对。
+        self.log_debug(f"关卡页行明细：{[(row.stage_id, row.source, row.box) for row in rows]}")  # 编号/来源/行框。
         return rows
-
-    def _scan_stage_rows(self):  # 跨屏扫描关卡列表：逐屏解析并按编号去重拼接，返回按列表顺序排列的编号行。
-        box = self._stage_list_box()  # 列表区（同时是滚动区）。
-        if box is None:  # 区域缺失。
-            return []  # 无法扫描。
-        self._scroll_list_to_top(box_name=_STAGE_LIST_BOX, start_ratio=_STAGE_SWIPE_START_RATIO)  # 先归一到顶部再扫。
-        collected = {}  # stage_id -> 行条目（跨屏去重，保留首次出现）。
-        previous = None  # 上一屏的编号序列。
-        for index in range(_STAGE_SCAN_MAX_SCROLLS):  # 逐屏扫描（带上限防死循环）。
-            rows = self._stage_rows(box)  # 当前屏解析。
-            signature = tuple(row.stage_id for row in rows if row.stage_id)  # 当前屏编号序列。
-            for row in rows:  # 收集编号行（锁定行无编号，不参与拼接）。
-                if row.stage_id and row.stage_id not in collected:
-                    collected[row.stage_id] = row
-            self.log_debug(f"扫描第 {index + 1} 屏：编号 {signature}，累计 {len(collected)} 关")  # 跨屏拼接过程。
-            if signature == previous:  # 滚动后编号序列没变 = 已到底或列表不可滚。
-                break
-            previous = signature
-            if not self._scroll_list_down(1, box_name=_STAGE_LIST_BOX, start_ratio=_STAGE_SWIPE_START_RATIO):  # 下滚一屏步。
-                self.log_debug("列表已到底（滚动前后像素比对无变化）")  # 扫描结束原因。
-                break  # 像素比对判到底。
-        self.log_info(f"关卡列表扫描完成：{len(collected)} 关（{list(collected)}）")  # 记录跨屏拼接结果。
-        return list(collected.values())  # 按发现顺序（即列表顺序）返回。
 
     # ---- 剧情执行链（方案 §8：推图链 + 扫荡链） ----
 
     def _row_box(self, row):  # 解析层行框（x1,y1,x2,y2 四元组）-> 可点击 Box（click_box 只接受 Box/特征名）。
         x1, y1, x2, y2 = row.box  # 行框为整图坐标四元组。
-        return Box(x1, y1, x2 - x1, y2 - y1, name=f"event_stage_{row.stage_id or 'locked'}")  # 行窄条区域。
+        return Box(x1, y1, x2 - x1, y2 - y1, name=f"event_stage_{row.stage_id or 'unknown'}")  # 行窄条区域。
+
+    def _story_poll_throttle(self):  # 等待循环节流：挂在 post_action 上，未命中那轮才执行。
+        self.sleep(_STORY_POLL_INTERVAL)  # 降低采样频率（窗口与判据不变）。
 
     def _skip_story_if_present(self, time_out=_STORY_DIALOG_WAIT):  # 剧情对话界面出现则点跳过；未播剧情直接返回。
         """点关卡/进下一关/结算返回后都可能先播剧情（首次进非可重复挑战的关卡必有）。
@@ -790,7 +888,8 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
         图标区位置不同，再补该页专属特征与区域。
         """
         if not self.wait_until(lambda: self.is_screen("conversation") or self._in_battle_page(),  # 剧情界面出现，或已直接进入战斗（无剧情）。
-                               time_out=time_out, settle_time=0):  # 两信号都在场即返回，无需稳定窗口。
+                               time_out=time_out, settle_time=0,  # 两信号都在场即返回，无需稳定窗口。
+                               post_action=self._story_poll_throttle):  # 轮询节流（见 _STORY_POLL_INTERVAL）。
             self.log_warning("未识别到剧情界面与战斗界面，按无剧情继续")  # 交由后续战斗等待兜底。
             return False  # 未处理剧情。
         if not self.is_screen("conversation"):  # 已进入战斗界面 = 本次无剧情。
@@ -810,75 +909,181 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
         except ValueError:  # 特征缺失。
             return False  # 视为未就位。
 
-    def _stage_flow_entered(self, time_out=_STAGE_ENTER_TIMEOUT):  # 点关卡行后是否进入关卡流程（离开列表或进详情页）。
-        return self.wait_until(lambda: not self.is_screen("event_stage_page") or self._detail_page_open(),  # 仍在列表 = 点击没打开任何页面。
-                               time_out=time_out, settle_time=0)  # 两信号都在场即返回。
+    def _in_stage_flow(self):  # 是否在关卡流程里：剧情对话或战斗界面（点关卡的两种正常落点）。
+        return self.is_screen("conversation") or self._in_battle_page()
 
-    def _push_stages(self, target):  # 连续推图链：点目标关（详情页判「战斗」可用则点击）→ 逐场战斗（结算「下一关」可用则续战，跳到门票耗尽）→ 回关卡页。
-        self.click_box(self._row_box(target), after_sleep=2)  # 点击目标关卡行进入关卡（可能先播剧情）。
-        if not self._stage_flow_entered():  # 点开后仍停在关卡列表 = 该关已通关且不可重复挑战（只弹提示、不进详情页）。
-            self.log_info(f"{target.stage_id} 点开后仍停在关卡列表（已通关不可重复挑战），推图结束")  # 记录结束原因。
-            return  # 结束推图（仍在列表页，无需收尾动作）。
-        if self._detail_page_open():  # 点开的是关卡详情页 = 未开战：按「战斗」按钮判态决定点击或收尾。
-            battle_box = self._optional_box(_STAGE_DETAIL_BATTLE_BOX)  # 详情页「战斗」区域（缺失按不可点）。
-            if battle_box is None:  # 区域特征解析不出来（coco 缺失/加载失败）。
-                self.log_warning(f"缺少区域特征 {_STAGE_DETAIL_BATTLE_BOX}，推图结束")  # 记录跳过原因。
-                self._close_stage_detail()  # 关详情页回关卡列表。
-                return  # 结束推图。
-            if not self.is_feature_enabled(battle_box):  # 灰白禁用：该关不可推（门票耗尽等）。
-                self.log_info(f"{target.stage_id} 详情页「战斗」为灰白禁用态（门票耗尽等），推图结束")  # 记录结束原因。
-                self._close_stage_detail()  # 关详情页回关卡列表。
-                return  # 结束推图。
-            self.log_info(f"{target.stage_id} 详情页「战斗」可用，点击进入战斗")  # 记录推进（可能先播剧情）。
-            self.click_box(battle_box, after_sleep=2)  # 点「战斗」进入战斗链。
+    def _stage_landing(self, time_out=_STAGE_ENTER_TIMEOUT):  # 点开候选行后等落点分类：'detail'/'flow'/'list'/None。
+        """把落点分成四类，都用界面特征判（不靠时间假设），供调用方决定可推性：
+
+        - `'detail'`：关卡详情页（右上关闭按钮特征）→ 由调用方判详情页按钮态；
+        - `'flow'`：剧情对话或战斗界面 → 这一关就是当前进度关，已进入关卡流程；
+        - `'list'`：仍停在关卡列表 → 该行不可推（已通关不可重复挑战/未解锁）；
+        - `None`：窗口内落点没变成任何一种已知界面（过场卡住/未知页面）→ 判不了。
+
+        「离开关卡列表」不等于「进了关卡流程」：不可推的行可能弹出提示框把标题盖住，让列表判定消失。
+        故轮询期间顺手清提示框（没弹框时立即返回），并以落点分类而不是「列表消失」作为判据。
+        """
+        def classify():
+            if self._detail_page_open():  # 详情页。
+                return "detail"
+            if self._in_stage_flow():  # 剧情对话 / 战斗界面。
+                return "flow"
+            if self.is_screen("event_stage_page"):  # 仍在关卡列表（提示框已清）。
+                return "list"
+            return None  # 都不是：继续轮询（过场加载中）。
+
+        return self.wait_until(classify, time_out=time_out, settle_time=0,  # 命中即返回，无需稳定窗口。
+                               pre_action=lambda: self.dismiss_all_popups(wait_for_popup=False, time_out=1),  # 每轮取帧前清提示框（框架每轮都跑 pre_action，不只是未命中轮）。
+                               post_action=self._story_poll_throttle,  # 轮询节流（见 _STORY_POLL_INTERVAL）。
+                               raise_if_not_found=False)  # 超时返回 None，由调用方判「判不了」。
+
+    def _push_stages(self):  # 连续推图链：自下而上找第一个能推的关卡并点开 → 逐场战斗（结算「下一关」可用则续战，跳到门票耗尽）→ 回关卡页。
+        """返回本轮推图是否收工：True = 正常结束（无可推关卡/门票耗尽/战斗失败）；False = 出现换地区提示并已点掉。
+
+        False 时当前界面是「活动地区」页（关卡页已消失），调用方需重新识别菜单页的剧情入口、
+        重新进关卡页再推一轮（见 _flow_story 的轮次循环）。
+        """
+        if not self._open_pushable_stage():  # 自下而上找可推关卡并点开（没有就说明本地区推完了）。
+            return True  # 结束推图（仍在关卡列表页，无需收尾动作）。
         for _ in range(_STORY_MAX_BATTLES):  # 连续战斗安全上限（正常由门票耗尽自然结束）。
             self._skip_story_if_present()  # 进关卡/进下一关可能先播剧情：识别并点跳过。
+            if self._field_changed_stop():  # 跳过剧情后可能已换地区：本轮到此为止，交调用方重推一轮。
+                return False  # 已回到活动地区页：交调用方重新进关卡页再推一轮。
             result, confirm_box = self.wait_battle_finish(time_out=_STORY_BATTLE_TIMEOUT)  # 节流等待战斗结束，只检测不点击。
             if result is None:  # 等待战斗结束超时。
+                if self._field_changed_stop():  # 兜底：换地区比预想晚（战斗根本没开起来）时，别白等满超时再判失败。
+                    return False  # 已回到活动地区页：交调用方重新进关卡页再推一轮。
                 raise WaitFailedException("等待活动关卡战斗结束超时")  # 抛异常由 try_step 恢复。
             if result == "failed":  # 战斗失败（门票已消耗，不再续战）。
                 self.log_warning("活动关卡战斗失败")  # 记录失败供排查。
                 self.click_box(confirm_box, after_sleep=_BATTLE_AFTER_SLEEP)  # 点击失败返回按钮。
                 self._skip_story_if_present()  # 返回时也可能先播剧情。
+                if self._field_changed_stop():  # 失败返回后同样可能换地区。
+                    return False  # 已回到活动地区页。
                 break  # 结束推图。
             next_box = self._optional_box("box_battle_finish_next_stage")  # 结算界面右下角「下一关」区域（缺失按不可用）。
             if next_box is not None and self.is_feature_enabled(next_box):  # 彩色高亮 = 还有门票可续战。
                 self.log_info("结算界面「下一关」可用，继续推进")  # 记录续战。
                 self.click_box(next_box, after_sleep=_BATTLE_AFTER_SLEEP)  # 点击下一关，回到循环头部等待下一场。
+                # 实机：点「下一关」后也可能直接切地区（不经过剧情/战斗）——这里紧跟一次判定，别等满 240s 超时。
+                if self._field_changed_stop():
+                    return False  # 已回到活动地区页：交调用方重新进关卡页再推一轮。
                 continue  # 续战。
             self.click_box(confirm_box, after_sleep=_BATTLE_AFTER_SLEEP)  # 「下一关」不可用 = 门票耗尽，点击结算返回按钮。
             self._skip_story_if_present()  # 返回时也可能先播剧情。
+            if self._field_changed_stop():  # 结算返回后同样可能换地区。
+                return False  # 已回到活动地区页。
             break  # 推图结束。
         else:  # 循环用尽仍未自然结束 = 异常状态。
             self.log_warning(f"连续战斗达到上限 {_STORY_MAX_BATTLES} 场，停止推图")  # 提示异常，交界面断言兜底。
         self.assert_screen("event_stage_page", time_out=15)  # 确认已回到活动关卡界面（剧情跳过后的落点）。
+        return True  # 本轮推图收工。
 
-    def _progress_target(self):  # 推图目标：先认当前屏（进关卡页游戏会自动定位到当前进度关），解析不出才回退跨屏扫描。
-        box = self._stage_list_box()  # 列表区（区域缺失时由兜底路径返回空）。
-        rows = self._stage_rows(box) if box is not None else []  # 当前屏解析（行框即当前屏坐标）。
-        target = event_stage.progress_target(rows)  # 当前屏最下面的可打行 = 当前进度关。
-        if target is not None:  # 当前屏有可打行。
-            return target  # 直接使用。
-        if rows:  # 当前屏解析出了行但没有可打的 = 已全通（进度关之后的行都是锁定行，没有编号）。
-            return None  # 无需再扫全列表。
-        self.log_info("当前屏未解析出关卡行，回退为跨屏扫描")  # 记录兜底原因（OCR 漏检/页面未就绪）。
-        return event_stage.progress_target(self._scan_stage_rows())  # 兜底：扫全列表再取目标。
+    def _field_changed_stop(self, time_out=_STORY_FIELD_CHANGED_WAIT):  # 是否发生换地区：True = 需重新进关卡页再推一轮。
+        """大活动（FieldHub）清完一个地区后切到新地区，两个信号任一成立即算（都不依赖时间假设）：
+
+        ① 提示按钮 `event_story_field_changed` 在画面上 → 点掉它（点完回到活动地区页）；
+        ② 人已经回到「活动地区」页 → 关卡流程已结束——按钮可能没渲染出来，也可能刚被跳过剧情的
+           弹窗清理顺手点掉，所以不能只认按钮（实机：按钮会出现在「战斗结束 → 点击下一关」之后）。
+        按钮只可能在「战斗已结束/未开始」时出现，故在战斗界面内不等待（不拖慢正常推图）。
+        """
+        if not self.feature_exists(_STORY_FIELD_CHANGED_FEATURE):  # coco 未标注：只认状态信号（旧包/未标定也能跑）。
+            return self._stop_on_event_area_page()  # 只看是否已回到活动地区页。
+        hit = self._wait_field_changed_hit(time_out)  # 取提示按钮：当前帧命中即返回，必要时给一小段出现窗口。
+        if hit is not None:  # 提示在画面上：点掉它（点完自动回活动地区页），需要重推一轮。
+            self.log_info("识别到活动地区切换提示，点击返回活动地区页")  # 记录动作，便于核对换地区时机。
+            self.click_box(hit, after_sleep=_BATTLE_AFTER_SLEEP)  # 点击提示按钮（等待覆盖切页动画）。
+            return True  # 需要重推一轮。
+        return self._stop_on_event_area_page()  # 按钮没看到：再看是否已经回到活动地区页。
+
+    def _stop_on_event_area_page(self):  # 是否已回到「活动地区」页 = 关卡流程已结束（换地区，或异常退出）。
+        if not self._probe_event_main():  # 仍在关卡页/战斗/对话等：没有换地区。
+            return False  # 不处理。
+        self.log_info("已回到活动地区页（关卡流程结束），按换地区收尾，重新进关卡页再推一轮")  # 记录判据来源便于实机核对。
+        return True  # 需要重推一轮。
+
+    def _wait_field_changed_hit(self, time_out):  # 取换地区提示按钮：当前帧命中即返回；不在战斗界面才等一小段。
+        try:  # 特征名在配置里但模板加载失败时按不出现处理。
+            hit = self.find_one(_STORY_FIELD_CHANGED_FEATURE)  # 即时：帧上就有，零额外等待。
+            if hit is not None or self._in_battle_page():  # 已命中，或正在战斗（提示不可能在场）：不进等待。
+                return hit  # 返回当前结果（None = 没命中）。
+            return self.wait_feature(_STORY_FIELD_CHANGED_FEATURE, time_out=time_out, settle_time=0,  # 命中即返回，不等稳定窗口。
+                                     raise_if_not_found=False,  # 不在战斗：提示可能正在渲染，给一小段出现窗口。
+                                     post_action=self._story_poll_throttle)  # 轮询节流（见 _STORY_POLL_INTERVAL）。
+        except ValueError:  # 特征缺失/模板加载失败。
+            return None  # 按不出现处理。
+
+    def _open_pushable_stage(self):  # 自下而上找第一个能推的关卡并点开：进到关卡流程（剧情/战斗）返回 True，全不可推返回 False。
+        """可用性一律走界面后验：候选行上的 CLEAR / REPEAT / 锁图标既不参与解析也不作门槛
+        （实机会漏检，锁孔还会被读成编号），逐个点开看详情页「战斗」是否可用。
+
+        只看当前屏：点剧情入口进关卡页后列表停在当前进度关，能推的关就在这一屏里，故不滚动、不跨屏扫描。
+        当前屏有候选行但都点不出可推的关 = 本地区推完了。扫荡目标不同（已通关的关卡可能在当前屏外），
+        故 `_locate_stage_row` 会滚动查找。
+        """
+        box = self._stage_list_box()  # 列表区。
+        rows = self._stage_rows(box) if box is not None else []  # 当前屏候选行（行框即当前屏坐标）。
+        if self._open_first_pushable(rows):  # 自下而上找（最下面的候选行最接近当前进度关）。
+            return True  # 已进入关卡流程。
+        if not rows:  # 一行都没解析出：多半是 OCR 漏检/页面没就绪，而不是真的没得推。
+            self.log_warning("当前屏未解析出任何关卡行（OCR 漏检或页面未就绪），推图结束")  # 与「有行但都不可推」分开记，便于实机排查。
+            return False  # 本地区按推完收工（列表停在当前进度关，不滑动查找）。
+        self.log_info("当前屏没有可推的关卡（已全通或未开放），推图结束")  # 记录结束原因。
+        return False  # 本地区推完（列表停在当前进度关，不滑动查找）。
+
+    def _open_first_pushable(self, rows):  # 自下而上逐个点开候选行，命中可推关卡返回 True；都不可推返回 False。
+        for row in reversed(rows):  # 最下面的候选行最接近当前进度关（列表顺序 = 解锁顺序）。
+            if row.stage_id is None:  # 没有编号的行点不中（编号漏检时序列共识会补号，补不出来就不试）。
+                continue
+            opened = self._open_row_for_push(row)  # 点开并判态。
+            if opened:  # 已在关卡流程里（或「战斗」已点）。
+                return True  # 命中可推关卡。
+            if opened is None:  # 可推性判不了（详情页区域特征缺失）：每行都会卡在同一处，不再往下试。
+                return False  # 结束本轮找关卡。
+        return False  # 这一屏没有可推的关。
+
+    def _open_row_for_push(self, row):  # 点开候选行判可推性：可推/已开战返回 True、不可推返回 False、判不了返回 None。
+        self.click_box(self._row_box(row), after_sleep=2)  # 点击关卡行进入关卡（可能先播剧情）。
+        landing = self._stage_landing()  # 等落点分类（离开列表不等于进了关卡流程，见 _stage_landing）。
+        if landing == "list":  # 仍停在关卡列表 = 该关不可推（已通关不可重复挑战/未解锁，只弹提示）。
+            self.log_info(f"{row.stage_id} 点开后仍停在关卡列表（已通关不可重复挑战或未解锁），试上一行")  # 记录跳过原因。
+            return False  # 列表没动，继续试上一行。
+        if landing == "flow":  # 直接进了剧情/战斗 = 这一关就是当前进度关（首次进关先播剧情）。
+            self.log_info(f"{row.stage_id} 点开后直接进入关卡流程（剧情/战斗），按当前进度关推进")  # 记录选中原因。
+            return True  # 已在流程里，交给战斗链。
+        if landing is None:  # 落点没认出来（过场卡住/未知页面）：判不了可推性。
+            self.log_warning(f"{row.stage_id} 点开后未识别到关卡流程落点（详情页/剧情/战斗/列表），停止找关卡")  # 记录跳过原因。
+            return None  # 交调用方停止找关卡（每行都会卡在同一处）。
+        battle_box = self._optional_box(_STAGE_DETAIL_BATTLE_BOX)  # 详情页「战斗」区域（缺失按不可点）。
+        if battle_box is None:  # 区域特征解析不出来（coco 缺失/加载失败）。
+            self.log_warning(f"缺少区域特征 {_STAGE_DETAIL_BATTLE_BOX}，推图结束")  # 记录跳过原因。
+            self._close_stage_detail()  # 关详情页回关卡列表。
+            return None  # 判不了可推性：交调用方停止找关卡。
+        if not self.is_feature_enabled(battle_box):  # 灰白禁用：该关不可推（门票耗尽/已通关不可重复挑战）。
+            self.log_info(f"{row.stage_id} 详情页「战斗」为灰白禁用态（门票耗尽等），试上一行")  # 记录结束原因。
+            self._close_stage_detail()  # 关详情页回关卡列表（下一行还要在列表上点）。
+            return False  # 继续试上一行。
+        self.log_info(f"{row.stage_id} 详情页「战斗」可用，点击进入战斗")  # 记录推进（可能先播剧情）。
+        self.click_box(battle_box, after_sleep=2)  # 点「战斗」进入战斗链。
+        return True  # 已开战。
 
     def _locate_stage_row(self, stage_id):  # 查找指定关卡行并返回（行框对应当前屏幕，可直接点击）；未找到返回 None。
+        """先在当前屏找：进关卡页时列表停在当前进度关，能命中就不动列表。当前屏没有才归一到顶部再逐屏下滚
+        查找——扫荡目标都是已通关的关卡，通常在当前进度关上方，当前屏不一定看得到（列表停在进度关处）。"""
         box = self._stage_list_box()  # 列表区（同时是滚动区）。
         if box is None:  # 区域缺失。
             return None  # 无法定位。
-        row = event_stage.find_stage(self._stage_rows(box), stage_id)  # 先在当前屏找：进页面时游戏常已停在最近位置，能命中就不动列表。
+        row = event_stage.find_stage(self._stage_rows(box), stage_id)  # 先在当前屏找。
         if row is not None:  # 当前屏命中。
             self.log_debug(f"当前屏定位到关卡 {stage_id}（行框 {row.box}）")  # 定位过程便于校准。
-            return row  # 直接返回。
-        self._scroll_list_to_top(box_name=_STAGE_LIST_BOX, start_ratio=_STAGE_SWIPE_START_RATIO)  # 当前屏没有才归一化到顶部，再向下逐屏找。
+            return row  # 返回可点击的行条目。
+        self._scroll_list_to_top(box, _STAGE_SWIPE_START_RATIO)  # 当前屏没有才归一到顶部，再向下逐屏找。
         for index in range(_STAGE_SCAN_MAX_SCROLLS):  # 逐屏查找（带上限防死循环）。
             row = event_stage.find_stage(self._stage_rows(box), stage_id)  # 在当前屏解析结果里按编号定位。
             if row is not None:  # 命中（行框即当前屏坐标）。
                 self.log_debug(f"第 {index + 1} 屏定位到关卡 {stage_id}（行框 {row.box}）")  # 定位过程便于校准。
                 return row  # 返回可点击的行条目。
-            if not self._scroll_list_down(1, box_name=_STAGE_LIST_BOX, start_ratio=_STAGE_SWIPE_START_RATIO):  # 下滚一屏步。
+            if not self._scroll_list_down(1, box, _STAGE_SWIPE_START_RATIO):  # 下滚一屏步；到底返回 False。
                 break  # 到底仍未命中。
         self.log_debug(f"逐屏查找未定位到关卡 {stage_id}")  # 记录未命中。
         return None  # 未找到。
@@ -889,13 +1094,12 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
 
     def _sweep_stage(self, stage_id):  # 扫荡：点配置关卡行 → 详情页「快速战斗」（次数拉满）→ 结算回列表，循环到不可用（耗尽）。
         for round_index in range(1, _SWEEP_MAX_ROUNDS + 1):  # 带上限防死循环（次数拉满后正常一轮即耗尽）。
-            row = self._locate_stage_row(stage_id)  # 逐屏定位配置关卡（行框对应当前屏幕）。
-            if row is None:  # 当期列表没有该关卡 = 该关尚未通关/未开放（不是识别失败），不做任何降级替代。
+            row = self._locate_stage_row(stage_id)  # 定位配置关卡（当前屏没有会滚动查找；行框对应当前屏幕，可直接点击）。
+            if row is None:  # 整份列表都没有该关 = 该关尚未通关/未开放（不是识别失败），不做任何降级替代。
                 self.log_warning(f"列表中没有可扫荡关卡 {stage_id}（尚未通关/未开放），跳过扫荡")  # 记录跳过原因。
                 return  # 结束扫荡。
-            # 行状态只记日志、不作门槛：已通关标记（√ / CLEAR / REPEAT）可能漏检，
-            # 能否扫荡一律以关卡详情页的「快速战斗」判态为准（门票用光时详情页仍可打开）。
-            self.log_debug(f"关卡 {stage_id} 列表行状态 {row.status}（仅供参考，不作门槛）")  # 行状态便于校准。
+            # 行上的已通关标记（√ / CLEAR / REPEAT）一律不看、也不解析：能否扫荡以关卡详情页的
+            # 「快速战斗」判态为准（门票用光时详情页仍可打开）。
             self.click_box(self._row_box(row), after_sleep=2)  # 点关卡行进入关卡详情页。
             if not self.wait_feature(_SWEEP_CLOSE_FEATURE, time_out=_STAGE_ENTER_TIMEOUT, raise_if_not_found=False):  # 等详情页就位（右上关闭按钮特征）。
                 self.log_info(f"{stage_id} 点开后未进入关卡详情页（已通关但不可重复挑战会弹提示、停在列表），跳过扫荡")  # 记录跳过原因。
@@ -983,14 +1187,22 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
             self.log_info(f"剧情模式 {mode} 暂未支持，按页面当前难度继续")  # TODO 实机标定 box_event_stage_mode 的选中态与点击。
         self._enter_stage_page()  # 活动菜单页 → 关卡页（大活动要经 STORY I/II 剧情子页面绕一级）。
         if self.config.get("剧情"):  # 推图开关（与扫荡独立，任一开启都进关卡页）。
-            target = self._progress_target()  # 目标 = 最下面的可打行（进页面即自动定位到当前进度关，先认当前屏）。
-            if target is None:  # 无可打关卡：当前进度之后都是锁定行 = 已全通（或本期还没开放新关）。
-                self.log_info("无可打的剧情关卡（已全通或尚未开放），推图结束")  # 记录结束原因。
-            else:  # 有可打关卡。
-                self._push_stages(target)  # 点行进入连续战斗链，结束落回关卡页。
+            for round_index in range(1, _STORY_MAX_PUSH_ROUNDS + 1):  # 换地区后要重新进关卡页再来一轮（带上限防死循环）。
+                if round_index > 1:  # 第 2 轮起：上一轮以换地区收尾，当前在活动地区页，需重新识别菜单页的剧情入口。
+                    self.log_info(f"第 {round_index} 轮推图：重新识别菜单页并进入关卡页")  # 记录轮次与重新进入的原因。
+                    self._enter_stage_page()  # 活动地区页 → 关卡页（入口与 STORY 章节重新定位，新地区可能解锁了下一章）。
+                if self._push_stages():  # 本轮推图收工（无可推关卡/门票耗尽/战斗失败）。
+                    break  # 结束推图。
+                # False = 出现换地区提示并已点掉：当前在活动地区页，进入下一轮（重新进关卡页）。
+            else:  # 轮次用尽仍在换地区 = 异常状态。
+                self.log_warning(f"推图达到轮次上限 {_STORY_MAX_PUSH_ROUNDS} 轮，停止推图")  # 记录异常，交由后续界面断言兜底。
+                return  # 当前是活动地区页（不是关卡页）：直接结束子流程，免得在错误页面上做扫荡/导航。
         if self.config.get("扫荡"):  # 扫荡开关：对配置的可重复关卡快速战斗。
             self._sweep_stage(self.config.get("扫荡关卡", _SWEEP_STAGE_DEFAULT))  # 点行 → 详情页快速战斗（次数拉满）→ 扫到不可用。
-        self._ensure_event_menu()  # 点返回回活动菜单页，供后续子流程接续（大活动剧情子页面多退一级）。
+        try:  # 点返回回活动菜单页，供后续子流程接续（大活动剧情子页面多退一级）。
+            self._ensure_event_menu()
+        except WaitFailedException:  # 往期活动/档案馆页面退不回活动菜单页：剧情已经推进完，不该把整条剧情判失败。
+            self.log_warning("剧情收尾未能退回活动菜单页（可能是往期活动/档案馆页面），按当前页面继续")  # 记录降级原因。
 
     def _enter_stage_page(self):  # 活动菜单页 → 关卡页：小活动直接用「加成」入口进，大活动先经 STORY I/II 剧情子页面。
         entry = self._entry_box("剧情")  # 剧情入口命中框（大活动菜单页 STORY II → STORY I，小活动主页「加成」）。
@@ -1025,6 +1237,20 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
         ratio = float(bright.mean())  # 高亮像素占比。
         self.log_debug(f"入口 {entry_box.name} 高亮像素占比 {ratio:.3f}（锁定阈值 {_ENTRY_LOCK_BRIGHT_RATIO}）")  # 判据明细便于实机校准。
         return ratio < _ENTRY_LOCK_BRIGHT_RATIO  # 低于阈值 = 整行灰暗 = 锁定态。
+
+    def _entry_locked_skip(self, label):  # 入口探测命中但呈锁定态（文字可读、点击无效）时返回 True；供 _do_* 提前跳过。
+        """往期活动（档案馆）/未开放入口的文字照样能被 OCR 读到，但点击没有任何效果：
+
+        靠亮度判据（_entry_locked）提前跳过，省掉一次注定失败的进入尝试（挑战那类 transition 补点要白点一分多钟）。
+        只用在「命中框就是文字本身」的入口（签到/挑战/任务/商店）：「剧情」不适用——它的点击框按
+        _ENTRY_CLICK_Y_OFFSET 上移到按钮主体，落到暗色按钮上会被误判成锁定态，
+        而 STORY I/II 章节锁定另由 _enter_story_sub_page 的亮度判据处理。
+        """
+        entry = self._entry_box(label)  # 入口命中框（区域与关键词同 _probe_entry）。
+        if entry is None or not self._entry_locked(entry):  # 定位不到（保守按可用）或非锁定态。
+            return False  # 不跳过。
+        self.log_info(f"{label}入口为锁定态（文字可读但点击无效），跳过")  # 记录跳过原因。
+        return True  # 通知调用方跳过该子流程。
 
     def _enter_story_sub_page(self):  # 点开 STORY 入口进入剧情子页面：STORY II 优先，点不开的章节回落下一个入口。
         # STORY I/II 会同时出现在菜单栏，未开放的章节只多了锁图标、文字仍是灰字（OCR 照常读到），
@@ -1063,8 +1289,16 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
         if entry is None:  # 入口缺失（菜单未渲染或页面结构变化）。
             raise WaitFailedException("未找到挑战入口")  # 抛异常由 try_step 恢复。
         # wait_confirm 覆盖小人到达窗口（_SD_ARRIVE_TIMEOUT），time_out 留出补点预算。
-        self.transition("event_challenge_page", box=entry, wait_confirm=_SD_ARRIVE_TIMEOUT,
-                        time_out=_SD_ARRIVE_TIMEOUT * 2, after_sleep=2)  # 点击入口并确认进入挑战页。
+        try:  # 点击入口并确认进入挑战页。
+            self.transition("event_challenge_page", box=entry, wait_confirm=_SD_ARRIVE_TIMEOUT,
+                            time_out=_SD_ARRIVE_TIMEOUT * 2, after_sleep=2)
+        except WaitFailedException:  # 补点耗尽仍未进挑战页。
+            if not self.is_screen("event_main"):  # 落在别的界面：按失败交 try_step 恢复（不看错误页继续猜）。
+                raise  # 重新抛出，交给 try_step。
+            # 仍在活动菜单页 = 入口点击无效（往期活动/未开放入口：文字可读、点击无响应）：
+            # 这里直接结束挑战流程，不再让 try_step 反复重跑（每次都要把补点重来一遍，白等一分多钟）。
+            self.log_info("挑战入口点击无效（仍在活动菜单页，可能为锁定/未开放入口），跳过挑战")  # 记录跳过原因。
+            return  # 结束挑战流程（已在菜单页，无需收尾导航）。
         self._wait_challenge_nodes()  # 等节点渲染完成再选关（吸收过场动画）。
         stage = self._find_available_challenge_stage()  # 自下而上找第一个可用（非灰白）关卡标记。
         if stage is None:  # 无可用关卡（今日次数已用完/列表未标注）：无需进详情页，直接返回菜单页。

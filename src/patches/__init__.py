@@ -4,13 +4,14 @@
 # - apply_all() 是唯一入口，在 src/config.py 顶部调用（早于 ok.OK(config) 构造）；
 # - 项目内任何其他代码都不得自行修补 ok 包，新增补丁一律加到这里的对应模块，
 #   不要手写自定义控件/到处散落补丁。
-from src.patches import about_update, basic_options, language, notification_tab, runtime, start_controller, start_tab, startup_splash, tasks_tab
+from src.patches import about_update, basic_options, language, notification_tab, ocr_threads, runtime, start_controller, start_tab, startup_splash, tasks_tab
 
 
 def apply_all():
     basic_options.apply()   # 基础设置注入启动器路径等选项，需在 Config 加载磁盘配置前生效
     notification_tab.apply()  # 通知配置并入「软件设置」页，去掉独立的通知 tab
-    runtime.apply()         # 禁用 OpenVINO 遥测 + 任务执行期间失焦自动暂停、回前台恢复
+    runtime.apply()         # 运行时补丁：遥测兜底 + 任务执行期间失焦自动暂停、回前台恢复
+    ocr_threads.apply()     # OCR 线程：onnxruntime 会话固定 4 线程、关自旋
     start_controller.apply()  # 替换 StartController 为启动器自动化版本
     start_tab.apply()       # 截图方式 tab：正式版保留「Debug」排障卡片，隐藏调试悬浮窗开关
     startup_splash.apply()  # 启动画面：主窗口构建期间显示进度，避免双击后长时间无反馈

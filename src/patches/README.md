@@ -23,9 +23,13 @@
 
 启动前的置前（`_bring_game_window_to_front`）复用 `interaction_requires_foreground()`：`Pynput`/`PyDirect`/`ForegroundPostMessage` 依赖窗口前台（后台时点击被静默跳过、executor 取不到帧），先调 `HwndWindow.bring_to_front()`；`Genshin`/`PostMessage` 后台可点击，跳过以保留后台运行能力。只用 `bring_to_front`，不用 `AttachThreadInput`（会把本线程与游戏线程的输入队列绑定，与 GUI 焦点争夺叠加会死锁）。
 
+### ocr_threads.py
+
+包装 `TaskExecutor._create_ocr_lib`，在引擎创建前把 `onnxruntime.InferenceSession` 包一层，给会话设置 `intra_op_num_threads=4`、`inter_op_num_threads=1`、`session.intra_op.allow_spinning=0`。onnxruntime 默认按物理核数开 intra-op 线程池（det / rec 各一个）且默认开启自旋等待，实测 729×1440 区域单次 OCR：CPU 时间 2038ms、瞬时占用约 1000% → 738ms、约 320%，单次墙钟 200ms → 228ms。挂在 `_create_ocr_lib` 上是因为：onnxruntime 只在首次建引擎时导入（默认初始化在 `DefaultOCRInit` 线程），且缓存命中分支 `InferenceSession(cache_path, providers=...)` 不传 `sess_options`，包这个入口才能覆盖两个分支。直接调 `ONNXPaddleOcr(...)` 的脚本不受影响。
+
 ### runtime.py
 
-禁用 OpenVINO 遥测；在 `HwndWindow.visible_monitors` 上注册焦点守卫：一次性任务运行期间游戏窗口失焦即暂停执行器（弹托盘通知），切回前台自动恢复（先经 `reset_scene` 丢弃暂停前的旧帧）。仅当交互方式依赖窗口前台（`Pynput`/`PyDirect`/`ForegroundPostMessage`）时暂停，`PostMessage`/`Genshin` 可后台点击、不暂停，否则会抵消其后台运行能力。包装 `DeviceManager.set_interaction`：运行中切换交互方式后按新方式重判，若正被失焦暂停则解除（暂停态下不再取帧，没有回调能唤醒）。`interaction_requires_foreground()` 还被任务基类 `bring_game_to_front` 与启动控制器（`NikkeStartController._bring_game_window_to_front`）复用：可后台点击的交互方式下不抢占游戏窗口前台。后台 `TriggerTask` 不受影响；运行期间不会主动抢占前台。包装 `TaskExecutor.destroy` 并把 join 挂进 `atexit`/`threading._register_atexit`：等后台 `DefaultOCRInit` 线程（懒初始化 OCR、导入 openvino）收尾，否则进程退出得比它快时（跑得快的测试文件、启动后立刻退出的 GUI）主线程会卡在解释器终结阶段的全局 import 锁上，进程永不退出。只挂 `destroy` 不够——它跑在 TaskExecutor 线程上，主线程不等它，必须在主线程的退出阶段等。
+OpenVINO 遥测兜底（未装时跳过）；在 `HwndWindow.visible_monitors` 上注册焦点守卫：一次性任务运行期间游戏窗口失焦即暂停执行器（弹托盘通知），切回前台自动恢复（先经 `reset_scene` 丢弃暂停前的旧帧）。仅当交互方式依赖窗口前台（`Pynput`/`PyDirect`/`ForegroundPostMessage`）时暂停，`PostMessage`/`Genshin` 可后台点击、不暂停，否则会抵消其后台运行能力。包装 `DeviceManager.set_interaction`：运行中切换交互方式后按新方式重判，若正被失焦暂停则解除（暂停态下不再取帧，没有回调能唤醒）。`interaction_requires_foreground()` 还被任务基类 `bring_game_to_front` 与启动控制器（`NikkeStartController._bring_game_window_to_front`）复用：可后台点击的交互方式下不抢占游戏窗口前台。后台 `TriggerTask` 不受影响；运行期间不会主动抢占前台。包装 `TaskExecutor.destroy` 并把 join 挂进 `atexit`/`threading._register_atexit`：等后台 `DefaultOCRInit` 线程（懒初始化 OCR、导入推理后端）收尾，否则进程退出得比它快时（跑得快的测试文件、启动后立刻退出的 GUI）主线程会卡在解释器终结阶段的全局 import 锁上，进程永不退出。只挂 `destroy` 不够——它跑在 TaskExecutor 线程上，主线程不等它，必须在主线程的退出阶段等。
 
 ### start_tab.py
 

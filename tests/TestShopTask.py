@@ -7,13 +7,16 @@ from src.tasks.ShopTask import ShopTask
 from ok.feature.Box import Box
 from ok.test.TaskTestCase import TaskTestCase
 
+from tests.support.asserts import assert_called_once_semantic
+
 _TEST_CONFIG_DIR = os.path.join('dev_tools', 'test_configs')
 
 
 def _isolate_task_config(task, name):
-    """把任务配置重定向到 dev_tools/test_configs 下的临时文件，避免污染真实 configs/。"""
+    """把任务配置重定向到 dev_tools/test_configs 下的临时文件并复位为任务默认值：既不污染真实 configs/，也不读它的值。"""
     os.makedirs(_TEST_CONFIG_DIR, exist_ok=True)
     task.config.config_file = os.path.join(_TEST_CONFIG_DIR, f'{name}.json')
+    task.config.reset_to_default()  # 复位为任务默认值：用例只设自己关心的开关，不读开发者本地配置。
     task.config['_execution_states'] = {}
 
 
@@ -60,9 +63,9 @@ class TestShopTask(TaskTestCase):
                 patch.object(self.task, "wait_feature", return_value=Box(0, 0, 1, 1)), \
                 patch.object(self.task, "wait_click_feature") as wait_click_mock:
             self.task._do_general_shop()
-        click_mock.assert_called_once_with("box_shop_general_refresh", after_sleep=1)
-        wait_click_mock.assert_called_once_with("general_shop_refresh_confirm", time_out=5,
-                                                raise_if_not_found=True, after_sleep=1)
+        assert_called_once_semantic(click_mock, "box_shop_general_refresh")
+        assert_called_once_semantic(wait_click_mock, "general_shop_refresh_confirm",
+                                    raise_if_not_found=True)
         self.assertEqual(2, buy_mock.call_count)  # 刷新前后各买一次。
 
     def test_general_shop_cancels_paid_refresh_dialog(self):
@@ -75,8 +78,8 @@ class TestShopTask(TaskTestCase):
                 patch.object(self.task, "wait_feature", return_value=None), \
                 patch.object(self.task, "wait_click_feature") as wait_click_mock:
             self.task._do_general_shop()
-        wait_click_mock.assert_called_once_with("general_shop_refresh_cancel", time_out=5,
-                                                raise_if_not_found=True, after_sleep=1)
+        assert_called_once_semantic(wait_click_mock, "general_shop_refresh_cancel",
+                                    raise_if_not_found=True)
         buy_mock.assert_not_called()
 
     def test_general_shop_raises_wait_failed_when_box_missing(self):
@@ -93,7 +96,7 @@ class TestShopTask(TaskTestCase):
                 patch.object(self.task, "wait_screen", return_value=True) as wait_mock, \
                 patch.object(self.task, "_assert_shop_title") as title_mock:
             self.task._enter_general_shop()
-        click_mock.assert_called_once_with("shop", time_out=10, raise_if_not_found=True, after_sleep=2)  # transition 转发点击；after_sleep 与源码一致。
+        assert_called_once_semantic(click_mock, "shop", raise_if_not_found=True)  # transition 转发点击；after_sleep 与源码一致。
         self.assertEqual(("shop",), wait_mock.call_args.args)  # transition 内部确认已注册的 shop 界面。
         confirm_timeout = wait_mock.call_args.kwargs["time_out"]  # transition 按总预算剩余收紧确认等待（NikkeBaseTask.transition）。
         self.assertGreaterEqual(confirm_timeout, 1)  # 剩余预算下限 1 秒。

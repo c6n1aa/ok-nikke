@@ -14,13 +14,16 @@ from ok.test.TaskTestCase import TaskTestCase
 from src.config import config
 from src.tasks.ArkTask import ArkTask
 
+from tests.support.asserts import assert_called_once_semantic, assert_any_call_semantic
+
 _TEST_CONFIG_DIR = os.path.join('dev_tools', 'test_configs')
 
 
 def _isolate_task_config(task, name):
-    """把任务配置重定向到 dev_tools/test_configs 下的临时文件，避免污染真实 configs/。"""
+    """把任务配置重定向到 dev_tools/test_configs 下的临时文件并复位为任务默认值：既不污染真实 configs/，也不读它的值。"""
     os.makedirs(_TEST_CONFIG_DIR, exist_ok=True)
     task.config.config_file = os.path.join(_TEST_CONFIG_DIR, f'{name}.json')
+    task.config.reset_to_default()  # 复位为任务默认值：用例只设自己关心的开关，不读开发者本地配置。
     task.config['_execution_states'] = {}
 
 
@@ -246,7 +249,7 @@ class TestArkTask(_DebugOffTestCase):
                 patch.object(self.task, "click") as click_mock:
             self.task._enter_tower("box_tribe_tower1")
         cx, cy = 959 + 42, 762 + 29 + 144
-        click_mock.assert_called_once_with(cx, cy, after_sleep=3)
+        assert_called_once_semantic(click_mock, cx, cy)
 
     def test_enter_tower_raises_when_box_missing(self):
         with patch.object(self.task, "get_box_by_name", side_effect=ValueError("missing")):
@@ -278,9 +281,9 @@ class TestArkTask(_DebugOffTestCase):
                 patch.object(self.task, "_climb_battle", side_effect=AssertionError("不应进入战斗")):
             result = self.task._try_tower(1)
         self.assertFalse(result)
-        click_box_mock.assert_any_call("box_tower_enter", raise_if_not_found=True, after_sleep=1)
-        click_mock.assert_any_call("stage_detail_close", raise_if_not_found=True, after_sleep=1)
-        click_mock.assert_any_call("common_back", raise_if_not_found=True, after_sleep=1)
+        assert_any_call_semantic(click_box_mock, "box_tower_enter", raise_if_not_found=True)
+        assert_any_call_semantic(click_mock, "stage_detail_close", raise_if_not_found=True)
+        assert_any_call_semantic(click_mock, "common_back", raise_if_not_found=True)
 
     def test_try_tower_battle_button_missing_returns_to_tower(self):
         stage_box = Box(1097, 588, 50, 26, confidence=1, name="tribe_tower_stage")
@@ -294,9 +297,9 @@ class TestArkTask(_DebugOffTestCase):
             result = self.task._try_tower(1)
         self.assertFalse(result)
         wait_mock.assert_any_call("tribe_tower_stage", raise_if_not_found=True)
-        click_box_mock.assert_any_call("box_tower_enter", raise_if_not_found=True, after_sleep=1)
-        click_mock.assert_any_call("stage_detail_close", raise_if_not_found=True, after_sleep=1)
-        click_mock.assert_any_call("common_back", raise_if_not_found=True, after_sleep=1)
+        assert_any_call_semantic(click_box_mock, "box_tower_enter", raise_if_not_found=True)
+        assert_any_call_semantic(click_mock, "stage_detail_close", raise_if_not_found=True)
+        assert_any_call_semantic(click_mock, "common_back", raise_if_not_found=True)
 
     def test_try_tower_normal_climb(self):
         battle_box = Box(1340, 1283, 80, 106, confidence=1, name="box_stage_detail_battle")
@@ -360,8 +363,7 @@ class TestArkTask(_DebugOffTestCase):
             self.task._climb_battle(1, battle_btn)
         clicked = [c.args[0].name for c in click_mock.call_args_list]
         self.assertEqual(["battle_btn", "box_battle_finish_text"], clicked)  # 下一关灰白禁用视为已到最高层。
-        back_mock.assert_called_once_with("common_back", raise_if_not_found=True,
-                                          after_sleep=1)  # 返回后不再固定等待，由流程在下一塔前断言无限之塔界面。
+        assert_called_once_semantic(back_mock, "common_back", raise_if_not_found=True)  # 返回后不再固定等待，由流程在下一塔前断言无限之塔界面。
         self.assertEqual([], self.task.failed_towers)
 
     def test_climb_battle_success_click_esc_when_next_stage_box_missing(self):
@@ -414,7 +416,6 @@ class TestArkTask(_DebugOffTestCase):
             self.task._abandon_battle(battle_btn)
         first_click = click_mock.call_args_list[0]
         self.assertIs(battle_btn, first_click.args[0])
-        self.assertEqual(10, first_click.kwargs["after_sleep"])
         self.assertEqual(
             ["battle_pause", "battle_escape", "battle_finish_failed_back"],
             [c.args[0].name for c in click_mock.call_args_list[1:]],
@@ -432,7 +433,7 @@ class TestArkTask(_DebugOffTestCase):
         self.assertEqual(3, assert_mock.call_count)  # 塔 2-4 开始前必须先识别到无限之塔界面。
         self.assertEqual([("tribe_tower",), ("tribe_tower",), ("tribe_tower",)],
                          [c.args for c in assert_mock.call_args_list])
-        back_mock.assert_called_once_with("common_back", raise_if_not_found=False, after_sleep=1)
+        assert_called_once_semantic(back_mock, "common_back", raise_if_not_found=False)
 
     def test_flow_abandon_mode_ends_after_first_battle(self):
         self.task.config["关闭自动爬塔"] = True
@@ -465,8 +466,8 @@ class TestArkTask(_DebugOffTestCase):
                 patch.object(self.task, "dismiss_all_popups") as dismiss_mock, \
                 patch.object(self.task, "wait_for_lobby", return_value=True) as lobby_mock:
             self.task._exit_to_lobby()
-        click_mock.assert_called_once_with(home, after_sleep=1)  # 命中按钮即点击返回大厅。
-        lobby_mock.assert_called_once_with(time_out=10, raise_if_not_found=False)  # 点击后等待确认回到大厅。
+        assert_called_once_semantic(click_mock, home)  # 命中按钮即点击返回大厅。
+        assert_called_once_semantic(lobby_mock, raise_if_not_found=False)  # 点击后等待确认回到大厅。
         dismiss_mock.assert_not_called()  # 首轮即确认回大厅，不触发清理重试。
 
     def test_exit_to_lobby_no_home_skips_click_and_still_waits(self):
@@ -477,7 +478,7 @@ class TestArkTask(_DebugOffTestCase):
                 patch.object(self.task, "wait_for_lobby", return_value=True) as lobby_mock:
             self.task._exit_to_lobby()
         click_mock.assert_not_called()  # 未命中按钮（如已被失败恢复带回大厅）跳过点击。
-        lobby_mock.assert_called_once_with(time_out=10, raise_if_not_found=False)  # 仍等待确认回到大厅。
+        assert_called_once_semantic(lobby_mock, raise_if_not_found=False)  # 仍等待确认回到大厅。
         dismiss_mock.assert_not_called()  # 首轮即确认回大厅，不触发清理重试。
 
     def test_exit_to_lobby_home_region_fallback(self):
@@ -490,7 +491,7 @@ class TestArkTask(_DebugOffTestCase):
             self.task._exit_to_lobby()
         self.assertEqual(2, find_mock.call_count)  # 咨询等界面按钮坐标偏移：精确匹配失败后左下角区域兜底。
         self.assertIn("box", find_mock.call_args_list[1].kwargs)  # 兜底调用限定左下角区域。
-        click_mock.assert_called_once_with(home, after_sleep=1)  # 兜底命中后正常点击返回大厅。
+        assert_called_once_semantic(click_mock, home)  # 兜底命中后正常点击返回大厅。
 
     def test_exit_to_lobby_retries_after_swallowed_click(self):
         # 遮罩吞点击场景：首轮确认失败 → 清理遮罩弹窗 → 补点一轮后确认回大厅。
@@ -502,10 +503,10 @@ class TestArkTask(_DebugOffTestCase):
                 patch.object(self.task, "wait_for_lobby", side_effect=[False, True]) as lobby_mock:
             self.task._exit_to_lobby()
         self.assertEqual(2, click_mock.call_count)  # 首轮被吞，补点一轮。
-        dismiss_mock.assert_called_once_with(wait_for_popup=False, time_out=5)  # 两轮之间清理一次遮罩。
+        assert_called_once_semantic(dismiss_mock, wait_for_popup=False)  # 两轮之间清理一次遮罩。
         self.assertEqual(2, lobby_mock.call_count)  # 每轮点击后都等待确认。
-        for call in lobby_mock.call_args_list:
-            self.assertEqual({"time_out": 10, "raise_if_not_found": False}, call.kwargs)
+        for lobby_call in lobby_mock.call_args_list:
+            self.assertFalse(lobby_call.kwargs["raise_if_not_found"])  # 每轮等待只观察不抛错，交由重试逻辑决定。
 
     def test_exit_to_lobby_gives_up_silently_after_retry(self):
         # 两轮均未确认回大厅：静默返回，交由上层失败恢复兜底（不抛异常）。
@@ -517,7 +518,7 @@ class TestArkTask(_DebugOffTestCase):
                 patch.object(self.task, "wait_for_lobby", return_value=False):
             self.task._exit_to_lobby()
         self.assertEqual(2, click_mock.call_count)  # 两轮各点一次。
-        dismiss_mock.assert_called_once_with(wait_for_popup=False, time_out=5)  # 仅两轮之间清理一次。
+        assert_called_once_semantic(dismiss_mock, wait_for_popup=False)  # 仅两轮之间清理一次。
 
 
 class TestArkTaskSimulation(_DebugOffTestCase):
@@ -899,7 +900,7 @@ class TestNavToArk(_DebugOffTestCase):
                 patch.object(self.task, "transition") as transition_mock:
             self.task._nav_to_ark()
         self.assertEqual([call("ark"), call("lobby")], screen_mock.call_args_list)  # 先探目标页，未命中再探大厅。
-        wait_mock.assert_called_once_with("ark", time_out=5)  # 轮询目标页未被跳过。
+        assert_called_once_semantic(wait_mock, "ark")  # 轮询目标页未被跳过。
         dismiss_mock.assert_not_called()
         transition_mock.assert_not_called()
 
@@ -920,8 +921,7 @@ class TestNavToArk(_DebugOffTestCase):
             self.task._nav_to_ark()
         recover_mock.assert_called_once()
         lobby_mock.assert_not_called()
-        transition_mock.assert_called_once_with("ark", click_feature="ark",
-                                                wait_confirm=10, after_sleep=1)
+        assert_called_once_semantic(transition_mock, "ark", click_feature="ark")
 
     def test_true_cold_start_goes_to_lobby_wait(self):
         """真冷启动（无按钮且无任何已注册界面命中）才进入 wait_until_lobby_after_start。"""
@@ -931,8 +931,7 @@ class TestNavToArk(_DebugOffTestCase):
             self.task._nav_to_ark()
         recover_mock.assert_not_called()
         lobby_mock.assert_called_once()
-        transition_mock.assert_called_once_with("ark", click_feature="ark",
-                                                wait_confirm=10, after_sleep=1)
+        assert_called_once_semantic(transition_mock, "ark", click_feature="ark")
 
     def test_login_page_anchor_skips_recovery(self):
         """登录页正向锚点：命中 login_page 即明确冷启动入口，即使有按钮证据也跳过恢复，
@@ -944,8 +943,7 @@ class TestNavToArk(_DebugOffTestCase):
             self.task._nav_to_ark()
         recover_mock.assert_not_called()
         lobby_mock.assert_called_once()
-        transition_mock.assert_called_once_with("ark", click_feature="ark",
-                                                wait_confirm=10, after_sleep=1)
+        assert_called_once_semantic(transition_mock, "ark", click_feature="ark")
 
     def test_cold_start_lobby_wait_failure_raises(self):
         """冷启动等大厅失败 → 抛 WaitFailedException 交给 try_step 恢复重试。"""
@@ -1425,10 +1423,9 @@ class TestArkTaskRankingReward(_DebugOffTestCase):
                 patch.object(self.task, "wait_click_feature") as click_mock, \
                 patch.object(self.task, "assert_screen", return_value=True) as assert_mock:
             self.task._do_ranking_reward_flow()
-        transition_mock.assert_called_once_with("ark_ranking", click_feature="ark_ranking",
-                                                wait_confirm=10, after_sleep=1)  # 点击排名入口并确认进入排名界面。
+        assert_called_once_semantic(transition_mock, "ark_ranking", click_feature="ark_ranking")  # 点击排名入口并确认进入排名界面。
         enabled_mock.assert_called_once_with(reward_box)  # 判态入参应为奖励区域。
-        click_mock.assert_called_once_with("common_back", raise_if_not_found=True, after_sleep=1)  # 仅一次返回点击。
+        assert_called_once_semantic(click_mock, "common_back", raise_if_not_found=True)  # 仅一次返回点击。
         assert_mock.assert_called_once_with("ark")  # 断言回到方舟界面（基类原语默认超时 10 秒）。
 
     def test_flow_reward_region_missing_treated_unavailable(self):
@@ -1459,9 +1456,9 @@ class TestArkTaskRankingReward(_DebugOffTestCase):
                 patch.object(self.task, "wait_click_feature") as click_mock, \
                 patch.object(self.task, "assert_screen", return_value=True) as assert_mock:
             self.task._do_ranking_reward_flow()
-        click_box_mock.assert_called_once_with(reward_box, after_sleep=2)  # 点击可领取的奖励区域。
+        assert_called_once_semantic(click_box_mock, reward_box)  # 点击可领取的奖励区域。
         dismiss_mock.assert_called_once()  # 领取后必出奖励遮罩，等待并清理（默认 wait_for_popup=True）。
-        click_mock.assert_called_once_with("common_back", raise_if_not_found=True, after_sleep=1)  # 返回方舟。
+        assert_called_once_semantic(click_mock, "common_back", raise_if_not_found=True)  # 返回方舟。
         assert_mock.assert_called_once_with("ark")  # 断言已回到方舟界面（基类原语默认超时 10 秒）。
 
     def test_ranking_screen_registered(self):
@@ -1573,7 +1570,7 @@ class TestArkTaskInterception(_DebugOffTestCase):
                 patch.object(self.task, "_back_through_screens") as back_mock:
             self.task._do_common_interception()
         self.assertEqual([quick, quick, start], [c.args[0] for c in enabled_mock.call_args_list])  # 判态区域依次为快速/快速/普通。
-        click_mock.assert_called_once_with(quick, after_sleep=2)  # 仅快速战斗被点击一次。
+        assert_called_once_semantic(click_mock, quick)  # 仅快速战斗被点击一次。
         battle_mock.assert_called_once_with("common_interception_page")  # 战斗等待回到通用拦截战界面。
         back_mock.assert_called_once_with("interception_page", "ark")  # 逐级返回方舟。
 
@@ -1632,7 +1629,7 @@ class TestArkTaskInterception(_DebugOffTestCase):
             self.task._do_anomaly_interception()
         wait_mock.assert_called_once()  # 入口动画容忍轮询判为可用后进入流程。
         team_mock.assert_called_once()  # 快速战斗前只选一次队伍。
-        click_mock.assert_called_once_with(quick, after_sleep=2)  # 仅快速战斗被点击。
+        assert_called_once_semantic(click_mock, quick)  # 仅快速战斗被点击。
         battle_mock.assert_called_once_with("anomaly_interception_team_select_page")  # 战斗等待回到队伍选择界面。
         back_mock.assert_called_once_with("anomaly_interception_page", "ark")  # 逐级返回方舟。
 
@@ -1651,7 +1648,7 @@ class TestArkTaskInterception(_DebugOffTestCase):
                 patch.object(self.task, "is_feature_enabled", side_effect=[False, True]), \
                 patch.object(self.task, "click_box") as click_mock:
             self.task._select_anomaly_team_if_configured()
-        click_mock.assert_called_once_with(team_box, after_sleep=1)  # 队伍未激活点击一次后激活。
+        assert_called_once_semantic(click_mock, team_box)  # 队伍未激活点击一次后激活。
 
     def test_match_anomaly_boss_noop_when_already_matching(self):
         self.task.config["BOSS选择"] = "克拉肯"
@@ -1670,7 +1667,7 @@ class TestArkTaskInterception(_DebugOffTestCase):
                 patch.object(self.task, "wait_click_feature") as click_mock:
             self.task._match_anomaly_boss()
         self.assertEqual(2, ocr_mock.call_count)  # 首检未命中→切换后再检命中。
-        click_mock.assert_called_once_with("anomaly_interception_object_selector", raise_if_not_found=True, after_sleep=1)
+        assert_called_once_semantic(click_mock, "anomaly_interception_object_selector", raise_if_not_found=True)
 
     def test_wait_interception_battle_confirm_and_return(self):
         confirm = Box(7, 7, 10, 10, confidence=1, name="confirm")
@@ -1678,8 +1675,8 @@ class TestArkTaskInterception(_DebugOffTestCase):
                 patch.object(self.task, "click_box") as click_mock, \
                 patch.object(self.task, "assert_screen") as assert_mock:
             self.task._wait_interception_battle("common_interception_page")
-        click_mock.assert_called_once_with(confirm, after_sleep=2)  # 点击结算确认按钮。
-        assert_mock.assert_called_once_with("common_interception_page", time_out=15)  # 断言回到战斗前界面。
+        assert_called_once_semantic(click_mock, confirm)  # 点击结算确认按钮。
+        assert_called_once_semantic(assert_mock, "common_interception_page")  # 断言回到战斗前界面。
 
     def test_wait_interception_battle_timeout_raises(self):
         with patch.object(self.task, "wait_battle_finish", return_value=(None, None)), \

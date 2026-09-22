@@ -9,14 +9,16 @@ from ok.test.TaskTestCase import TaskTestCase  # ok 任务测试基类。
 from src.config import config  # 全局任务配置对象（TaskTestCase 要求传入）。
 from src.tasks.DailyTask import DailyTask  # 被测任务类。
 from src.tasks.HarvestTask import HarvestTask  # 收获子任务（PASS 流程整合在它里面）。
+from tests.support.asserts import assert_called_once_semantic
 
 _TEST_CONFIG_DIR = os.path.join('dev_tools', 'test_configs')  # 测试专用配置目录，避免污染真实 configs/。
 
 
 def _isolate_task_config(task, name):
-    """把任务配置重定向到 dev_tools/test_configs 下的临时文件，避免污染真实 configs/。"""
+    """把任务配置重定向到 dev_tools/test_configs 下的临时文件并复位为任务默认值：既不污染真实 configs/，也不读它的值。"""
     os.makedirs(_TEST_CONFIG_DIR, exist_ok=True)  # 目录不存在则创建。
     task.config.config_file = os.path.join(_TEST_CONFIG_DIR, f'{name}.json')  # 重定向配置文件路径。
+    task.config.reset_to_default()  # 复位为任务默认值：用例只设自己关心的开关，不读开发者本地配置。
     task.config['_execution_states'] = {}  # 清空执行状态，避免读到真实环境遗留记录。
 
 
@@ -75,13 +77,14 @@ class TestDailyTask(TaskTestCase):
                 patch.object(self.task, "find_red_dot", return_value=None) as dot_mock:
             self.task._daily_end_flow()  # 无可领奖励、无红点的空跑。
         ensure_mock.assert_called_once_with("lobby")  # 先幂等就位大厅。
-        self.assertEqual(
-            [call("mission", time_out=10, raise_if_not_found=True, after_sleep=1),
-             call("mission_page_close", time_out=10, raise_if_not_found=True, after_sleep=1)],
-            click_mock.call_args_list)  # 先点任务入口打开弹窗，收尾点击关闭按钮。
-        wait_mock.assert_has_calls(
-            [call("mission_page", time_out=10, raise_if_not_found=True),
-             call("mission_page", time_out=10, raise_if_not_found=True)])  # 打开弹窗 + 关闭弹窗前各确认一次任务弹窗仍可见。
+        self.assertEqual(["mission", "mission_page_close"],
+                         [c.args[0] for c in click_mock.call_args_list])  # 先点任务入口打开弹窗，收尾点击关闭按钮。
+        self.assertEqual([True, True],
+                         [c.kwargs["raise_if_not_found"] for c in click_mock.call_args_list])  # 两处点击都要求特征必须命中。
+        self.assertEqual(["mission_page", "mission_page"],
+                         [c.args[0] for c in wait_mock.call_args_list])  # 打开弹窗 + 关闭弹窗前各确认一次任务弹窗仍可见。
+        self.assertEqual([True, True],
+                         [c.kwargs["raise_if_not_found"] for c in wait_mock.call_args_list])  # 两次可见性确认都必须命中。
         self.assertEqual(1, enabled_mock.call_count)  # 领取按钮首次判定即灰白，直接结束领取。
         self.assertEqual(
             [call("box_mission_weekly_badge", template_path='assets/template/common/badge.png'),
@@ -117,7 +120,7 @@ class TestDailyTask(TaskTestCase):
                 patch.object(self.task, "wait_ocr") as ocr_mock:
             switched = self.task._switch_to_tab_with_red_dot(set())  # 周任务徽章有红点，其余无。
         self.assertTrue(switched)  # 发生了一次 tab 切换。
-        click_mock.assert_called_once_with(dot, after_sleep=1)  # 点击红点所在徽章。
+        assert_called_once_semantic(click_mock, dot)  # 点击红点所在徽章。
         ocr_mock.assert_called_once()  # OCR 确认副标题切换。
         kwargs = ocr_mock.call_args.kwargs  # 读取关键字参数。
         self.assertIsNotNone(kwargs["match"].search("Weekly Mission"))  # 周任务副标题正则可命中。

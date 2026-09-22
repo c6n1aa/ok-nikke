@@ -38,7 +38,7 @@
 
 ## 识别相关
 
-- `ocr`：使用 `onnxocr`，开启 `use_openvino`。
+- `ocr`：使用 `onnxocr`，后端为 `onnxruntime`；切回 OpenVINO 需装 `openvino` 并把 `use_openvino` 置 `True`（OpenVINO CPU 会按 OCR 输入尺寸累积内存）。
 - `template_matching`：指定 `coco_feature_json`（`assets/coco_annotations.json`）与默认阈值/偏移。素材约定见[界面识别与失败恢复](screen-and-recovery.md)。
 
 ## 任务与界面

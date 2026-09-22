@@ -234,7 +234,7 @@ class TestBattleWait(TaskTestCase):
     def test_real_tower_victory_screenshot_detected(self):
         """回归测试：用户实测 1883x1058 窗口下胜利结算未被识别（REWARD 文字缩放失配）。"""
         self.set_image('tests/images/battle_finish_tower.png')  # 真实企业塔胜利结算截图。
-        # 超时给足：本用例走真实 OCR，CI 上首次调用要冷加载 OpenVINO/onnxocr 模型，
+        # 超时给足：本用例走真实 OCR，CI 上首次调用要冷加载 onnxruntime/onnxocr 模型，
         # 4 秒预算在共享 runner 上会先超时再断言，属于环境性假失败（本地约 0.3s）。
         result, box = self.task.wait_battle_finish(time_out=30, check_interval=1)
         self.assertEqual("success", result)  # 必须能识别出战斗结束。
