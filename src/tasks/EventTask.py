@@ -28,7 +28,7 @@ class EventTask(EventEntryMixin, EventListMixin, EventStoryMixin, EventStageMixi
     def __init__(self, *args, **kwargs):  # 初始化任务元数据与配置。
         super().__init__(*args, **kwargs)  # 必须先调用父类初始化。
         self.name = "活动"  # 任务显示名称。
-        self.description = "自动处理限时活动，活动首次开放时需手动进入并配队（剧情(BETA)/扫荡/挑战/任务/商店/签到印章）。"  # 任务说明。
+        self.description = "自动处理限时活动，活动首次开放时需手动进入并配队（剧情(BETA)/扫荡/挑战/任务/签到印章）。"  # 任务说明。
         # 以下三项是跨 mixin 的共享状态：由列表路径（EventListMixin）写入，各子流程 mixin 读取。
         self._current_event = None  # 当前处理的活动（日历条目）；失败恢复回大厅后重入时用它 banner 定位。
         self._event_identity = None  # 当前处理的活动身份（完成状态键用）；接管路径也会填，但那条是非权威身份。
