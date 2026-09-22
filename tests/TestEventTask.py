@@ -1536,7 +1536,7 @@ class TestEventTask(_DebugOffTestCase):
         from src.tasks.event._const import _CHALLENGE_CLICK_X_OFFSET
         stage = self._challenge_stage()
         with patch.object(type(self.task), 'width', new_callable=PropertyMock, return_value=2560), \
-                patch('src.tasks.EventTask.random.randint', return_value=250) as randint_mock:
+                patch('src.tasks.event._challenge.random.randint', return_value=250) as randint_mock:
             click = self.task._challenge_click_box(stage)
         self.assertEqual((int(2560 * _CHALLENGE_CLICK_X_OFFSET[0]), int(2560 * _CHALLENGE_CLICK_X_OFFSET[1])),
                          randint_mock.call_args.args)  # 左移量在区间内随机取（占屏宽比例换算成像素）。
@@ -1547,7 +1547,7 @@ class TestEventTask(_DebugOffTestCase):
         # 分辨率极小时区间换算成同一像素：退化为定值，不抛异常。
         stage = self._challenge_stage()
         with patch.object(type(self.task), 'width', new_callable=PropertyMock, return_value=8), \
-                patch('src.tasks.EventTask.random.randint', side_effect=AssertionError('区间退化不应取随机')):
+                patch('src.tasks.event._challenge.random.randint', side_effect=AssertionError('区间退化不应取随机')):
             click = self.task._challenge_click_box(stage)
         self.assertEqual(Box(stage.x, stage.y, stage.width, stage.height, confidence=1,
                              name='event_challenge_stage'), click)  # 左移量为 0。
