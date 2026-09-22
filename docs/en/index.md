@@ -24,7 +24,7 @@ ok-nikke is an automation app for the Windows client of Goddess of Victory: NIKK
 | Outpost | Dispatch / advise / brief encounters |
 | Ark | Manufacturer towers / simulation room / interception / arena |
 | Raid | Limited-time challenges (co-op / solo raid) |
-| Event | Generic handling of limited-time events (check-in stamp / story push (BETA) + sweep / challenge) |
+| Event | Generic handling of limited-time events (check-in stamp / story push (BETA) + sweep / challenge / mission rewards) |
 
 Except for "Daily", every task can be run individually from the "Tasks" view, or enabled in the "Daily settings" and orchestrated by "Daily" into a single queue.
 

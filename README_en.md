@@ -85,7 +85,7 @@ Notes:
 | Outpost | Dispatch / advise / brief encounters |
 | Ark | Manufacturer towers / simulation room / interception / arena |
 | Raid | Limited-time challenges (co-op / solo raid) |
-| Event | Generic handling of limited-time events (check-in stamp / story push (BETA) + sweep / challenge) |
+| Event | Generic handling of limited-time events (check-in stamp / story push (BETA) + sweep / challenge / mission rewards) |
 
 Except for "Daily", every task above can be run individually from the "Tasks" view. You can also enable them in the "Daily settings" and let "Daily" orchestrate them into a single queue that runs in order.
 
