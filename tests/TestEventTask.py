@@ -11,7 +11,8 @@ from ok.test.TaskTestCase import TaskTestCase
 
 from src import event_calendar, event_stage
 from src.config import config
-from src.tasks.EventTask import EventTask, event_done_key, event_identity
+from src.tasks.EventTask import EventTask
+from src.tasks.event._const import event_done_key, event_identity
 
 from tests.support.asserts import (assert_any_call_semantic, assert_called_once_semantic,
                                    assert_last_call_semantic)
@@ -73,7 +74,7 @@ class TestEventTask(_DebugOffTestCase):
         self.addCleanup(feature_patcher.stop)
 
     def test_config_defaults(self):
-        from src.tasks.EventTask import _LEGACY_DONE_KEY
+        from src.tasks.event._const import _LEGACY_DONE_KEY
         self.assertEqual('活动', self.task.name)
         self.assertIn('活动', self.task.description)
         # done_keys 只是「本任务有完成状态」的声明锚：真实完成键按活动身份动态生成（event_<身份>[_<流程>]）。
@@ -105,7 +106,7 @@ class TestEventTask(_DebugOffTestCase):
 
     def test_skip_when_all_live_events_done(self):
         # 不在活动内 + 在架活动身份键均已完成：直接跳过 —— 不动游戏窗口，也不联网（判定只用本地快照）。
-        from src.tasks.EventTask import _LEGACY_DONE_KEY
+        from src.tasks.event._const import _LEGACY_DONE_KEY
         event = _fake_event('key1', '活动A', 'https://cdn/x.png')
         self.task.mark_done(event_done_key(event_identity('key1')), 'day')
         with patch.object(event_calendar, 'load_snapshot', return_value=_snapshot([event])), \
@@ -197,7 +198,7 @@ class TestEventTask(_DebugOffTestCase):
         self.assertEqual(event_identity('EVENT_BANNER_X'), event_identity('EVENT_BANNER_X'))  # 同键稳定。
 
     def test_event_identity_truncates_and_hashes_dirty_key(self):
-        from src.tasks.EventTask import _EVENT_KEY_MAX
+        from src.tasks.event._const import _EVENT_KEY_MAX
         self.assertEqual(_EVENT_KEY_MAX, len(event_identity('K' * (_EVENT_KEY_MAX + 20))))  # 超长截断。
         dirty = event_identity('....')  # 归一后为空：回落 md5 短哈希。
         self.assertEqual(8, len(dirty))
@@ -333,7 +334,7 @@ class TestEventTask(_DebugOffTestCase):
             self.assertIsNone(self.task._resolve_takeover_identity())  # 两个同形态候选：不猜。
 
     def test_probe_event_form_uses_signin_and_bonus_entries(self):
-        from src.tasks.EventTask import _STORY_SUB_PATTERN
+        from src.tasks.event._const import _STORY_SUB_PATTERN
         with patch.object(self.task, '_probe_entry', return_value=True) as probe_mock, \
                 patch.object(self.task, '_entry_box',
                              return_value=Box(1, 1, 1, 1, confidence=1, name='加成奖励妮姬')) as entry_mock:
@@ -855,7 +856,7 @@ class TestEventTask(_DebugOffTestCase):
             found = self.task._find_claim_all()
         self.assertEqual(hit, found)
         ocr_mock.assert_called_once()
-        from src.tasks.EventTask import _CLAIM_ALL_TEXT
+        from src.tasks.event._const import _CLAIM_ALL_TEXT
         self.assertEqual([_CLAIM_ALL_TEXT], ocr_mock.call_args.kwargs['match'])  # 用固定文案判据。
 
     def test_find_claim_all_returns_none_without_hit(self):
@@ -864,7 +865,7 @@ class TestEventTask(_DebugOffTestCase):
             self.assertIsNone(self.task._find_claim_all())
 
     def test_claim_button_box_pads_text_box(self):
-        from src.tasks.EventTask import _CLAIM_ALL_PAD
+        from src.tasks.event._const import _CLAIM_ALL_PAD
         text = Box(1000, 1200, 200, 50, confidence=1, name='全部领取')
         padded = self.task._claim_button_box(text)
         self.assertLess(padded.x, text.x)  # 水平外扩到按钮底色。
@@ -918,7 +919,7 @@ class TestEventTask(_DebugOffTestCase):
 
     def test_flow_checkin_menu_still_present_returns(self):
         # 反向判切页失败：菜单页仍在（小人未走到签到地点/切页失败）→ 告警后直接回菜单页跳过领取，不抛异常。
-        from src.tasks.EventTask import _SD_ARRIVE_TIMEOUT
+        from src.tasks.event._const import _SD_ARRIVE_TIMEOUT
         entry = Box(60, 10, 30, 10, confidence=1, name='签到印章')
         with patch.object(self.task, '_nav_to_event_main'), \
                 patch.object(self.task, '_entry_box', return_value=entry), \
@@ -998,7 +999,7 @@ class TestEventTask(_DebugOffTestCase):
         self.assertEqual(entry, ocr_mock.call_args.kwargs['box'])  # 在专属区域内识别。
 
     def test_find_mission_subtitle_uses_region_and_keyword(self):
-        from src.tasks.EventTask import _MISSION_SUBTITLE_BOX, _MISSION_SUBTITLE_TEXT
+        from src.tasks.event._const import _MISSION_SUBTITLE_BOX, _MISSION_SUBTITLE_TEXT
         hit = self._mission_subtitle()
         region = Box(900, 300, 400, 100, confidence=1, name=_MISSION_SUBTITLE_BOX)
         with patch.object(self.task, '_optional_box', return_value=region) as box_mock, \
@@ -1026,7 +1027,7 @@ class TestEventTask(_DebugOffTestCase):
             self.task._flow_mission()
         nav_mock.assert_called_once()  # 进入前就位活动主页。
         assert_any_call_semantic(click_mock, entry)  # 点任务入口弹出弹窗。
-        from src.tasks.EventTask import _MISSION_READY_TIMEOUT
+        from src.tasks.event._const import _MISSION_READY_TIMEOUT
         self.assertEqual(_MISSION_READY_TIMEOUT, wait_mock.call_args.kwargs['time_out'])  # 用弹窗就位窗口等待。
         pages_mock.assert_called_once()  # 弹窗就位后按栏目领取。
         blank_mock.assert_called_once()  # 领取完点空白关弹窗。
@@ -1045,7 +1046,7 @@ class TestEventTask(_DebugOffTestCase):
             self.assertFalse(self.task._mission_popup_ready())  # 都不命中 = 弹窗未就位。
 
     def test_mission_tabs_locates_both_features_in_region(self):
-        from src.tasks.EventTask import _MISSION_ICON_BOX
+        from src.tasks.event._const import _MISSION_ICON_BOX
         daily = self._mission_tab(1035)
         challenge = self._mission_tab(1395)
         region = Box(927, 277, 707, 72, confidence=1, name=_MISSION_ICON_BOX)
@@ -1068,7 +1069,7 @@ class TestEventTask(_DebugOffTestCase):
                 patch.object(self.task, 'ocr', side_effect=[[daily], [challenge]]) as ocr_mock:
             tabs = self.task._mission_tabs()
         self.assertEqual({'daily': daily, 'challenge': challenge}, tabs)
-        from src.tasks.EventTask import _MISSION_TABS
+        from src.tasks.event._const import _MISSION_TABS
         self.assertEqual([_MISSION_TABS[0][2]], ocr_mock.call_args_list[0].kwargs['match'])  # 用每日任务文案兜底。
         self.assertEqual([_MISSION_TABS[1][2]], ocr_mock.call_args_list[1].kwargs['match'])  # 用成就文案兜底。
 
@@ -1086,7 +1087,7 @@ class TestEventTask(_DebugOffTestCase):
             self.assertIsNone(self.task._mission_tabs())  # 栏目不全不按多栏目流程处理。
 
     def test_mission_subtitle_text_joins_region_text(self):
-        from src.tasks.EventTask import _MISSION_DAILY_SUBTITLE_BOX
+        from src.tasks.event._const import _MISSION_DAILY_SUBTITLE_BOX
         region = Box(943, 365, 262, 77, confidence=1, name=_MISSION_DAILY_SUBTITLE_BOX)
         texts = [Box(0, 0, 1, 1, confidence=1, name='DAILY '), Box(0, 0, 1, 1, confidence=1, name='MISSION')]
         with patch.object(self.task, '_optional_box', return_value=region) as box_mock, \
@@ -1259,7 +1260,7 @@ class TestEventTask(_DebugOffTestCase):
         wait_mock.assert_called_once()  # 每轮点完等第二段重新可领。
         args, kwargs = wait_mock.call_args
         self.assertEqual('_claim_all_claimable', args[0].__func__.__name__)  # 判据是「重新可领」，而非遮罩必须出现。
-        from src.tasks.EventTask import _MISSION_CLAIM_SETTLE_TIMEOUT, _MISSION_CLAIM_SETTLE
+        from src.tasks.event._const import _MISSION_CLAIM_SETTLE_TIMEOUT, _MISSION_CLAIM_SETTLE
         self.assertEqual(_MISSION_CLAIM_SETTLE_TIMEOUT, kwargs['time_out'])  # 给第二段渲染留出窗口。
         self.assertEqual(_MISSION_CLAIM_SETTLE, kwargs['settle_time'])  # 可领后稳定确认，吸收按钮入场动画。
         self.assertFalse(kwargs['raise_if_not_found'])  # 超时静默，不抛异常，由下一轮灰白判态兜底。
@@ -1277,7 +1278,7 @@ class TestEventTask(_DebugOffTestCase):
         wait_mock.assert_called_once()  # 点击后仍等待第二段就绪，超时不立即停止。
 
     def test_claim_mission_rewards_hits_click_limit(self):
-        from src.tasks.EventTask import _MISSION_CLAIM_MAX_CLICKS
+        from src.tasks.event._const import _MISSION_CLAIM_MAX_CLICKS
         claim = self._claim_all_box()
         with patch.object(self.task, '_find_claim_all', return_value=claim), \
                 patch.object(self.task, 'is_feature_enabled', return_value=True), \
@@ -1326,7 +1327,7 @@ class TestEventTask(_DebugOffTestCase):
 
     def test_flow_challenge_enters_and_returns_to_menu_when_no_stage(self):
         # 进入路径：就位主页 → 定位挑战入口 → transition 守卫式进入挑战页 → 无可用关卡则直接回菜单页。
-        from src.tasks.EventTask import _SD_ARRIVE_TIMEOUT
+        from src.tasks.event._const import _SD_ARRIVE_TIMEOUT
         entry = self._challenge_entry()
         with patch.object(self.task, '_nav_to_event_main') as nav_mock, \
                 patch.object(self.task, '_entry_box', return_value=entry) as entry_mock, \
@@ -1450,7 +1451,7 @@ class TestEventTask(_DebugOffTestCase):
 
     def test_flow_challenge_retries_stage_click_then_enters_detail(self):
         # 首次点击没打开详情页（点空）：补点一次，第二次进入详情页后照常走战斗分支。
-        from src.tasks.EventTask import _CHALLENGE_CLICK_ATTEMPTS
+        from src.tasks.event._const import _CHALLENGE_CLICK_ATTEMPTS
         entry, stage = self._challenge_entry(), self._challenge_stage()
         quick, click = self._challenge_quick_box(), self._challenge_stage_click(stage)
         with patch.object(self.task, '_nav_to_event_main'), \
@@ -1479,7 +1480,7 @@ class TestEventTask(_DebugOffTestCase):
 
     def test_flow_challenge_stage_click_lands_not_on_detail(self):
         # 两次点击都没进详情页（异常落点）：告警 + 兜底回菜单，不做任何战斗。
-        from src.tasks.EventTask import _CHALLENGE_CLICK_ATTEMPTS
+        from src.tasks.event._const import _CHALLENGE_CLICK_ATTEMPTS
         entry, stage = self._challenge_entry(), self._challenge_stage()
         with patch.object(self.task, '_nav_to_event_main'), \
                 patch.object(self.task, '_entry_box', return_value=entry), \
@@ -1532,7 +1533,7 @@ class TestEventTask(_DebugOffTestCase):
 
     def test_challenge_click_box_shifts_left_by_random_offset_in_range(self):
         # 标记贴行右边缘：点击框沿 X 轴左移区间内的随机偏移，落回行主体；尺寸/置信度/名称不变。
-        from src.tasks.EventTask import _CHALLENGE_CLICK_X_OFFSET
+        from src.tasks.event._const import _CHALLENGE_CLICK_X_OFFSET
         stage = self._challenge_stage()
         with patch.object(type(self.task), 'width', new_callable=PropertyMock, return_value=2560), \
                 patch('src.tasks.EventTask.random.randint', return_value=250) as randint_mock:
@@ -1553,7 +1554,7 @@ class TestEventTask(_DebugOffTestCase):
 
     def test_wait_challenge_nodes_polls_until_rendered(self):
         # 过场动画吸收：等关卡节点渲染出来再多等一会才继续（区域 + 特征名 + 到达窗口 + 停稳窗口都传给轮询）。
-        from src.tasks.EventTask import _CHALLENGE_PAGE_SETTLE, _CHALLENGE_STAGE_FEATURE, _SD_ARRIVE_TIMEOUT
+        from src.tasks.event._const import _CHALLENGE_PAGE_SETTLE, _CHALLENGE_STAGE_FEATURE, _SD_ARRIVE_TIMEOUT
         list_box = Box(1580, 509, 66, 788, confidence=1, name='box_event_challenge_stage_list')
         node = self._challenge_stage()
 
@@ -1593,7 +1594,7 @@ class TestEventTask(_DebugOffTestCase):
 
     def test_run_quick_battle_pulls_max_and_confirms(self):
         # 快速战斗链：点按钮 → 等次数弹窗 → 拉满 → 开始 → 等结算 → 点结算确认。
-        from src.tasks.EventTask import _SWEEP_PAGE_FEATURE, _SWEEP_START_BOX
+        from src.tasks.event._const import _SWEEP_PAGE_FEATURE, _SWEEP_START_BOX
         quick = self._challenge_quick_box()
         max_btn = Box(1424, 991, 75, 44, confidence=1, name='custom_quick_battle_max')
         confirm = Box(100, 100, 20, 10, confidence=1, name='confirm')
@@ -1649,7 +1650,7 @@ class TestEventTask(_DebugOffTestCase):
             self.assertFalse(self.task._probe_entry('挑战'))
 
     def test_probe_entry_scans_multiple_menu_bands(self):
-        from src.tasks.EventTask import _MENU_BAND_BOXES
+        from src.tasks.event._const import _MENU_BAND_BOXES
         band1, band2 = _MENU_BAND_BOXES[0], _MENU_BAND_BOXES[1]
         box1 = Box(0, 0, 100, 50, confidence=1, name=band1)
         box2 = Box(0, 200, 100, 50, confidence=1, name=band2)
@@ -1841,7 +1842,7 @@ class TestEventTask(_DebugOffTestCase):
 
     def test_swipe_list_up_uses_list_start_ratio(self):
         # 活动列表的滚动手势：起点在区域内垂直 0.8 处、终点 0.55 处（自下往上滑）。
-        from src.tasks.EventTask import _SWIPE_START_RATIO
+        from src.tasks.event._const import _SWIPE_START_RATIO
         box = Box(950, 342, 729, 867, confidence=1, name='list')
         with patch.object(self.task, 'swipe') as swipe_mock:
             self.task._swipe_list_up(box)
@@ -2000,7 +2001,7 @@ class TestEventTask(_DebugOffTestCase):
 
     def test_try_enter_story_sub_page_clicks_and_waits_for_entry(self):
         # 剧情子页面无独有界面判据 → 点 STORY 入口后轮询等「加成」类入口出现（反向判就位）。
-        from src.tasks.EventTask import _SD_ARRIVE_TIMEOUT
+        from src.tasks.event._const import _SD_ARRIVE_TIMEOUT
         story = Box(60, 10, 30, 10, confidence=1, name='STORY II')
         with patch.object(self.task, 'click_box') as click_mock, \
                 patch.object(self.task, 'wait_until', return_value=True) as wait_mock:
@@ -2018,7 +2019,7 @@ class TestEventTask(_DebugOffTestCase):
 
     def test_story_entry_boxes_orders_story_ii_before_story_i(self):
         # 候选顺序 = _STORY_MENU_PATTERNS 顺序（STORY II 优先），且逐个关键词单独定位；未出现的入口不进候选。
-        from src.tasks.EventTask import _STORY_MENU_PATTERNS
+        from src.tasks.event._const import _STORY_MENU_PATTERNS
         story2 = Box(1, 1, 2, 2, confidence=1, name='STORY II')
         story1 = Box(1, 5, 2, 2, confidence=1, name='STORY I')
         asked = []
@@ -2034,7 +2035,7 @@ class TestEventTask(_DebugOffTestCase):
 
     def test_story_entry_boxes_skips_missing_entries(self):
         # 当期只有 STORY I（或 STORY II 尚未出现在菜单栏）：候选里就没有它。
-        from src.tasks.EventTask import _STORY_MENU_PATTERNS
+        from src.tasks.event._const import _STORY_MENU_PATTERNS
         story1 = Box(1, 5, 2, 2, confidence=1, name='STORY I')
         with patch.object(self.task, '_entry_box',
                           side_effect=lambda label, patterns=None: (
@@ -2132,7 +2133,7 @@ class TestEventTask(_DebugOffTestCase):
     def test_entry_locked_on_real_screenshot(self):
         # 实机标定回归（COINRUSH SHOWDOWN 大活动主页）：锁定的 STORY II（灰字 + 锁图标）判为锁定，
         # 同屏可用的 STORY I 判为可用；阈值见 _ENTRY_LOCK_BRIGHT_V / _ENTRY_LOCK_BRIGHT_RATIO。
-        from src.tasks.EventTask import _STORY_MENU_PATTERNS
+        from src.tasks.event._const import _STORY_MENU_PATTERNS
         self.set_image('ok_templates/event_big_main_01.png')
         locked = self.task._entry_box('剧情', patterns=[_STORY_MENU_PATTERNS[0]])
         unlocked = self.task._entry_box('剧情', patterns=[_STORY_MENU_PATTERNS[1]])
@@ -2342,7 +2343,7 @@ class TestEventTask(_DebugOffTestCase):
 
     def test_push_stages_opens_stage_and_chains(self):
         # 完整一次推图：点候选行 → 详情页「战斗」可用 → 点「战斗」进战斗链 → 结算确认后收尾。
-        from src.tasks.EventTask import _STAGE_LIST_BOX
+        from src.tasks.event._const import _STAGE_LIST_BOX
         list_box = Box(950, 342, 729, 867, confidence=1, name=_STAGE_LIST_BOX)
         battle_box = Box(1340, 1283, 80, 106, confidence=1, name='box_stage_detail_battle')
         confirm = Box(100, 100, 20, 10, confidence=1, name='confirm')
@@ -2405,7 +2406,7 @@ class TestEventTask(_DebugOffTestCase):
 
     def test_push_stages_stops_at_battle_cap(self):
         # 安全上限：结算按钮持续判可用时不得死循环，达到上限即停止推图。
-        from src.tasks.EventTask import _STORY_MAX_BATTLES
+        from src.tasks.event._const import _STORY_MAX_BATTLES
         confirm = Box(100, 100, 20, 10, confidence=1, name='confirm')
         next_box = Box(200, 200, 20, 10, confidence=1, name='next')
         with patch.object(self.task, 'click_box'), \
@@ -2425,7 +2426,7 @@ class TestEventTask(_DebugOffTestCase):
 
     def test_field_changed_stop_clicks_button_and_returns_true(self):
         # 信号①：按钮在画面上 → 点掉它，判定为换地区（零等待：当前帧就命中）。
-        from src.tasks.EventTask import _STORY_FIELD_CHANGED_FEATURE
+        from src.tasks.event._const import _STORY_FIELD_CHANGED_FEATURE
         hit = Box(1200, 700, 200, 60, confidence=1, name=_STORY_FIELD_CHANGED_FEATURE)
         with patch.object(self.task, 'feature_exists', return_value=True), \
                 patch.object(self.task, 'find_one', return_value=hit), \
@@ -2455,7 +2456,7 @@ class TestEventTask(_DebugOffTestCase):
 
     def test_wait_field_changed_hit_waits_only_outside_battle(self):
         # 容错窗口只在「战斗已结束/未开始」时付：战斗界面内提示不可能在场，直接返回不空等。
-        from src.tasks.EventTask import _STORY_FIELD_CHANGED_FEATURE, _STORY_FIELD_CHANGED_WAIT
+        from src.tasks.event._const import _STORY_FIELD_CHANGED_FEATURE, _STORY_FIELD_CHANGED_WAIT
         hit = Box(1200, 700, 200, 60, confidence=1, name=_STORY_FIELD_CHANGED_FEATURE)
         with patch.object(self.task, 'find_one', return_value=None), \
                 patch.object(self.task, '_in_battle_page', return_value=False), \
@@ -2544,7 +2545,7 @@ class TestEventTask(_DebugOffTestCase):
 
     def test_flow_story_stops_at_push_round_cap(self):
         # 安全上限：换地区提示持续误判时不得死循环。
-        from src.tasks.EventTask import _STORY_MAX_PUSH_ROUNDS
+        from src.tasks.event._const import _STORY_MAX_PUSH_ROUNDS
         self.task.config['剧情'] = True
         self.task.config['扫荡'] = False
         with patch.object(self.task, '_nav_to_event_main'), \
@@ -2559,7 +2560,7 @@ class TestEventTask(_DebugOffTestCase):
     # ---- 剧情对话跳过（复用全局 conversation 界面与 conversation_skip 特征） ----
 
     def test_skip_story_clicks_skip_then_clears_popups(self):
-        from src.tasks.EventTask import _STORY_DIALOG_WAIT
+        from src.tasks.event._const import _STORY_DIALOG_WAIT
         icon_box = Box(0, 0, 10, 10, confidence=1, name='box_conversation_icon')
         captured = {}
 
@@ -2598,7 +2599,7 @@ class TestEventTask(_DebugOffTestCase):
 
     def test_story_poll_throttle_sleeps_interval(self):
         # 节流挂点：只睡 _STORY_POLL_INTERVAL，窗口与判据不变。
-        from src.tasks.EventTask import _STORY_POLL_INTERVAL
+        from src.tasks.event._const import _STORY_POLL_INTERVAL
         with patch.object(self.task, 'sleep') as sleep_mock:
             self.task._story_poll_throttle()
         sleep_mock.assert_called_once_with(_STORY_POLL_INTERVAL)
@@ -2705,7 +2706,7 @@ class TestEventTask(_DebugOffTestCase):
 
     def test_locate_stage_row_scrolls_when_absent_from_current_screen(self):
         # 当前屏没有该编号（扫荡目标多是已通关关卡，在当前进度关上方）：归一到列表顶部后逐屏下滚查找。
-        from src.tasks.EventTask import _STAGE_SWIPE_START_RATIO
+        from src.tasks.event._const import _STAGE_SWIPE_START_RATIO
         box = Box(950, 342, 729, 867, confidence=1, name='stage_list')
         screens = [[self._story_row('1-06')], [self._story_row('1-06')], [self._story_row('1-07')]]
         with patch.object(self.task, '_stage_list_box', return_value=box), \
@@ -2736,7 +2737,7 @@ class TestEventTask(_DebugOffTestCase):
 
     def test_sweep_stage_sweeps_then_stops_when_unavailable(self):
         # 第一轮实际扫荡（拉满次数），第二轮进详情页发现「快速战斗」灰白即结束。
-        from src.tasks.EventTask import _SWEEP_START_BOX
+        from src.tasks.event._const import _SWEEP_START_BOX
         row = self._story_row('1-11')
         quick_box = self._sweep_quick_box()
         confirm = Box(100, 100, 20, 10, confidence=1, name='confirm')
@@ -2800,7 +2801,7 @@ class TestEventTask(_DebugOffTestCase):
     def test_sweep_stage_requires_count_popup_and_closes_detail_after_settlement(self):
         # 实机口径：点「快速战斗」必弹次数选择窗（缺失抛异常）；扫荡直接跳结算不进战斗界面；
         # 结算确认后落回关卡详情页，需先关详情页退回列表再进入下一轮。
-        from src.tasks.EventTask import _SWEEP_PAGE_FEATURE, _SWEEP_START_BOX
+        from src.tasks.event._const import _SWEEP_PAGE_FEATURE, _SWEEP_START_BOX
         row = self._story_row('1-11')
         quick_box = self._sweep_quick_box()
         confirm = Box(100, 100, 20, 10, confidence=1, name='confirm')
@@ -2856,7 +2857,7 @@ class TestEventTask(_DebugOffTestCase):
 
     def test_sweep_stage_stops_at_round_cap(self):
         # 安全上限：快速战斗持续判可用（次数不耗尽）时不得死循环。
-        from src.tasks.EventTask import _SWEEP_MAX_ROUNDS
+        from src.tasks.event._const import _SWEEP_MAX_ROUNDS
         row = self._story_row('1-11')
         confirm = Box(100, 100, 20, 10, confidence=1, name='confirm')
         with patch.object(self.task, '_locate_stage_row', return_value=row) as locate_mock, \
