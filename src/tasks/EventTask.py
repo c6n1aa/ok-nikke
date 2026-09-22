@@ -10,28 +10,28 @@ from src import event_calendar  # 官方活动日历缓存 + 活动图行匹配�
 from src import event_stage  # 活动关卡页读取策略（文本判据 + 几何切片 + 解析 + OCR 流水线；OCR 以回调注入）。
 from src.tasks.NikkeBaseTask import NikkeBaseTask  # 项目基类，所有任务统一继承它。
 
+from src.tasks.event._common import EventCommonMixin  # 通用小工具（区域解析 / 列表滚动）。
+
 from src.tasks.event._const import (  # 常量与身份工具集中处（避免 mixin 反向依赖本模块构成环）。
-    _EVENT_ICON, _MENU_BAND_BOXES, _MAX_CARDS, _SCROLL_SWIPE_DURATION, _SCROLL_AFTER_SLEEP,
-    _SCROLL_TOP_MAX_SWIPES, _SCROLL_UNCHANGED_RATIO, _SWIPE_START_RATIO, _SWIPE_END_RATIO,
-    _STAGE_SWIPE_START_RATIO, _STAGE_SCAN_MAX_SCROLLS, _STORY_MODES, _STAGE_LIST_BOX, _STORY_BATTLE_TIMEOUT,
-    _STORY_MAX_BATTLES, _STORY_FIELD_CHANGED_FEATURE, _STORY_FIELD_CHANGED_WAIT, _STORY_MAX_PUSH_ROUNDS,
-    _STORY_DIALOG_WAIT, _STORY_SKIP_MAX, _STAGE_ENTER_TIMEOUT, _STAGE_DETAIL_BATTLE_BOX, _BATTLE_AFTER_SLEEP,
-    _STORY_POLL_INTERVAL, _SWEEP_STAGES, _SWEEP_STAGE_DEFAULT, _SWEEP_MAX_ROUNDS, _SWEEP_BATTLE_TIMEOUT,
-    _SWEEP_QUICK_BOX, _SWEEP_PAGE_FEATURE, _SWEEP_MAX_FEATURE, _SWEEP_START_BOX, _SWEEP_CLOSE_FEATURE,
-    _CHALLENGE_LIST_BOX, _CHALLENGE_STAGE_FEATURE, _CHALLENGE_CLICK_X_OFFSET, _CHALLENGE_CLICK_ATTEMPTS,
-    _CHALLENGE_PAGE_SETTLE, _SD_ARRIVE_TIMEOUT, _CLAIM_ALL_TEXT, _CLAIM_ALL_SCAN_BOX, _CLAIM_ALL_PAD,
-    _MISSION_SUBTITLE_BOX, _MISSION_SUBTITLE_TEXT, _MISSION_ICON_BOX, _MISSION_TABS,
-    _MISSION_DAILY_SUBTITLE_BOX, _MISSION_READY_TIMEOUT, _MISSION_TAB_SWITCH_TIMEOUT,
-    _MISSION_CLAIM_MAX_CLICKS, _MISSION_CLAIM_SETTLE_TIMEOUT, _MISSION_CLAIM_SETTLE,
-    normalize_roman_numerals, _STORY_MENU_PATTERNS, _STORY_SUB_PATTERN, _ENTRY_LOCK_BRIGHT_V,
-    _ENTRY_LOCK_BRIGHT_RATIO, _MENU_PROBE_ENTRIES, _ENTRIES, _ENTRY_EXTRA_BOXES, _SUBFLOW_ORDER,
-    _SUBFLOW_METHODS, _SKIPPED_ENTRIES, _ENTRY_CLICK_Y_OFFSET, _ENTRY_EXTRA_CLICK_Y_OFFSET,
-    _EVENT_KEY_PREFIX, _EVENT_FLOW_PERIOD, _PER_EVENT_FLOWS, _LEGACY_DONE_KEY, _BIG_EVENT_TYPE,
-    event_identity, event_done_key,
+    _EVENT_ICON, _MENU_BAND_BOXES, _MAX_CARDS, _STAGE_SWIPE_START_RATIO, _STAGE_SCAN_MAX_SCROLLS, _STORY_MODES,
+    _STAGE_LIST_BOX, _STORY_BATTLE_TIMEOUT, _STORY_MAX_BATTLES, _STORY_FIELD_CHANGED_FEATURE,
+    _STORY_FIELD_CHANGED_WAIT, _STORY_MAX_PUSH_ROUNDS, _STORY_DIALOG_WAIT, _STORY_SKIP_MAX,
+    _STAGE_ENTER_TIMEOUT, _STAGE_DETAIL_BATTLE_BOX, _BATTLE_AFTER_SLEEP, _STORY_POLL_INTERVAL, _SWEEP_STAGES,
+    _SWEEP_STAGE_DEFAULT, _SWEEP_MAX_ROUNDS, _SWEEP_BATTLE_TIMEOUT, _SWEEP_QUICK_BOX, _SWEEP_PAGE_FEATURE,
+    _SWEEP_MAX_FEATURE, _SWEEP_START_BOX, _SWEEP_CLOSE_FEATURE, _CHALLENGE_LIST_BOX, _CHALLENGE_STAGE_FEATURE,
+    _CHALLENGE_CLICK_X_OFFSET, _CHALLENGE_CLICK_ATTEMPTS, _CHALLENGE_PAGE_SETTLE, _SD_ARRIVE_TIMEOUT,
+    _CLAIM_ALL_TEXT, _CLAIM_ALL_SCAN_BOX, _CLAIM_ALL_PAD, _MISSION_SUBTITLE_BOX, _MISSION_SUBTITLE_TEXT,
+    _MISSION_ICON_BOX, _MISSION_TABS, _MISSION_DAILY_SUBTITLE_BOX, _MISSION_READY_TIMEOUT,
+    _MISSION_TAB_SWITCH_TIMEOUT, _MISSION_CLAIM_MAX_CLICKS, _MISSION_CLAIM_SETTLE_TIMEOUT,
+    _MISSION_CLAIM_SETTLE, normalize_roman_numerals, _STORY_MENU_PATTERNS, _STORY_SUB_PATTERN,
+    _ENTRY_LOCK_BRIGHT_V, _ENTRY_LOCK_BRIGHT_RATIO, _MENU_PROBE_ENTRIES, _ENTRIES, _ENTRY_EXTRA_BOXES,
+    _SUBFLOW_ORDER, _SUBFLOW_METHODS, _SKIPPED_ENTRIES, _ENTRY_CLICK_Y_OFFSET, _ENTRY_EXTRA_CLICK_Y_OFFSET,
+    _EVENT_KEY_PREFIX, _EVENT_FLOW_PERIOD, _PER_EVENT_FLOWS, _LEGACY_DONE_KEY, _BIG_EVENT_TYPE, event_identity,
+    event_done_key,
 )
 
 
-class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通用内容（签到/剧情/挑战/任务/商店）。
+class EventTask(EventCommonMixin, NikkeBaseTask):  # 活动任务：自动处理限时活动的通用内容（签到/剧情/挑战/任务/商店）。
 
     # 完成状态：真实键按活动身份动态生成（event_<身份>[_<流程>]，见 event_done_key），
     # 本表只作「本任务有完成状态」的声明锚（任务卡的「重置完成状态」按钮据此显示），不参与读写；
@@ -319,65 +319,6 @@ class EventTask(NikkeBaseTask):  # 活动任务：自动处理限时活动的通
         if self.is_screen("event_list_page"):  # 已在列表页（跨屏扫描连调 _reposition_list 时）则跳过：event_icon 是大厅图标，列表页上不存在，再点必超时。
             return  # 幂等：不重复点入口。
         self.transition("event_list_page", click_feature=_EVENT_ICON, wait_confirm=10, after_sleep=5)  # 点击入口并确认进入列表页。
-
-    def _optional_box(self, box_name):  # 解析 coco 区域框，特征缺失返回 None（可选区域判态统一走它）。
-        try:  # 区域特征可能尚未标注进 coco。
-            return self.get_box_by_name(box_name)  # 区域框（按当前分辨率缩放）。
-        except ValueError:  # 特征缺失。
-            return None  # 视为不可用。
-
-    def _list_area_box(self):  # 活动列表滚动/扫描区（box_event_banner_area），缺失返回 None。
-        return self._optional_box(event_calendar.SEARCH_BOX)  # 区域缺失视为不可滚动。
-
-    def _list_area_frame(self, box):  # 截取列表区当前帧（无帧/越界返回 None），供滚动前后像素对比。
-        frame = self.frame  # 取当前帧；无帧（单测 mock）返回 None。
-        if frame is None:  # 无帧。
-            return None  # 无法比对，由调用方保守处理。
-        x1, y1 = max(box.x, 0), max(box.y, 0)  # 裁剪左上角到帧范围内。
-        x2, y2 = min(box.x + box.width, frame.shape[1]), min(box.y + box.height, frame.shape[0])  # 裁剪右下角。
-        if x2 <= x1 or y2 <= y1:  # 区域越界无效。
-            return None  # 无法比对。
-        return frame[y1:y2, x1:x2]  # 返回列表区子图。
-
-    def _region_changed(self, before, after):  # 比较两帧列表区是否发生变化；无有效图像时保守视为变化。
-        if before is None or after is None or before.shape != after.shape:  # 任一帧无效/尺寸不一致。
-            return True  # 保守视为变化，避免误判到底。
-        diff = cv2.absdiff(before, after)  # 逐像素绝对差。
-        return float((diff > 10).sum()) / diff.size > _SCROLL_UNCHANGED_RATIO  # 显著变化像素占比超阈值才视为有变化。
-
-    def _swipe_list_up(self, box, start_ratio=_SWIPE_START_RATIO):  # 在给定列表区上滑（内容上移，露出下方行）。
-        x = box.x + box.width // 2  # 列表区水平中点。
-        self.swipe(x, box.y + box.height * start_ratio, x, box.y + box.height * _SWIPE_END_RATIO,
-                   duration=_SCROLL_SWIPE_DURATION, after_sleep=_SCROLL_AFTER_SLEEP)  # 自下往上滑。
-
-    def _swipe_list_down(self, box, start_ratio=_SWIPE_START_RATIO):  # 在给定列表区下滑（内容下移，回到顶部）。
-        x = box.x + box.width // 2  # 列表区水平中点。
-        self.swipe(x, box.y + box.height * _SWIPE_END_RATIO, x, box.y + box.height * start_ratio,
-                   duration=_SCROLL_SWIPE_DURATION, after_sleep=_SCROLL_AFTER_SLEEP)  # 自上往下滑（与上滑互为镜像）。
-
-    def _scroll_area(self, swipe, box, start_ratio, max_steps):  # 用给定手势逐次滑动，返回画面实际发生变化的滑动次数。
-        before = self._list_area_frame(box)  # 初始区域画面。
-        for count in range(max_steps):  # 带上限防死循环。
-            swipe(box, start_ratio)  # 滑动一步。
-            after = self._list_area_frame(box)  # 滑动后画面。
-            if not self._region_changed(before, after):  # 画面无变化 = 到底/到顶。
-                return count  # 返回已生效的滑动次数。
-            before = after  # 更新基准继续滑动。
-        return max_steps  # 每一步都生效。
-
-    def _scroll_list_to_top(self, box=None, start_ratio=_SWIPE_START_RATIO):  # 把列表滚动到顶部：连续下滑，画面不再变化即视为到顶。
-        box = self._list_area_box() if box is None else box  # 缺省活动列表的 banner 区；关卡列表传自己的竖条。
-        if box is None:  # 区域缺失。
-            return  # 无法滚动。
-        self._scroll_area(self._swipe_list_down, box, start_ratio, _SCROLL_TOP_MAX_SWIPES)  # 下滑到画面不再变化或次数上限。
-
-    def _scroll_list_down(self, steps, box=None, start_ratio=_SWIPE_START_RATIO):  # 列表向下滚动 steps 步，返回是否发生实际滚动（到底返回 False）。
-        if steps <= 0:  # 无下滚需求。
-            return True  # 视为位置有效。
-        box = self._list_area_box() if box is None else box  # 缺省活动列表的 banner 区；关卡列表传自己的竖条。
-        if box is None:  # 区域缺失。
-            return False  # 不可滚动视为到底。
-        return self._scroll_area(self._swipe_list_up, box, start_ratio, steps) >= steps  # 少滚一步即视为到底。
 
     def _pending_events(self, refresh=True):  # 待处理剧情活动快照：本地读快照；快照缺失/过期时按 refresh 决定是否联网刷新。
         snapshot = event_calendar.load_snapshot()  # 应用启动已在后台静默刷新，纯本地读。
