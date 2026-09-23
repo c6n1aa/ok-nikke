@@ -197,11 +197,13 @@ class TestCashShopTask(_DebugOffTestCase):
 
     def test_combined_step_enters_and_exits(self):
         with patch.object(self.task, "_enter_cash_shop") as enter_mock, \
+                patch.object(self.task, "_dismiss_spending_limit") as limit_mock, \
                 patch.object(self.task, "_do_stepup_pack") as setup_mock, \
                 patch.object(self.task, "_do_ordinary_packs") as ordinary_mock, \
                 patch.object(self.task, "_exit_to_lobby") as exit_mock:
             self.task._combined_step()
         enter_mock.assert_called_once()
+        limit_mock.assert_called_once()  # 进店后先处理消费限制弹窗，再领取礼包。
         setup_mock.assert_called_once()  # STEP UP 本日未完成（setUp 已清空完成状态），进入领取分支。
         ordinary_mock.assert_called_once()
         exit_mock.assert_called_once()
@@ -209,6 +211,7 @@ class TestCashShopTask(_DebugOffTestCase):
     def test_stepup_failure_warning_carries_current_screen(self):
         # WaitFailedException 自身没有消息（框架 raise WaitFailedException()），失败日志需自带界面上下文。
         with patch.object(self.task, "_enter_cash_shop"), \
+                patch.object(self.task, "_dismiss_spending_limit"), \
                 patch.object(self.task, "_do_stepup_pack", side_effect=WaitFailedException()), \
                 patch.object(self.task, "_do_ordinary_packs"), \
                 patch.object(self.task, "_exit_to_lobby"), \
@@ -217,6 +220,24 @@ class TestCashShopTask(_DebugOffTestCase):
             self.task._combined_step()
         screen_mock.assert_called_once()
         self.assertIn("cash_shop", warn_mock.call_args_list[0][0][0])
+
+    def test_dismiss_spending_limit_clicks_option3_then_confirm(self):
+        # 消费限制弹窗：确认按钮特征命中才处理，随后按「选项 3 → 确认按钮」顺序点击。
+        option3 = _fake_box("box_cashshop_limit_option3", 1248, 900, 50, 49)
+        confirm = _fake_box("cashshop_spending_limit_confirm", 1314, 1084, 41, 39)
+        with patch.object(self.task, "get_box_by_name", return_value=option3), \
+                patch.object(self.task, "wait_feature", return_value=confirm) as feature_mock, \
+                patch.object(self.task, "click_box") as click_mock:
+            self.task._dismiss_spending_limit()
+        assert_called_once_semantic(feature_mock, "cashshop_spending_limit_confirm")
+        self.assertEqual([option3, confirm], [click.args[0] for click in click_mock.call_args_list])
+
+    def test_dismiss_spending_limit_skips_when_not_shown(self):
+        # 未弹出弹窗（确认按钮特征未命中）时不点击任何位置。
+        with patch.object(self.task, "wait_feature", return_value=None) as feature_mock, \
+                patch.object(self.task, "click_box", side_effect=AssertionError("未弹出弹窗不应点击")):
+            self.task._dismiss_spending_limit()
+        assert_called_once_semantic(feature_mock, "cashshop_spending_limit_confirm")
 
 
 if __name__ == '__main__':

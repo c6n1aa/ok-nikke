@@ -29,6 +29,13 @@ class CashShopTask(NikkeBaseTask):  # 付费商店免费礼包领取任务，继
     def _enter_cash_shop(self):  # 从大厅进入付费商店。
         self.transition("cash_shop", click_feature="cash_shop", time_out=10, wait_confirm=10, after_sleep=1)  # 点击大厅付费商店入口并确认已进入。
 
+    def _dismiss_spending_limit(self):  # 消费限制弹窗：首次进店会弹出年龄选择，选「20岁以上（无限制）」后确认关闭。
+        confirm = self.wait_feature("cashshop_spending_limit_confirm", time_out=3, raise_if_not_found=False)  # 等待弹窗的确认按钮特征出现。
+        if confirm is None:  # 未弹出则跳过。
+            return  # 结束弹窗处理。
+        self.click_box(self.get_box_by_name("box_cashshop_limit_option3"), after_sleep=1)  # 选中「20岁以上」选项。
+        self.click_box(confirm, after_sleep=1)  # 点击确认按钮提交并关闭弹窗。
+
     def _switch_nav(self, screen_name, feature_name):  # 幂等切换左侧导航到目标礼包页。
         if self.is_screen(screen_name):  # 已在目标页：页签处于高亮态、模板匹配不到，直接跳过点击。
             self.log_info(f"已在{screen_name}，跳过导航点击。")  # 记录跳过原因。
@@ -41,7 +48,7 @@ class CashShopTask(NikkeBaseTask):  # 付费商店免费礼包领取任务，继
         self._switch_nav("cash_shop_limited_time_page", "cash_shop_nav_limited_time_package")  # 切到限时礼包页（已在则跳过点击）。
         tab_bar = self.get_box_by_name("box_cash_shop_tab_bars")  # 获取页签栏标注区域。
         self.wait_click_ocr(box=tab_bar, match=re.compile("STEP\s+UP", re.IGNORECASE), time_out=10, raise_if_not_found=True, after_sleep=1)  # OCR 识别并点击 STEP UP 页签。
-        free_box = self.wait_ocr(box=self.get_box_by_name("box_cash_shop_stepup_free"), match=re.compile("免费", re.IGNORECASE), time_out=5, raise_if_not_found=False)  # 等待在免费购买按钮区域 OCR 识别“免费”。
+        free_box = self.wait_ocr(box=self.get_box_by_name("box_cash_shop_stepup_free"), match=re.compile("免费", re.IGNORECASE), time_out=3, raise_if_not_found=False)  # 等待在免费购买按钮区域 OCR 识别“免费”。
         if free_box:  # 识别到免费按钮。
             self.click_box(free_box[0], after_sleep=1)  # 点击免费按钮购买礼包。
             self.dismiss_all_popups(time_out=10)  # 处理购买后出现的遮罩层（默认等待弹窗出现）。
@@ -78,8 +85,9 @@ class CashShopTask(NikkeBaseTask):  # 付费商店免费礼包领取任务，继
             for key, period in self.done_keys.items()  # 遍历全部完成状态项。
         )
 
-    def _combined_step(self):  # 合并子流程：一次进店，先 STEP UP 再普通礼包，结束后统一退出。
+    def _combined_step(self):  # 合并子流程：一次进店→清消费限制弹窗→STEP UP→普通礼包→统一退出。
         self._enter_cash_shop()  # 进入付费商店。
+        self._dismiss_spending_limit()  # 关掉进店时可能弹出的消费限制弹窗，否则后续点击被遮罩吞掉。
         if not self.is_done("cash_shop_stepup", "day"):  # STEP UP 本日未完成才处理。
             try:  # 单流程失败不中断整体。
                 self._do_stepup_pack()  # 领取 STEP UP 免费礼包。

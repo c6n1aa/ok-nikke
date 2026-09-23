@@ -93,6 +93,23 @@ SCREENS = {
     # 活动挑战页：大小活动为同一套 UI（已确认），左上标题「挑战关卡」。
     # 仅用关键词「挑战」判定（不依赖 coco 特征）。
     "event_challenge_page": {"keywords": [_keyword("挑战")], "ocr_box": "box_sub_pages_title"},
+    # 活动内置小游戏（本期 THREE COMPANY RUMBLE）：独立于活动页的整屏实时小游戏，入口在活动菜单带
+    # （关键词「小游戏」，见 _ENTRIES），判据全部用本期已标注的 coco 特征，不依赖逐期变化的弹窗美术。
+    # 顺序即 current_screen() 的报出顺序（同优先级按注册序）：两个模态框（暂停弹窗 / 任务弹窗）放最前，
+    # 粗判据「主界面」放最后——弹窗都盖在主界面/关卡上面，让更具体的界面先被报出。
+    # 暂停弹窗：弹窗右上关闭钮（弹窗开启判据，关卡内与结算页都不出现）。
+    "event_minigame_pause_dialog": {"features": ["event_minigame_pause_close"]},
+    # 关卡内：右上暂停钮在暂停弹窗与结算页下仍可见，作为「本局进行中」的判据。
+    "event_minigame_play": {"features": ["event_minigame_pause"]},
+    # 主界面「任务」弹窗：弹窗右上关闭钮（弹窗自身元素，位置逐期固定且不被别的界面覆盖）。
+    "event_minigame_mission_popup": {"features": ["event_minigame_mission_close"]},
+    # 本局结算页（GAME OVER）：顶部标题特征。
+    "event_minigame_result": {"features": ["event_minigame_result"]},
+    # 选择妮姬页（角色 / 特殊技能 / 必杀技键位 + 底部 START）：判据在页面底部，不被弹窗遮挡。
+    "event_minigame_select": {"features": ["event_minigame_start"]},
+    # 小游戏主界面：左上标题栏文案（与活动菜单入口同名，只是入口在活动菜单带、标题在小游戏自己的标题栏）；
+    # OCR 文字判据，不依赖逐期变化的美术模板。
+    "event_minigame_main": {"keywords": [_keyword(r"小\s*游\s*戏")], "ocr_box": "box_sub_pages_title"},
 }
 
 # 长等待中断哨兵：断线/维护/登录过期等致命中断弹窗的特征清单。

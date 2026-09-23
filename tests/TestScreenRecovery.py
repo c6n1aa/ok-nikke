@@ -27,6 +27,7 @@ class TestScreenRecovery(TaskTestCase):
     def test_global_screens_registry_matches_migrated_specs(self):
         # 集中式注册表收录全部界面：9 个迁移自任务 __init__、3 个竞技场界面、商店/招募/方舟排名子页面、
         # 4 个拦截战界面、5 个前哨基地界面、活动列表页/活动主页/活动关卡页/活动挑战页、
+        # 活动内置小游戏 6 个界面（暂停弹窗/关卡/任务弹窗/结算页/选择妮姬页/主界面）、
         # 付费商店两个礼包子页面，外加冷启动正向锚点 login_page。
         # 顺序即 SCREENS 注册顺序（login_page 紧随 lobby）。
         expected = {
@@ -64,6 +65,12 @@ class TestScreenRecovery(TaskTestCase):
             "event_main": {"keywords": [_keyword("剧情活动"), _keyword("活动地区")], "ocr_box": "box_sub_pages_title"},
             "event_stage_page": {"keywords": [_keyword("活动关卡")], "ocr_box": "box_sub_pages_title"},
             "event_challenge_page": {"keywords": [_keyword("挑战")], "ocr_box": "box_sub_pages_title"},
+            "event_minigame_pause_dialog": {"features": ["event_minigame_pause_close"]},
+            "event_minigame_play": {"features": ["event_minigame_pause"]},
+            "event_minigame_mission_popup": {"features": ["event_minigame_mission_close"]},
+            "event_minigame_result": {"features": ["event_minigame_result"]},
+            "event_minigame_select": {"features": ["event_minigame_start"]},
+            "event_minigame_main": {"keywords": [_keyword(r"小\s*游\s*戏")], "ocr_box": "box_sub_pages_title"},
         }
         self.assertEqual(list(expected), list(SCREENS))  # 顺序敏感：current_screen 按插入顺序首命中。
         self.assertEqual(expected, SCREENS)

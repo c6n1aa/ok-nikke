@@ -247,10 +247,9 @@ class EventEntryMixin:
                 self.log_warning(f"执行 {label} 前不在活动主页，中止剩余子流程")  # 记录中止原因（正常收尾由 run 统一负责）。
                 return  # 中止剩余子流程，避免在错误页面上继续探测。
             getattr(self, _SUBFLOW_METHODS[label])()  # 调用 _do_* 入口方法（内部做开关/探测/try_step）。
-        for label in _SKIPPED_ENTRIES:  # v1 跳过的入口：仅探测并记录，不执行。
+        for label in _SKIPPED_ENTRIES:  # 尚未接入的入口：仅探测并记录，不执行（本期为空）。
             if self._probe_entry(label):  # 探测到该入口。
-                # 小游戏后续接入 MINIGAMES 注册表分派。
-                self.log_info(f"探测到 {label}，v1 暂不支持，跳过")  # 记录跳过。
+                self.log_info(f"探测到 {label}，尚未接入，跳过")  # 记录跳过。
 
     def _do_checkin(self):  # 签到子流程：开关 → 本活动完成状态 → 探测 → try_step → 落身份化完成状态。
         if not self.config.get("签到"):  # 用户未启用签到子流程。

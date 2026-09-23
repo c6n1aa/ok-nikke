@@ -6,6 +6,7 @@ from src.tasks.event._story import EventStoryMixin  # 剧情推图链与扫荡�
 from src.tasks.event._stage import EventStageMixin  # 关卡页读取 / 详情页 / 快速战斗。
 from src.tasks.event._challenge import EventChallengeMixin  # 活动挑战。
 from src.tasks.event._mission import EventMissionMixin  # 活动任务弹窗领取。
+from src.tasks.event._minigame import EventMinigameMixin  # 活动内置小游戏。
 from src.tasks.event._checkin import EventCheckinMixin  # 活动签到印章。
 from src.tasks.event._claim import EventClaimMixin  # 「全部领取」按钮原语。
 from src.tasks.event._common import EventCommonMixin  # 通用小工具（区域解析 / 列表滚动）。
@@ -17,8 +18,8 @@ from src.tasks.event._const import (  # 常量与身份工具集中处（避免 
 
 
 class EventTask(EventEntryMixin, EventListMixin, EventStoryMixin, EventStageMixin,
-                EventChallengeMixin, EventMissionMixin, EventCheckinMixin, EventClaimMixin,
-                EventCommonMixin, NikkeBaseTask):  # 活动任务：自动处理限时活动的通用内容（签到/剧情/挑战/任务/商店）。
+                EventChallengeMixin, EventMissionMixin, EventMinigameMixin, EventCheckinMixin,
+                EventClaimMixin, EventCommonMixin, NikkeBaseTask):  # 活动任务：自动处理限时活动的通用内容（签到/剧情/挑战/任务/小游戏）。
 
     # 完成状态：真实键按活动身份动态生成（event_<身份>[_<流程>]，见 event_done_key），
     # 本表只作「本任务有完成状态」的声明锚（任务卡的「重置完成状态」按钮据此显示），不参与读写；
@@ -28,7 +29,7 @@ class EventTask(EventEntryMixin, EventListMixin, EventStoryMixin, EventStageMixi
     def __init__(self, *args, **kwargs):  # 初始化任务元数据与配置。
         super().__init__(*args, **kwargs)  # 必须先调用父类初始化。
         self.name = "活动"  # 任务显示名称。
-        self.description = "自动处理限时活动，活动首次开放时需手动进入并配队（剧情(BETA)/扫荡/挑战/任务/签到印章）。"  # 任务说明。
+        self.description = "自动处理限时活动，活动首次开放时需手动进入并配队（剧情(BETA)/扫荡/挑战/任务/签到印章/小游戏）。"  # 任务说明。
         # 以下三项是跨 mixin 的共享状态：由列表路径（EventListMixin）写入，各子流程 mixin 读取。
         self._current_event = None  # 当前处理的活动（日历条目）；失败恢复回大厅后重入时用它 banner 定位。
         self._event_identity = None  # 当前处理的活动身份（完成状态键用）；接管路径也会填，但那条是非权威身份。
@@ -41,6 +42,7 @@ class EventTask(EventEntryMixin, EventListMixin, EventStoryMixin, EventStageMixi
             "挑战": True,  # 是否执行活动挑战。
             "任务": True,  # 是否领取活动任务奖励。
             "商店": False,  # 是否购买活动商店（v1 默认关闭，非幂等流程留 v1.5）。
+            "小游戏": True,  # 是否游玩活动内置小游戏（仅 MINIGAMES 注册表里已接入的活动会执行）。
             "剧情模式": _STORY_MODES[0],  # 剧情关卡难度（难度选择未实现，先隐藏入口，见 config_type）。
         })
         self.config_description.update({  # 每个配置项的帮助文本。
@@ -51,6 +53,7 @@ class EventTask(EventEntryMixin, EventListMixin, EventStoryMixin, EventStageMixi
             "挑战": "执行活动挑战关卡。",
             "任务": "领取活动任务奖励。",
             "商店": "购买活动商店商品（v1 暂不启用）。",
+            "小游戏": "游玩活动内置小游戏：点位刷分到达标分数后快速完成结束本局，并领取小游戏任务奖励；当期活动的小游戏未支持时自动跳过。",
             "剧情模式": "剧情关卡难度（v1 仅支持普通）。",
         })
         self.config_type.update({  # 配置类型与显隐控制：下拉选项、开关联动（sub_configs）与隐藏项在此声明。

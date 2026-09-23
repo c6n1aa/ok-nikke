@@ -50,6 +50,18 @@ class TestScreenRegistryIntegrity(unittest.TestCase):
                  and not spec.get("any_features")]
         self.assertEqual([], empty, f"以下界面没有任何判定条件: {empty}")
 
+    def test_no_region_names_in_feature_lists(self):
+        # box_ 前缀是 coco 区域（点击落点 / OCR 区域 / feature_box），不是特征模板：写进
+        # features/any_features/absent 会把「区域裁图」当模板逐帧匹配（区域里常含变化的文字与数字），
+        # 阈值语义也完全不同——这条静态校验把该误用挡在测试期。
+        offenders = {}  # 界面名 -> 误当特征用的区域名清单。
+        for name, spec in SCREENS.items():
+            regions = sorted(ref for key in ("features", "any_features", "absent")
+                             for ref in (spec.get(key) or []) if ref.startswith("box_"))
+            if regions:
+                offenders[name] = regions
+        self.assertEqual({}, offenders, f"以下界面把 coco 区域（box_ 前缀）当特征用了: {offenders}")
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -62,7 +62,7 @@ class TestEventTask(_DebugOffTestCase):
         super().setUp()
         _isolate_task_config(self.task, 'EventTask')
         self.task.clear_done('event')
-        for key in ('签到', '剧情', '扫荡', '扫荡关卡', '挑战', '任务', '商店', '剧情模式'):
+        for key in ('签到', '剧情', '扫荡', '扫荡关卡', '挑战', '任务', '商店', '小游戏', '剧情模式'):
             self.task.config[key] = self.task.default_config[key]
         exit_patcher = patch.object(self.task, '_exit_to_lobby')  # 拦截收尾返回大厅步骤，避免测试触碰真实窗口。
         exit_patcher.start()
@@ -86,8 +86,9 @@ class TestEventTask(_DebugOffTestCase):
         self.assertTrue(self.task.default_config['挑战'])
         self.assertTrue(self.task.default_config['任务'])
         self.assertFalse(self.task.default_config['商店'])
+        self.assertTrue(self.task.default_config['小游戏'])  # 小游戏默认开启（未接入的活动按注册表自动跳过）。
         self.assertEqual('NORMAL', self.task.default_config['剧情模式'])  # 难度选项沿用游戏内英文标签。
-        for key in ('签到', '剧情', '扫荡', '扫荡关卡', '挑战', '任务', '商店', '剧情模式'):
+        for key in ('签到', '剧情', '扫荡', '扫荡关卡', '挑战', '任务', '商店', '小游戏', '剧情模式'):
             self.assertIn(key, self.task.config_description)
         self.assertEqual('drop_down', self.task.config_type['剧情模式']['type'])
         self.assertTrue(self.task.config_type['剧情模式']['hidden'])  # 难度选择未实现：入口隐藏。
@@ -2881,6 +2882,253 @@ class TestEventTask(_DebugOffTestCase):
             self.assertFalse(self.task.is_completed())
             self.task.mark_done(event_done_key(event_identity('key1')), 'day')
             self.assertTrue(self.task.is_completed())
+
+    # ---- 小游戏 ----
+
+    def _minigame_entry(self):
+        return Box(60, 10, 30, 10, confidence=1, name='小游戏')
+
+    def _minigame_boxes(self):
+        """小游戏流程按名字解析的三处 coco 区域（分数区 / 暂停钮 / 全部领取），其余以字符串直传被 mock。"""
+        return {
+            'box_event_minigame_score': Box(1120, 29, 324, 72, confidence=1, name='score'),
+            'event_minigame_pause': Box(1596, 42, 46, 43, confidence=1, name='pause'),
+            'box_event_minigame_mission_claim': Box(1170, 1250, 35, 33, confidence=1, name='全部领取'),
+        }
+
+    def test_do_minigame_skipped_when_disabled(self):
+        self.task.config['小游戏'] = False
+        with patch.object(self.task, '_probe_entry', side_effect=AssertionError('关闭时不应探测')), \
+                patch.object(self.task, 'try_step', side_effect=AssertionError('关闭时不应执行')):
+            self.task._do_minigame()
+
+    def test_do_minigame_skipped_when_identity_unknown(self):
+        # 接管路径判不出活动身份：不知道走哪个活动的小游戏流程，跳过（不拿注册表里的唯一项去猜）。
+        self.task.config['小游戏'] = True
+        self.task._event_identity = None
+        with patch.object(self.task, '_probe_entry', side_effect=AssertionError('身份未知不应探测')), \
+                patch.object(self.task, 'try_step', side_effect=AssertionError('身份未知不应执行')):
+            self.task._do_minigame()
+
+    def test_do_minigame_skipped_when_event_not_registered(self):
+        self.task.config['小游戏'] = True
+        self.task._event_identity = 'SOMEOTHEREVENT'
+        with patch.object(self.task, '_probe_entry', side_effect=AssertionError('未接入不应探测')), \
+                patch.object(self.task, 'try_step', side_effect=AssertionError('未接入不应执行')):
+            self.task._do_minigame()
+
+    def test_do_minigame_skipped_when_probe_missing(self):
+        self.task.config['小游戏'] = True
+        self.task._event_identity = 'COINRUSHSHOWDOWN'
+        with patch.object(self.task, '_probe_entry', return_value=False), \
+                patch.object(self.task, 'try_step', side_effect=AssertionError('探测不到不应执行')):
+            self.task._do_minigame()
+
+    def test_do_minigame_skips_locked_entry(self):
+        self.task.config['小游戏'] = True
+        self.task._event_identity = 'COINRUSHSHOWDOWN'
+        with patch.object(self.task, '_probe_entry', return_value=True), \
+                patch.object(self.task, '_entry_locked_skip', return_value=True), \
+                patch.object(self.task, 'try_step', side_effect=AssertionError('锁定入口不应执行')):
+            self.task._do_minigame()
+
+    def test_do_minigame_runs_registered_flow(self):
+        # 注册表命中：开关开启 + 探测到入口 + 非锁定态 → 走该活动身份登记的流程方法。
+        self.task.config['小游戏'] = True
+        self.task._event_identity = 'COINRUSHSHOWDOWN'
+        with patch.object(self.task, '_probe_entry', return_value=True), \
+                patch.object(self.task, '_entry_locked_skip', return_value=False), \
+                patch.object(self.task, 'try_step', side_effect=lambda fn, **kw: fn() or True), \
+                patch.object(self.task, '_flow_minigame') as flow_mock:
+            self.task._do_minigame()
+        flow_mock.assert_called_once()
+
+    def test_flow_minigame_entry_click_ineffective_stops(self):
+        # 入口点击无效（补点耗尽后仍在活动菜单页 = 往期活动/未开放入口）：直接结束，不再让 try_step 重跑补点。
+        entry = self._minigame_entry()
+        with patch.object(self.task, '_nav_to_event_main'), \
+                patch.object(self.task, '_entry_box', return_value=entry), \
+                patch.object(self.task, 'transition', side_effect=WaitFailedException('未进入小游戏')), \
+                patch.object(self.task, 'is_screen', return_value=True), \
+                patch.object(self.task, '_start_minigame_run', side_effect=AssertionError('不应开局')):
+            self.task._flow_minigame()  # 不抛异常 = 已按「入口点不动」跳过。
+
+    def test_flow_minigame_entry_failed_on_other_screen_raises(self):
+        # 补点耗尽后落在别的界面：按失败抛异常交 try_step 恢复（不看错误页继续猜）。
+        entry = self._minigame_entry()
+        with patch.object(self.task, '_nav_to_event_main'), \
+                patch.object(self.task, '_entry_box', return_value=entry), \
+                patch.object(self.task, 'transition', side_effect=WaitFailedException('未进入小游戏')), \
+                patch.object(self.task, 'is_screen', return_value=False), \
+                patch.object(self.task, '_start_minigame_run', side_effect=AssertionError('不应开局')):
+            self.assertRaises(WaitFailedException, self.task._flow_minigame)
+
+    def test_flow_minigame_reaches_target_then_quick_finishes_and_claims(self):
+        # 主链路：进主界面 → START → 选择妮姬页 START → 关卡内点中央 → 分数达标 → 暂停 → 快速完成 →
+        # 结算页 → 返回 → 任务弹窗 → 全部领取（第二轮回灰白）→ 关弹窗 → 退出确认 → 回活动菜单页。
+        from src.tasks.event import _minigame as minigame  # 覆盖分数采样间隔：单测不必真等 2.5 秒。
+
+        entry = self._minigame_entry()
+        boxes = self._minigame_boxes()
+        back = Box(30, 1345, 40, 40, confidence=1, name='返回')
+        state = {'screen': 'event_minigame_main'}  # 用可变状态模拟界面切换。
+        clicks = []  # click_box 的目标（框或 coco 名字）。
+        features = []  # wait_click_feature 等到的特征名。
+
+        def is_screen(name):
+            return name == state['screen']  # 当前界面唯一命中。
+
+        def click_box(box, **kwargs):
+            clicks.append(box)
+            name = box if isinstance(box, str) else box.name
+            if name == 'box_event_minigame_enter':  # 主界面 START → 选择妮姬页。
+                state['screen'] = 'event_minigame_select'
+            elif name == 'event_minigame_start':  # 选择妮姬页 START → 关卡。
+                state['screen'] = 'event_minigame_play'
+            elif name == 'pause':  # 点暂停钮 → 暂停弹窗。
+                state['screen'] = 'event_minigame_pause_dialog'
+            elif name == 'box_event_minigame_quick_finish':  # 快速完成 → 结算页。
+                state['screen'] = 'event_minigame_result'
+            elif name == 'box_event_minigame_result_back':  # 结算页返回 → 主界面。
+                state['screen'] = 'event_minigame_main'
+            elif name == '返回':  # 主界面返回键 → 退出确认框。
+                state['screen'] = 'event_minigame_exit_confirm'
+
+        def wait_click_feature(feature, **kwargs):
+            features.append(feature)
+            if feature == 'event_minigame_mission':  # 点任务入口 → 任务弹窗。
+                state['screen'] = 'event_minigame_mission_popup'
+            elif feature == 'event_minigame_mission_close':  # 关任务弹窗 → 主界面。
+                state['screen'] = 'event_minigame_main'
+            elif feature == 'event_minigame_exit_confirm':  # 确认退出 → 活动菜单页。
+                state['screen'] = 'event_main'
+
+        def wait_until(condition, **kwargs):
+            return condition()  # 单测驱动：逐次实算条件。
+
+        with patch.object(minigame, '_MINIGAME_SCORE_INTERVAL', 0.0), \
+                patch.object(self.task, '_nav_to_event_main') as nav_mock, \
+                patch.object(self.task, '_entry_box', return_value=entry), \
+                patch.object(self.task, 'transition') as transition_mock, \
+                patch.object(self.task, 'is_screen', side_effect=is_screen), \
+                patch.object(self.task, 'click_box', side_effect=click_box), \
+                patch.object(self.task, 'click_relative') as tap_mock, \
+                patch.object(self.task, 'next_frame'), \
+                patch.object(self.task, '_optional_box', side_effect=lambda name: boxes.get(name)), \
+                patch.object(self.task, 'ocr', return_value=[Box(0, 0, 9, 9, confidence=1, name='7,500')]) as ocr_mock, \
+                patch.object(self.task, 'wait_until', side_effect=wait_until), \
+                patch.object(self.task, 'wait_click_feature', side_effect=wait_click_feature), \
+                patch.object(self.task, 'is_box_highlighted', side_effect=[True, False]) as highlighted_mock, \
+                patch.object(self.task, '_close_claim_overlay') as overlay_mock, \
+                patch.object(self.task, '_find_back_button', return_value=back):
+            self.task._flow_minigame()
+
+        nav_mock.assert_called_once()  # 进流程先就位活动主页。
+        assert_called_once_semantic(transition_mock, 'event_minigame_main', box=entry)  # 点入口并确认进主界面。
+        self.assertEqual(['box_event_minigame_enter', 'event_minigame_start', 'pause',
+                          'box_event_minigame_quick_finish', 'box_event_minigame_result_back', '全部领取', '返回'],
+                         [box if isinstance(box, str) else box.name for box in clicks])  # 点击顺序即流程顺序。
+        self.assertEqual(['event_minigame_mission', 'event_minigame_mission_close', 'event_minigame_exit_confirm'],
+                         features)  # 任务入口 → 关弹窗 → 退出确认。
+        tap_mock.assert_called_once()  # 首次采样即达标：关卡内只点了一次中央。
+        ocr_mock.assert_called_once()  # 达标后不再读分。
+        self.assertEqual(2, highlighted_mock.call_count)  # 全部领取色相判态两轮：第一轮亮黄可领、第二轮暗棕收手。
+        self.assertEqual(2, overlay_mock.call_count)  # 领奖遮罩两处清理（结算返回后 + 每轮领取后）。
+
+    def test_play_minigame_run_stops_when_leaving_stage(self):
+        # 关卡判据不成立（本局自然结束）立即停手：不再盲点中央，避免落点进结算页/弹窗。
+        with patch.object(self.task, 'is_screen', return_value=False), \
+                patch.object(self.task, 'click_relative', side_effect=AssertionError('已离开关卡不应再点')):
+            self.assertFalse(self.task._play_minigame_run())  # False = 无需快速完成。
+
+    def test_play_minigame_run_returns_true_on_target_score(self):
+        from src.tasks.event import _minigame as minigame  # 覆盖分数采样间隔：首次循环就采样。
+        with patch.object(minigame, '_MINIGAME_SCORE_INTERVAL', 0.0), \
+                patch.object(self.task, 'is_screen', return_value=True), \
+                patch.object(self.task, 'click_relative') as tap_mock, \
+                patch.object(self.task, 'next_frame'), \
+                patch.object(self.task, '_minigame_score', return_value=4000):
+            self.assertTrue(self.task._play_minigame_run())  # 达标：返回 True 走快速完成。
+        tap_mock.assert_called_once()  # 达标即返回，不再继续点。
+
+    def test_play_minigame_run_returns_true_on_timeout(self):
+        # 游玩上限到点仍未达标：也返回 True（按当前分数快速完成，不留半局给恢复流程打断）。
+        from src.tasks.event import _minigame as minigame
+        with patch.object(minigame, '_MINIGAME_PLAY_TIMEOUT', 0.0), \
+                patch.object(self.task, 'is_screen', return_value=True), \
+                patch.object(self.task, 'click_relative', side_effect=AssertionError('超时后不应再点')):
+            self.assertTrue(self.task._play_minigame_run())
+
+    def test_minigame_score_parses_thousands_separator(self):
+        boxes = self._minigame_boxes()
+        with patch.object(self.task, '_optional_box', side_effect=lambda name: boxes.get(name)), \
+                patch.object(self.task, 'ocr', return_value=[Box(0, 0, 9, 9, confidence=1, name='7,500')]):
+            self.assertEqual(7500, self.task._minigame_score())  # 千分位分隔符去掉后转整数。
+        with patch.object(self.task, '_optional_box', side_effect=lambda name: boxes.get(name)), \
+                patch.object(self.task, 'ocr', return_value=[Box(0, 0, 9, 9, confidence=1, name='BEAT')]):
+            self.assertIsNone(self.task._minigame_score())  # 区域里没有数字：判不出来。
+        with patch.object(self.task, '_optional_box', return_value=None):
+            self.assertIsNone(self.task._minigame_score())  # 区域未标注：不读分。
+
+    def test_claim_minigame_mission_rewards_stops_when_popup_closed(self):
+        # 弹窗被误点关掉后不再按固定区域点「全部领取」（否则就是盲点主界面）。
+        boxes = self._minigame_boxes()
+        with patch.object(self.task, '_optional_box', side_effect=lambda name: boxes.get(name)), \
+                patch.object(self.task, 'is_screen', return_value=False) as screen_mock, \
+                patch.object(self.task, 'is_box_highlighted', side_effect=AssertionError('弹窗不在不应判态')), \
+                patch.object(self.task, 'click_box', side_effect=AssertionError('弹窗不在不应点击')):
+            self.task._claim_minigame_mission_rewards()
+        screen_mock.assert_called_once_with('event_minigame_mission_popup')  # 只做弹窗在不在的判据。
+
+    def test_back_to_minigame_main_retries_when_click_swallowed(self):
+        # 结算动画期间点「返回」会被吃掉：第一次点完没回主界面就补点一次（第二次成功即返回）。
+        checks = []  # 主界面判据的调用次数：第 1 轮不命中，第 2 轮命中。
+
+        def is_screen(name):
+            if name != 'event_minigame_main':
+                return False
+            checks.append(1)
+            return len(checks) > 1
+
+        with patch.object(self.task, 'click_box') as click_mock, \
+                patch.object(self.task, 'is_screen', side_effect=is_screen), \
+                patch.object(self.task, 'wait_until', side_effect=lambda condition, **kwargs: condition()):
+            self.task._back_to_minigame_main()
+        self.assertEqual(2, click_mock.call_count)  # 补点一次。
+        self.assertEqual('box_event_minigame_result_back', click_mock.call_args_list[1].args[0])  # 补点的还是结算页「返回」。
+
+    def test_back_to_minigame_main_gives_up_after_attempts(self):
+        # 补点次数用尽仍未回主界面：抛等待失败交 try_step 恢复（不在结算页上硬撑）。
+        from src.tasks.event._const import _MINIGAME_BACK_ATTEMPTS
+        with patch.object(self.task, 'click_box') as click_mock, \
+                patch.object(self.task, 'is_screen', return_value=False), \
+                patch.object(self.task, 'wait_until', side_effect=lambda condition, **kwargs: condition()):
+            self.assertRaises(WaitFailedException, self.task._back_to_minigame_main)
+        self.assertEqual(_MINIGAME_BACK_ATTEMPTS, click_mock.call_count)  # 尝试次数封顶。
+
+    @unittest.skipUnless(os.path.exists('ok_templates/event_minigame_tcr_07.png'),
+                         '缺少实机截图（ok_templates 子模块未检出）')
+    def test_minigame_main_screen_on_real_screenshot(self):
+        # 实机标定回归：主界面左上标题栏读到「小游戏」即判为小游戏主界面（OCR 文字判据，不吃逐期美术模板）；
+        # 关卡内页没有标题栏文字，同判据不得命中。
+        # 负例另取活动主页：它的菜单带里也有「小游戏」入口文字，判据必须限定在标题栏区域内才不会误命中。
+        self.set_image('ok_templates/event_minigame_tcr_07.png')
+        self.assertTrue(self.task.is_screen('event_minigame_main'))
+        self.set_image('ok_templates/event_minigame_tcr_03.png')
+        self.assertFalse(self.task.is_screen('event_minigame_main'))
+        self.set_image('ok_templates/event_big_main_01.png')
+        self.assertFalse(self.task.is_screen('event_minigame_main'))
+
+    def test_is_box_highlighted_splits_yellow_and_brown(self):
+        # 「全部领取」两态是换色不是换形：色相带判据在合成帧上分得开（可领 ≈52° 亮黄 / 不可领 ≈20° 暗棕）。
+        frame = np.zeros((80, 200, 3), dtype=np.uint8)  # 合成帧：左半亮黄、右半暗棕。
+        frame[:, :100] = (0, 220, 255)  # BGR 亮黄：色相 ≈52°，落在 32~80 度带内、饱和度足够。
+        frame[:, 100:] = (0, 67, 200)  # BGR 暗棕：色相 ≈20°，落在带外。
+        with patch.object(type(self.task), 'frame', new_callable=PropertyMock, return_value=frame):
+            self.assertTrue(self.task.is_box_highlighted(Box(0, 0, 100, 80)))  # 亮黄侧 = 仍可领。
+            self.assertFalse(self.task.is_box_highlighted(Box(100, 0, 100, 80)))  # 暗棕侧 = 已领完。
+        with patch.object(type(self.task), 'frame', new_callable=PropertyMock, return_value=None):
+            self.assertFalse(self.task.is_box_highlighted(Box(0, 0, 10, 10)))  # 无帧：保守判非高亮。
 
 
 if __name__ == '__main__':

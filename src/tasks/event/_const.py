@@ -152,8 +152,9 @@ _ENTRY_EXTRA_BOXES = {
     "任务": ("box_event_menu_mission",),  # 大活动主页右侧的任务入口区域。
 }
 
-# v1 已实现的子流程（执行顺序即探测顺序）；小游戏不在其列，探测到仅记录跳过。
-_SUBFLOW_ORDER = ("签到", "剧情", "挑战", "任务", "商店")
+# 已实现的子流程（执行顺序即探测顺序）：小游戏排最后——它是实时游玩、耗时最长，失败恢复会退回大厅，
+# 放最后不会把前面已完成的子流程牵连进恢复流程。
+_SUBFLOW_ORDER = ("签到", "剧情", "挑战", "任务", "商店", "小游戏")
 
 # 子流程名 -> 入口方法名（开关/探测/try_step 分派，沿用 ArkTask 的 _do_* 结构）。
 _SUBFLOW_METHODS = {
@@ -162,10 +163,11 @@ _SUBFLOW_METHODS = {
     "挑战": "_do_challenge",
     "任务": "_do_mission",
     "商店": "_do_shop",
+    "小游戏": "_do_minigame",
 }
 
-# v1 跳过的入口：探测到只记日志（小游戏留 MINIGAMES 注册表钩子）。
-_SKIPPED_ENTRIES = ("小游戏",)
+# 尚未接入的入口：探测到只记日志（本期为空——小游戏已按 MINIGAMES 注册表接入）。
+_SKIPPED_ENTRIES = ()
 
 # 入口点击框修正：关键词（pattern.pattern）-> 沿 Y 轴的上移量（占屏高比例），作用于菜单带 / 子页面里的命中。
 # 「加成奖励妮姬」的命中文字在按钮下缘，点击落点需上移到按钮主体（小活动主页与剧情子页面同款布局，实机标定）。
@@ -181,8 +183,48 @@ _ENTRY_EXTRA_CLICK_Y_OFFSET = {
     "任务": 0.033,
 }
 
-# 小游戏注册表钩子（v1 预留，未实现）：实机接入各小游戏独立流程时填充。
-MINIGAMES = {}
+# 小游戏注册表：活动身份（event_identity(日历 banner 键)，与完成状态键同源）-> 该活动小游戏流程的方法名。
+# 键跟着当期活动的名称走，不给小游戏另起代号；换期换小游戏时只在这里加一条，
+# 同一套小游戏 UI 复用时多条键可指向同一流程方法。
+MINIGAMES = {
+    "COINRUSHSHOWDOWN": "_flow_minigame",  # THREE COMPANY RUMBLE（本期在架活动的小游戏）。
+}
+
+# ---- 小游戏（活动内置的实时小游戏）----
+# 入口在活动菜单带（关键词「小游戏」，见 _ENTRIES）；进入后是独立于活动页的整屏界面：
+# 主界面 → 选择妮姬页 → 关卡 → 结算页 → 主界面。关卡内只有两个输入（点击改攻击与移动方向、必杀技按键），
+# 没有可读的胜负信号、只有分数区，故自动化只做「刷到达标分数」→ 用暂停弹窗的「快速完成」结束本局。
+# 页面判据与点击框全部走本期已标注的 coco 特征/区域（判据不带逐期变化的弹窗美术）。
+_MINIGAME_MAIN_SCREEN = "event_minigame_main"  # 小游戏主界面（左上标题栏「小游戏」）。
+_MINIGAME_SELECT_SCREEN = "event_minigame_select"  # 选择妮姬页（角色 / 特殊技能 / 必杀技键位）。
+_MINIGAME_PLAY_SCREEN = "event_minigame_play"  # 关卡内（判据是右上暂停钮：暂停弹窗与结算页都不覆盖它）。
+_MINIGAME_RESULT_SCREEN = "event_minigame_result"  # 本局结算页（GAME OVER）。
+_MINIGAME_PAUSE_DIALOG_SCREEN = "event_minigame_pause_dialog"  # 暂停弹窗（点关卡右上暂停钮弹出）。
+_MINIGAME_MISSION_POPUP_SCREEN = "event_minigame_mission_popup"  # 主界面「任务」弹窗（模态框）。
+_MINIGAME_START_ENTRY = "box_event_minigame_enter"  # 主界面 START 区域（点击进入选择妮姬页）。
+_MINIGAME_SELECT_START = "event_minigame_start"  # 选择妮姬页底部 START（点击开始本局）。
+_MINIGAME_SCORE_BOX = "box_event_minigame_score"  # 关卡内分数区（OCR 取当前分数）。
+_MINIGAME_PAUSE_BOX = "event_minigame_pause"  # 关卡内右上角暂停钮（ESC）。
+_MINIGAME_QUICK_FINISH_BOX = "box_event_minigame_quick_finish"  # 暂停弹窗「快速完成」（记录目前分数并退出游戏）。
+_MINIGAME_RESULT_BACK_BOX = "box_event_minigame_result_back"  # 结算页「返回」（回小游戏主界面）。
+_MINIGAME_MISSION_ENTRY = "event_minigame_mission"  # 主界面左侧「任务」入口图标。
+_MINIGAME_MISSION_CLAIM_BOX = "box_event_minigame_mission_claim"  # 任务弹窗底部「全部领取」按钮区域。
+_MINIGAME_MISSION_CLOSE = "event_minigame_mission_close"  # 任务弹窗右上关闭钮。
+_MINIGAME_EXIT_CONFIRM = "event_minigame_exit_confirm"  # 「确定要退出小游戏吗？」的「确认」钮。
+_MINIGAME_SCORE_PATTERN = re.compile(r"\d[\d,]*")  # 分数区 OCR 文本取数字（兼容千分位分隔符）。
+_MINIGAME_TAP_POINT = (0.5, 0.5)  # 关卡内点击落点（屏幕相对坐标）：画面中央，避开顶部 HUD 与底部技能栏。
+_MINIGAME_TAP_INTERVAL = 0.5  # 关卡内点击间隔（秒）：每次点击改变攻击与移动方向。
+_MINIGAME_SCORE_INTERVAL = 2.5  # 分数区 OCR 间隔（秒）。
+_MINIGAME_TARGET_SCORE = 4000  # 达标分数：达到即用「快速完成」结束本局。
+_MINIGAME_PLAY_TIMEOUT = 600  # 单局游玩上限（秒）：到点仍未达标也按当前分数快速完成（本局自然结束会提前退出）。
+_MINIGAME_ENTER_TIMEOUT = 30  # 点活动菜单「小游戏」入口后等小游戏主界面出现的窗口（秒，含整屏加载）。
+_MINIGAME_START_TIMEOUT = 20  # 主界面 START 后等选择妮姬页 / 关卡就位的窗口（秒，含加载）。
+_MINIGAME_DIALOG_TIMEOUT = 8  # 模态框（暂停弹窗 / 任务弹窗 / 退出确认框）就位窗口（秒）。
+_MINIGAME_RESULT_TIMEOUT = 20  # 「快速完成」后等结算页出现的窗口（秒，含结算动画）。
+_MINIGAME_CLAIM_MAX_CLICKS = 3  # 任务「全部领取」最多点击次数（两段式领取留余量，点击未生效时防死循环）。
+_MINIGAME_BACK_ATTEMPTS = 2  # 结算页「返回」的最多尝试次数：结算动画期间点「返回」会被吃掉（点完不回主界面）。
+_MINIGAME_CLAIM_SETTLE = 1  # 每次领取点击后的等待（秒），等遮罩与第二段渲染。
+_MINIGAME_EXIT_TIMEOUT = 20  # 退出小游戏后等回活动菜单页的窗口（秒）。
 
 # ---- 完成状态：按活动身份分键（键格式见 event_done_key） ----
 
