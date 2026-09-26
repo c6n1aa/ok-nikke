@@ -204,7 +204,7 @@ def fetch_calendar(timeout=10.0, attempts=1):
             last_error = error
         if attempt < attempts:
             time.sleep(RETRY_DELAY)
-    raise last_error
+    raise last_error if last_error is not None else RuntimeError('日历接口请求失败')  # 循环至少跑一轮，兜底分支不可达。
 
 
 def strip_banner_prefix(key):
@@ -424,7 +424,8 @@ def snapshot_from_dict(data):
             end_time=int(item.get("end_time") or 0),
             url=str(item.get("url") or ""),
         ))
-    status = data.get("status") if isinstance(data.get("status"), dict) else {}
+    raw_status = data.get("status")  # 接口的状态段。
+    status = raw_status if isinstance(raw_status, dict) else {}
     return CalendarSnapshot(fetched_at=int(data.get("fetched_at") or 0), events=tuple(events), status=status)
 
 

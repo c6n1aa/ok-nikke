@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """ok-nikke 应用内更新 bootstrap（零第三方依赖：只使用标准库）。
 
 要点：
@@ -145,7 +144,7 @@ def pause_before_exit(root: str, seconds: float = 15) -> None:
 
 def read_json(path: str):
     try:
-        with open(path, 'r', encoding='utf-8') as f:
+        with open(path, encoding='utf-8') as f:
             return json.load(f)
     except Exception:
         return None
@@ -238,7 +237,7 @@ def _parse_requirements_lines(text: str):
     entries = []
     for raw in (text or '').splitlines():
         line = raw.strip()
-        if not line or line.startswith('#') or line.startswith('-'):
+        if not line or line.startswith(('#', '-')):
             continue
         entries.append(line)
     return entries
@@ -312,7 +311,7 @@ def parse_remote_tags(output: str):
 
 def read_version(root: str) -> str:
     try:
-        with open(os.path.join(root, VERSION_FILE), 'r', encoding='utf-8') as f:
+        with open(os.path.join(root, VERSION_FILE), encoding='utf-8') as f:
             # lstrip BOM：CI 里 PowerShell Set-Content -Encoding utf8 会写 BOM，
             # 不清理会让版本号带 \ufeff 前缀，"已更新 vX → vY" 提示与比较全部失真
             return f.read().lstrip('\ufeff').strip()
@@ -388,14 +387,17 @@ def run_command(command, cwd: str, timeout: int = GIT_TIMEOUT, dry_run: bool = F
     try:
         completed = subprocess.run(
             command, cwd=cwd, timeout=timeout,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            capture_output=True,
             creationflags=CREATE_NO_WINDOW if os.name == 'nt' else 0,
         )
     except subprocess.TimeoutExpired:
         return 124, '', f'timeout after {timeout}s: {command}'
     except Exception as error:
         return 1, '', f'{type(error).__name__}: {error}'
-    decode = lambda data: (data or b'').decode('utf-8', 'replace').strip()
+
+    def decode(data):
+        return (data or b'').decode('utf-8', 'replace').strip()
+
     return completed.returncode, decode(completed.stdout), decode(completed.stderr)
 
 
@@ -465,7 +467,7 @@ def _append_local_excludes(git: Git, root: str) -> None:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         existing = ''
         if os.path.isfile(path):
-            with open(path, 'r', encoding='utf-8') as f:
+            with open(path, encoding='utf-8') as f:
                 existing = f.read()
         missing = [p for p in EXCLUDE_PATTERNS if p not in existing.split()]
         if not missing:
@@ -642,7 +644,7 @@ def run_update(options) -> int:
 
 def _read_text(path: str):
     try:
-        with open(path, 'r', encoding='utf-8') as f:
+        with open(path, encoding='utf-8') as f:
             return f.read()
     except Exception:
         return None

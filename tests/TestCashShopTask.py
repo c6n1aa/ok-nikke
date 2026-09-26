@@ -2,12 +2,12 @@ import os
 import unittest
 from unittest.mock import patch
 
-from src.config import config
-from src.tasks.CashShopTask import CashShopTask
 from ok.feature.Box import Box
 from ok.task.exceptions import WaitFailedException
 from ok.test.TaskTestCase import TaskTestCase
 
+from src.config import config
+from src.tasks.CashShopTask import CashShopTask
 from tests.support.asserts import assert_called_once_semantic
 
 _TEST_CONFIG_DIR = os.path.join('dev_tools', 'test_configs')
@@ -37,6 +37,7 @@ def _fake_box(name, x=1, y=1, w=10, h=10):
 
 class TestCashShopTask(_DebugOffTestCase):
     task_class = CashShopTask
+    task: CashShopTask
 
     config = config
 

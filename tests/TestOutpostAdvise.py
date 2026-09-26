@@ -1,15 +1,17 @@
 import unittest
 from unittest.mock import patch
 
+from ok.test.TaskTestCase import TaskTestCase
+
 from src.config import config
 from src.tasks.OutpostTask import OutpostTask, _normalize_character_name
-from ok.test.TaskTestCase import TaskTestCase
 
 
 class TestOutpostAdviseName(TaskTestCase):
     """咨询角色名读取与答案库查询：用实机截图锁定「名字框标注 → OCR → 查询」链路。"""
 
     task_class = OutpostTask
+    task: OutpostTask
 
     config = config
 

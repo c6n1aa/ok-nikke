@@ -3,7 +3,9 @@ from ok import BaseTask
 from src.screens import SCREENS  # 集中式界面注册表（全局界面在 __init__ 里统一加载进 self.screens）。
 from src.tasks.base._battle import BattleMixin  # 战斗结束等待与中断哨兵。
 from src.tasks.base._done_state import DoneStateMixin  # 完成状态与周期刷新。
-from src.tasks.base._exceptions import InterruptedByDialogException  # 致命中断弹窗异常（此处重导出，兼容 `import src.tasks.NikkeBaseTask as nbt` 的外部引用）。
+from src.tasks.base._exceptions import (
+    InterruptedByDialogException,  # 致命中断弹窗异常（此处重导出，兼容 `import src.tasks.NikkeBaseTask as nbt` 的外部引用）。
+)
 from src.tasks.base._foreground import ForegroundMixin  # 窗口前置。
 from src.tasks.base._navigation import NavigationMixin  # 守卫式导航 + 失败恢复 + 冷启动。
 from src.tasks.base._popups import PopupsMixin  # 弹窗/遮罩统一清理。
@@ -19,6 +21,10 @@ class NikkeBaseTask(NavigationMixin, BattleMixin, PopupsMixin, ScreenMixin,
     不要直接 `import ok.BaseTask`。各职责的具体实现拆在 src/tasks/base/ 的
     mixin 里，本类只做组合与实例状态初始化。
     """
+
+    # ok 的 BaseTask 把 self.config 初始化为 None 且没有类型标注，pyright 据此判成 None；
+    # 这里补上运行时真实类型（after_init 后是框架的 Config 对象，支持下标与 get）。
+    config: dict
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

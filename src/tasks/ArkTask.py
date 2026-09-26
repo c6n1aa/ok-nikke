@@ -2,7 +2,6 @@ import re  # 正则模块，用于 OCR 关键词的部分匹配。
 import time  # 时间模块，用于竞技场入口赛跑的补点计时。
 
 import cv2  # OpenCV，战力数字区域 OCR 前的放大预处理。
-
 from ok import og  # 全局单例，读取当前执行任务以判断是否由日常编排。
 from ok.task.exceptions import WaitFailedException  # 界面断言/战斗超时抛出的框架等待失败异常。
 
@@ -416,12 +415,12 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
                     continue  # 重新进入等待战斗结束的循环。
                 self.click_box(confirm_box, after_sleep=10)  # 下一关不可用说明已到当前最高层，点击结算确认按钮返回塔关卡界面（wait_battle_finish 已等结算稳定后返回坐标）。
                 break  # 结束爬塔循环。
-            elif result == "failed":  # 战斗失败。
+            if result == "failed":  # 战斗失败。
                 self.failed_towers.append(index)  # 记录本次失败的塔号，供结束时提醒用户。
                 self.click_box(confirm_box, after_sleep=1)  # 点击失败返回按钮。
                 break  # 结束爬塔循环。
-            else:  # 等待战斗结束超时。
-                raise WaitFailedException("等待企业塔战斗结束超时")  # 抛异常由 try_step 恢复重试。
+            # 等待战斗结束超时。
+            raise WaitFailedException("等待企业塔战斗结束超时")  # 抛异常由 try_step 恢复重试。
         self.dismiss_all_popups(wait_for_popup=False, time_out=10)  # 清理结算后可能弹出的奖励/公告弹窗。
         self.wait_feature("tribe_tower_stage", raise_if_not_found=True)  # 等待回到塔关卡界面。
         self.wait_click_feature("common_back", raise_if_not_found=True, after_sleep=1)  # 点击返回无限之塔界面（下一塔开始前由流程断言该界面）。
@@ -493,7 +492,7 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
             except ValueError:  # 特征缺失。
                 encounter = None  # 视为免费次数已用尽。
             # 动画容忍：按钮未渲染完成时色彩判态会误判为禁用，轮询等其稳定为可用。
-            if encounter is None or not self.wait_until(lambda: self.is_feature_enabled(encounter), time_out=5, settle_time=1):
+            if encounter is None or not self.wait_until(lambda enc=encounter: self.is_feature_enabled(enc), time_out=5, settle_time=1):  # 默认参数绑定本轮取到的区域，避免闭包读到下一轮重绑的值。
                 self.log_info("新人竞技场免费挑战次数已用尽")  # 记录结束原因。
                 break  # 结束循环。
             target = self._rookie_arena_pick_opponent()  # 按对手选择策略确定要挑战的对手免费挑战区域名。

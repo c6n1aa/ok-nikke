@@ -44,6 +44,17 @@ jobs:
       - name: Install dependencies (runner, for tests)
         run: uv pip install --system --no-deps -r requirements.txt
 
+      - name: Install static check tools
+        # 与 .venv 里的版本同源（pyproject 的 dev 组），但不带 --no-deps：pyright 需要 nodeenv 引导 Node。
+        run: uv pip install --system ruff pyright
+
+      - name: Static checks (ruff + pyright)
+        run: |
+          ruff check .
+          # pyright 的 venvPath 指向仓库 .venv（开发机用）；CI 没有 .venv，会回落到 PATH 上的解释器，
+          # 也就是上面 uv pip install --system 装好 ok-script/PySide6/cv2 的那个 setup-python。
+          pyright
+
       - name: Run tests
         run: ./run_tests.ps1
         timeout-minutes: 20

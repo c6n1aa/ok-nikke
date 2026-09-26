@@ -5,7 +5,6 @@ from collections import Counter
 
 import polib
 
-
 TASK_DICT_ATTRS = {"default_config", "config_description", "config_type"}
 TASK_STRING_ATTRS = {"name", "description"}
 CONFIG_TYPE_META = {
@@ -69,7 +68,7 @@ class TaskStringVisitor(ast.NodeVisitor):
     def _collect_dict_strings(self, node):
         if not isinstance(node, ast.Dict):
             return
-        for key, value in zip(node.keys, node.values):
+        for key, value in zip(node.keys, node.values, strict=True):
             self._add_string(key)
             self._collect_value_strings(value)
 
@@ -84,13 +83,13 @@ class TaskStringVisitor(ast.NodeVisitor):
     def _collect_config_type_strings(self, node):
         if not isinstance(node, ast.Dict):
             return
-        for key, value in zip(node.keys, node.values):
+        for key, value in zip(node.keys, node.values, strict=True):
             self._add_string(key)
             self._collect_config_type_value(value)
 
     def _collect_config_type_value(self, node):
         if isinstance(node, ast.Dict):
-            for key, value in zip(node.keys, node.values):
+            for key, value in zip(node.keys, node.values, strict=True):
                 if isinstance(key, ast.Constant) and key.value in {"options", "buttons"}:
                     self._collect_value_strings(value)
         elif isinstance(node, (ast.List, ast.Tuple, ast.Set)):
@@ -101,7 +100,7 @@ class TaskStringVisitor(ast.NodeVisitor):
 
 
 def scan_task(path):
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         tree = ast.parse(f.read(), filename=path)
     visitor = TaskStringVisitor()
     visitor.visit(tree)

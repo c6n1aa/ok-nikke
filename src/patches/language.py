@@ -44,8 +44,8 @@ def supported_locales():
 
 def _resolve_auto_language(system_locale):
     """AUTO：系统语言命中保留语言就跟随，否则兜底英语。"""
-    from PySide6.QtCore import QLocale
     from ok.ui.qt.common.config import Language
+    from PySide6.QtCore import QLocale
     for language in _kept_languages():
         if language is Language.AUTO:
             continue
@@ -61,8 +61,8 @@ def _resolve_auto_language(system_locale):
 
 def _effective_language():
     """把配置里的语言解析成实际生效语言。"""
+    from ok.ui.qt.common.config import Language, cfg
     from PySide6.QtCore import QLocale
-    from ok.ui.qt.common.config import cfg, Language
     configured = cfg.get(cfg.language)
     if configured == Language.AUTO:
         return _resolve_auto_language(QLocale())

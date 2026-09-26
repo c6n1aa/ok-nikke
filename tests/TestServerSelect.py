@@ -1,3 +1,5 @@
+# pyright: reportOptionalMemberAccess=false, reportOptionalSubscript=false
+# 仅本测试文件：mock 出来的 find_one/load_snapshot 返回值已知非空，直接取属性；src/ 仍由这两条规则把关。
 import unittest  # 单元测试模块。
 from unittest.mock import patch  # mock 模块，用于替换耗时/副作用方法。
 
@@ -13,6 +15,7 @@ class TestServerSelect(TaskTestCase):
     """服务器选择界面确认：登录前弹窗清理阶段 OCR 识别 box_server_select 内的「选择」并点击 server_select_confirm。"""
 
     task_class = DailyTask
+    task: DailyTask
 
     config = config
 

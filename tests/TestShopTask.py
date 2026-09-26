@@ -2,11 +2,11 @@ import os
 import unittest
 from unittest.mock import patch
 
-from src.config import config
-from src.tasks.ShopTask import ShopTask
 from ok.feature.Box import Box
 from ok.test.TaskTestCase import TaskTestCase
 
+from src.config import config
+from src.tasks.ShopTask import ShopTask
 from tests.support.asserts import assert_called_once_semantic
 
 _TEST_CONFIG_DIR = os.path.join('dev_tools', 'test_configs')
@@ -22,6 +22,8 @@ def _isolate_task_config(task, name):
 
 class TestShopTask(TaskTestCase):
     task_class = ShopTask
+
+    task: ShopTask
 
     config = config
 

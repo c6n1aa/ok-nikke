@@ -2,16 +2,16 @@ import re  # 任务页副标题关键字用正则（OCR 部分匹配，忽略大
 
 from ok import og  # 导入框架全局对象。
 
+from src.tasks.ArkTask import ArkTask  # 导入方舟子任务（企业塔/模拟室/拦截战/竞技场）。
+from src.tasks.CashShopTask import CashShopTask  # 导入付费商店子任务。
+from src.tasks.EventTask import EventTask  # 导入活动子任务。
 from src.tasks.HarvestTask import HarvestTask  # 导入收获子任务。
 from src.tasks.NikkeBaseTask import NikkeBaseTask  # 导入项目基类，所有任务统一继承它。
 from src.tasks.OutpostDefenseTask import OutpostDefenseTask  # 导入歼灭子任务。
 from src.tasks.OutpostTask import OutpostTask  # 导入前哨基地子任务（派遣/咨询）。
-from src.tasks.ShopTask import ShopTask  # 导入商店子任务。
-from src.tasks.CashShopTask import CashShopTask  # 导入付费商店子任务。
-from src.tasks.RecruitTask import RecruitTask  # 导入招募子任务（友情点/折扣普通招募）。
-from src.tasks.ArkTask import ArkTask  # 导入方舟子任务（企业塔/模拟室/拦截战/竞技场）。
 from src.tasks.RaidTask import RaidTask  # 导入讨伐子任务（协同作战/个人突袭）。
-from src.tasks.EventTask import EventTask  # 导入活动子任务。
+from src.tasks.RecruitTask import RecruitTask  # 导入招募子任务（友情点/折扣普通招募）。
+from src.tasks.ShopTask import ShopTask  # 导入商店子任务。
 
 
 class DailyTask(NikkeBaseTask):  # 定义清日常总编排的父任务类。

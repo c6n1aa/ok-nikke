@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """生成 GitHub Release 正文（构建流程用，纯标准库）。
 
 由 .github/workflows/build.yml 的 Release 步骤调用；也可本地预览：

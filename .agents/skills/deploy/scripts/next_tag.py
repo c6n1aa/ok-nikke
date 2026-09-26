@@ -9,7 +9,6 @@ import subprocess
 import sys
 from dataclasses import dataclass
 
-
 STABLE_RE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
 PRERELEASE_RE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)-(alpha|beta)\.(\d+)$")
 
@@ -20,7 +19,7 @@ class Version:
     minor: int
     patch: int
 
-    def next_patch(self) -> "Version":
+    def next_patch(self) -> Version:
         return Version(self.major, self.minor, self.patch + 1)
 
     def tag(self) -> str:

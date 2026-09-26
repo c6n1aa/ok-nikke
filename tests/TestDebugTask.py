@@ -21,6 +21,7 @@ class _FakeFeatureSet:
 
 class TestDebugFindFeature(TaskTestCase):
     task_class = DebugTask
+    task: DebugTask
     config = config
 
     def setUp(self):

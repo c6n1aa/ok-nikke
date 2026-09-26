@@ -1,3 +1,5 @@
+# pyright: reportOptionalMemberAccess=false, reportOptionalSubscript=false
+# 仅本测试文件：mock 出来的 find_one/load_snapshot 返回值已知非空，直接取属性；src/ 仍由这两条规则把关。
 import os
 import unittest
 from contextlib import ExitStack
@@ -5,7 +7,6 @@ from types import SimpleNamespace
 from unittest.mock import PropertyMock, call, patch
 
 import numpy as np
-
 from ok import og
 from ok.feature.Box import Box
 from ok.task.exceptions import WaitFailedException
@@ -13,8 +14,7 @@ from ok.test.TaskTestCase import TaskTestCase
 
 from src.config import config
 from src.tasks.ArkTask import ArkTask
-
-from tests.support.asserts import assert_called_once_semantic, assert_any_call_semantic
+from tests.support.asserts import assert_any_call_semantic, assert_called_once_semantic
 
 _TEST_CONFIG_DIR = os.path.join('dev_tools', 'test_configs')
 
@@ -38,6 +38,7 @@ class _DebugOffTestCase(TaskTestCase):
 
 class TestArkTask(_DebugOffTestCase):
     task_class = ArkTask
+    task: ArkTask
 
     config = config
 
@@ -525,6 +526,7 @@ class TestArkTaskSimulation(_DebugOffTestCase):
     """模拟室子流程测试：覆盖成功/跳过/失败/已完成跳过等主要分支。"""
 
     task_class = ArkTask
+    task: ArkTask
 
     config = config
 
@@ -600,7 +602,7 @@ class TestArkTaskSimulation(_DebugOffTestCase):
         def find_one_only_update(name, *args, **kwargs):
             self.assertEqual("simulation_overclock_update", name,
                              "无红点时除更新弹窗外不应继续识别其他特征")  # 守卫：不得进入红点后的流程识别。
-            return None  # 未弹出超频更新弹窗。
+            return  # 未弹出超频更新弹窗。
 
         with patch.object(self.task, "_nav_to_ark"), \
                 patch.object(self.task, "wait_click_feature") as click_mock, \
@@ -709,7 +711,7 @@ class TestArkTaskSimulation(_DebugOffTestCase):
         quick = Box(1380, 1208, 49, 47, confidence=1, name="simulation_quick_battle")  # 快速战斗按钮。
         find_map = {"simulation_level5": level5, "simulation_quick_battle": quick}
         with patch.object(self.task, "_nav_to_ark"), \
-                patch.object(self.task, "wait_click_feature") as click_mock, \
+                patch.object(self.task, "wait_click_feature"), \
                 patch.object(self.task, "wait_screen", return_value=True), \
                 patch.object(self.task, "find_red_dot", return_value=red_dot), \
                 patch.object(self.task, "find_one", side_effect=lambda name, *a, **k: find_map.get(name)), \
@@ -729,7 +731,7 @@ class TestArkTaskSimulation(_DebugOffTestCase):
         quick = Box(1380, 1208, 49, 47, confidence=1, name="simulation_quick_battle")  # 快速战斗按钮。
         find_map = {"simulation_level5": level5, "simulation_quick_battle": quick}
         with patch.object(self.task, "_nav_to_ark"), \
-                patch.object(self.task, "wait_click_feature") as click_mock, \
+                patch.object(self.task, "wait_click_feature"), \
                 patch.object(self.task, "wait_screen", return_value=True), \
                 patch.object(self.task, "find_red_dot", return_value=red_dot), \
                 patch.object(self.task, "find_one", side_effect=lambda name, *a, **k: find_map.get(name)), \
@@ -775,6 +777,7 @@ class TestDailyTaskArkIntegration(_DebugOffTestCase):
     """验证日常编排：方舟子流程记录失败塔后，日常在全部子任务完成后统一提醒。"""
 
     task_class = ArkTask
+    task: ArkTask
 
     config = config
 
@@ -811,6 +814,7 @@ class TestEnsureLobby(_DebugOffTestCase):
     """ensure_screen("lobby") 的零点击尾段：任务开头就位大厅（含冷启动引导）的回归。"""
 
     task_class = ArkTask
+    task: ArkTask
 
     config = config
 
@@ -862,6 +866,7 @@ class TestNavToArk(_DebugOffTestCase):
     卡在 wait_until_lobby_after_start 空等大厅 60 秒以上（游戏实际已停在方舟页）。"""
 
     task_class = ArkTask
+    task: ArkTask
 
     config = config
 
@@ -969,6 +974,7 @@ class TestArkTaskRookieArena(_DebugOffTestCase):
     """新人竞技场子流程测试：覆盖成功/跳过/失败/已完成跳过及对手选择策略各分支。"""
 
     task_class = ArkTask
+    task: ArkTask
 
     config = config
 
@@ -1081,7 +1087,6 @@ class TestArkTaskRookieArena(_DebugOffTestCase):
 
     def test_flow_no_free_encounter_backs_out(self):
         """免费次数已用尽：不挑战，直接逐级返回方舟。"""
-        encounter = self._common_encounter()
         stack, race_mock, enabled_mock, click_feature_mock, click_box_mock, _, _ = \
             self._flow_patches([None], [False], "success")  # 免费挑战区域缺失（None）直接进入用尽分支。
         with stack:
@@ -1182,6 +1187,7 @@ class TestArkTaskSpecialArena(_DebugOffTestCase):
     """特殊竞技场子流程测试：覆盖成功/跳过/失败/已完成跳过等主要分支。"""
 
     task_class = ArkTask
+    task: ArkTask
 
     config = config
 
@@ -1291,6 +1297,7 @@ class TestArkTaskSpecialArena(_DebugOffTestCase):
     def test_season_end_pattern_tolerates_trailing_punctuation(self):
         """框架过滤语义回归：OCR 文本带尾随句号（如「赛季已结束。」）时编译模式必须命中。"""
         from ok.feature.Box import Box, find_boxes_by_name  # 框架 ocr(match=...) 实际使用的过滤器。
+
         from src.tasks.ArkTask import _SEASON_END_PATTERN
         boxes = [Box(0, 0, 100, 20, confidence=1, name="赛季已结束。")]
         self.assertEqual(1, len(find_boxes_by_name(boxes, _SEASON_END_PATTERN)))  # 部分匹配容忍尾随标点。
@@ -1299,7 +1306,7 @@ class TestArkTaskSpecialArena(_DebugOffTestCase):
     def test_race_primitive_clicks_entry_then_races(self):
         """赛跑原语：先点入口；横幅命中优先于目标界面（真实判定循环驱动，验证瞬态信号优先）。"""
         with patch.object(self.task, "wait_click_feature") as click_mock, \
-                patch.object(self.task, "_hit_season_end_banner", side_effect=[False, True]) as banner_mock, \
+                patch.object(self.task, "_hit_season_end_banner", side_effect=[False, True]), \
                 patch.object(self.task, "is_screen", side_effect=[False]) as screen_mock:
             captured = {}
 
@@ -1334,7 +1341,7 @@ class TestArkTaskSpecialArena(_DebugOffTestCase):
 
             def fake_wait_until(condition, time_out=0, pre_action=None, **kwargs):
                 captured["pre_action"] = pre_action  # 补点钩子由本用例手动驱动。
-                return None
+                return
 
             with patch.object(self.task, "wait_until", side_effect=fake_wait_until), \
                     patch("src.tasks.ArkTask.time.time", side_effect=fake_time):
@@ -1350,6 +1357,7 @@ class TestArkTaskRankingReward(_DebugOffTestCase):
     """收取排名奖励子流程测试：覆盖成功/跳过/失败/红点缺失/奖励不可用等主要分支。"""
 
     task_class = ArkTask
+    task: ArkTask
 
     config = config
 
@@ -1470,6 +1478,7 @@ class TestArkTaskInterception(_DebugOffTestCase):
     """拦截战子流程测试：覆盖跳过/互斥/成功/失败/已完成跳过及通用与异常个体各分支。"""
 
     task_class = ArkTask
+    task: ArkTask
 
     config = config
 

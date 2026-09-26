@@ -6,16 +6,29 @@
 """
 
 import cv2  # OpenCV：入口锁定判据的 HSV 亮度掩码（白字 / 高亮底）。
-
 from ok.feature.Box import Box, find_boxes_by_name  # 入口点击框构造 + 复刻 ocr(match=...) 的按名过滤。
-
 from ok.task.exceptions import WaitFailedException  # 入口缺失 / 退回菜单页失败等流程断言抛出的等待失败异常。
 
 from src.tasks.event._const import (
-    _MENU_BAND_BOXES, normalize_roman_numerals, _STORY_MENU_PATTERNS, _STORY_SUB_PATTERN, _ENTRY_LOCK_BRIGHT_V,
-    _ENTRY_LOCK_BRIGHT_RATIO, _MENU_PROBE_ENTRIES, _ENTRIES, _ENTRY_EXTRA_BOXES, _SUBFLOW_ORDER,
-    _SUBFLOW_METHODS, _SKIPPED_ENTRIES, _ENTRY_CLICK_Y_OFFSET, _ENTRY_EXTRA_CLICK_Y_OFFSET, _EVENT_FLOW_PERIOD,
-    _PER_EVENT_FLOWS, _BIG_EVENT_TYPE, event_identity, event_done_key,
+    _BIG_EVENT_TYPE,
+    _ENTRIES,
+    _ENTRY_CLICK_Y_OFFSET,
+    _ENTRY_EXTRA_BOXES,
+    _ENTRY_EXTRA_CLICK_Y_OFFSET,
+    _ENTRY_LOCK_BRIGHT_RATIO,
+    _ENTRY_LOCK_BRIGHT_V,
+    _EVENT_FLOW_PERIOD,
+    _MENU_BAND_BOXES,
+    _MENU_PROBE_ENTRIES,
+    _PER_EVENT_FLOWS,
+    _SKIPPED_ENTRIES,
+    _STORY_MENU_PATTERNS,
+    _STORY_SUB_PATTERN,
+    _SUBFLOW_METHODS,
+    _SUBFLOW_ORDER,
+    event_done_key,
+    event_identity,
+    normalize_roman_numerals,
 )
 
 

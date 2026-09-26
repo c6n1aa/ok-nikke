@@ -46,11 +46,11 @@ def _patch_tasks_tab_daily_pin():
     # 卡片图标染成强调色（ColoredFluentIcon 按明暗主题取 themeColor），
     # 不引入自定义 QSS 或硬编码颜色。
     # 刷新(任务列表变化)时会先移除旧分割线再重建，避免累积重复。
+    from ok.ui.qt.common.design_system import DesignToken
     from ok.ui.qt.tasks.OneTimeTaskTab import OneTimeTaskTab
     from ok.ui.qt.widget.ExpandCardLayout import ExpandCardLayout
-    from ok.ui.qt.common.design_system import DesignToken
     from PySide6.QtWidgets import QVBoxLayout, QWidget, QWidgetItem
-    from qfluentwidgets import HorizontalSeparator, FluentIcon
+    from qfluentwidgets import FluentIcon, HorizontalSeparator
     from qfluentwidgets.common.icon import FluentIconBase
     from qfluentwidgets.common.style_sheet import themeColor
 
@@ -170,10 +170,10 @@ def _patch_tasks_tab_reset_done_button():
     # 任务列表里收获/歼灭/商店卡片展开后的 Operation 行、Reset Config 前注入
     # 「重置完成状态」按钮，便于用户改完配置后一键清除完成状态并重跑。
     # 仅对有 done_keys 的 NikkeBaseTask 子任务显示；纯编排的 DailyTask 无 done_keys 不显示。
+    from ok.ui.qt.tasks.ConfigCard import ConfigContentMixin
     from PySide6.QtWidgets import QHBoxLayout
     from qfluentwidgets import FluentIcon, InfoBar, PushButton
 
-    from ok.ui.qt.tasks.ConfigCard import ConfigContentMixin
     from src.tasks.NikkeBaseTask import NikkeBaseTask
 
     original_add_buttons = ConfigContentMixin.add_buttons

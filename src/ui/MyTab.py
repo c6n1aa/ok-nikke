@@ -1,9 +1,8 @@
-from PySide6.QtCore import QEvent
-from PySide6.QtWidgets import QPushButton
-from qfluentwidgets import BodyLabel, FluentIcon, PushButton, PrimaryPushButton
-
 from ok import Config
 from ok.ui.qt.widget.CustomTab import CustomTab
+from PySide6.QtCore import QEvent
+from qfluentwidgets import BodyLabel, FluentIcon, PrimaryPushButton
+
 from src.tasks.MyOneTimeTask import MyOneTimeTask
 
 
@@ -32,8 +31,10 @@ class MyTab(CustomTab):
 
     def button_clicked(self):
         self.logger.info(f'MyTab clicked {self.__class__.__name__}')
-        self.get_task(MyOneTimeTask).run()
-        self.logger.info(f'MyTab clicked finished')
+        task = self.get_task(MyOneTimeTask)  # 框架按任务类取实例，未注册时返回 None。
+        if task is not None:
+            task.run()
+        self.logger.info('MyTab clicked finished')
 
     def showEvent(self, event):
         super().showEvent(event)

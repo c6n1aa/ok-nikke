@@ -6,8 +6,7 @@
 from ok.task.exceptions import WaitFailedException  # 活动处理结束未回大厅等流程断言抛出的等待失败异常。
 
 from src import event_calendar  # 本地日历快照与活动图（纯本地读取，快照过期才联网刷新）。
-
-from src.tasks.event._const import _EVENT_ICON, _MAX_CARDS, event_identity, event_done_key
+from src.tasks.event._const import _EVENT_ICON, _MAX_CARDS, event_done_key, event_identity
 
 
 class EventListMixin:

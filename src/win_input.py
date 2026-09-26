@@ -19,7 +19,6 @@ from ctypes import wintypes
 
 import win32con
 import win32gui
-
 from ok.device.interaction_methods.base import BaseInteraction
 from ok.util.logger import Logger
 
@@ -410,7 +409,7 @@ class SyntheticTouch(BaseInteraction):
         logger.warning(f'SyntheticTouch does not support keyboard, ignored key={key}')
 
     def input_text(self, text):
-        logger.warning(f'SyntheticTouch does not support keyboard, ignored input_text')
+        logger.warning('SyntheticTouch does not support keyboard, ignored input_text')
 
     def back(self):
         logger.warning('SyntheticTouch does not support keyboard, ignored back')
@@ -474,7 +473,7 @@ class SyntheticTouch(BaseInteraction):
         try:
             self._setup_device()
         except Exception as e:
-            logger.error(f'SyntheticTouch setup failed', e)
+            logger.error('SyntheticTouch setup failed', e)
             self._setup_failed = True
             return
         self._ready = True

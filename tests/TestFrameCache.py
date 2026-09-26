@@ -15,6 +15,7 @@ def _fake_box(name):
 class TestFrameCache(TaskTestCase):
     """帧级判定缓存：同帧只匹配一次、换帧即失效、OCR 区域合并与退化隔离。"""
     task_class = HarvestTask
+    task: HarvestTask
 
     config = config
 

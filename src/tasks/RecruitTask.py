@@ -85,7 +85,7 @@ class RecruitTask(NikkeBaseTask):  # 招募任务：每日免费招募/友情点
         try:  # 区域特征可能尚未标注进 coco。
             result_box = self.get_box_by_name("box_recruit_result")  # 获取结果面板区域框（已按当前分辨率缩放）。
         except ValueError:  # 特征缺失。
-            raise WaitFailedException("box_recruit_result 特征缺失")  # 抛异常由 try_step 恢复。
+            raise WaitFailedException("box_recruit_result 特征缺失") from None  # 抛异常由 try_step 恢复；原 ValueError 只是取框细节，不保留上下文。
         if result_box is None:  # 区域无效（如无可用帧）。
             raise WaitFailedException("box_recruit_result 区域无效")  # 抛异常由 try_step 恢复。
         deadline = time.time() + time_out  # 记录整体超时时刻。

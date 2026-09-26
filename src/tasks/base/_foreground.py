@@ -27,10 +27,10 @@ class ForegroundMixin:
     def _force_foreground(self):
         """绕过 Windows 前台锁手动把游戏窗口切到前台，返回是否成功。"""
         try:
+            import win32api  # 获取当前线程 ID。
             import win32con  # 延迟导入，避免测试环境无窗口时失败。
             import win32gui  # Windows 窗口 API。
             import win32process  # 线程/进程 API，用于 AttachThreadInput。
-            import win32api  # 获取当前线程 ID。
             hwnd_obj = self.executor.device_manager.hwnd_window  # 获取窗口对象。
             if hwnd_obj is None or not hwnd_obj.hwnd:  # 窗口无效则直接失败。
                 self.log_warning("force_foreground: no hwnd")  # 记录窗口缺失。

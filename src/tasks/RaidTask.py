@@ -100,7 +100,7 @@ class RaidTask(NikkeBaseTask):  # 定义讨伐任务类，包含协同作战与�
             try:  # 次数区域可能缺失。
                 count_box = self.get_box_by_name("box_coop_count")  # 获取次数区域用于点击。
             except ValueError:  # 特征缺失。
-                raise WaitFailedException("缺少区域特征: box_coop_count")  # 抛异常恢复。
+                raise WaitFailedException("缺少区域特征: box_coop_count") from None  # 抛异常恢复；原 ValueError 只是取框细节，不保留上下文。
             self.click_box(count_box, after_sleep=1)  # E 点击 box_coop_count 区域打开匹配弹窗。
             self.wait_feature("coop_match_page", time_out=10, raise_if_not_found=True)  # F 识别 coop_match_page 确认匹配弹窗已出现。
             self.click_box("box_coop_normal", after_sleep=1)  # G 点击 box_coop_normal（文档写 box_normal，实际为 box_coop_normal）选择普通难度。

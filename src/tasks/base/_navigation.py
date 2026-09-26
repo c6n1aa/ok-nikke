@@ -3,7 +3,9 @@ import time  # 时间模块，处理导航等待与超时。
 
 from ok.task.exceptions import TaskDisabledException, WaitFailedException  # 任务被停止与等待失败异常。
 
-from src.screens import LOGIN_PAGE_PATTERN  # 登录页 TOUCH TO CONTINUE 正则与 login_page 判定同源（TOUCH\s+TO\s+CONTINUE，容忍 OCR 空白抖动）。
+from src.screens import (
+    LOGIN_PAGE_PATTERN,  # 登录页 TOUCH TO CONTINUE 正则与 login_page 判定同源（TOUCH\s+TO\s+CONTINUE，容忍 OCR 空白抖动）。
+)
 
 
 class NavigationMixin:

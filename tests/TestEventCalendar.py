@@ -1,3 +1,5 @@
+# pyright: reportOptionalMemberAccess=false, reportOptionalSubscript=false
+# 仅本测试文件：mock 出来的 find_one/load_snapshot 返回值已知非空，直接取属性；src/ 仍由这两条规则把关。
 """活动列表行识别：模板生成（纯函数/解析）+ 真实截图匹配回归。
 
 期望坐标来自 2560x1440 实机截图（tests/images/event_list.png）与官方活动图
@@ -14,8 +16,8 @@ from unittest.mock import patch
 
 import cv2
 import numpy as np
-
 from ok.test.TaskTestCase import TaskTestCase
+
 from scripts import build_event_assets
 from src import event_calendar
 from src import globals as app_globals
@@ -657,8 +659,9 @@ class TestExpireNotifyOption(unittest.TestCase):
     """「活动结束提醒」开关注册进通知配置：默认开启、可见、描述齐全。"""
 
     def test_option_registered_visible_and_default_on(self):
-        from src.patches import notification_tab
         from ok.util.GlobalConfig import create_notification_options
+
+        from src.patches import notification_tab
         options = create_notification_options()
         self.assertTrue(options.default_config[notification_tab.EXPIRE_NOTIFY_ENABLED_KEY])  # 默认开启。
         self.assertFalse(
@@ -840,6 +843,7 @@ class TestEventRowMatch(TaskTestCase):
     """真实截图回归：官方活动图应定位到活动列表里对应的那一行。"""
 
     task_class = HarvestTask
+    task: HarvestTask
 
     config = config
 
@@ -854,6 +858,7 @@ class TestEventRowMatch(TaskTestCase):
     def test_matches_same_row_after_downscale_to_720p(self):
         # 同一画面降采样到 1280x720：模板应自动缩到一半尺寸并命中同一行。
         original = cv2.imread(EVENT_LIST)
+        assert original is not None  # 测试图必定存在；读不到就直接失败，不用等 cv2 抛出难懂的错。
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, 'event_list_720p.png')
             cv2.imwrite(path, cv2.resize(original, (1280, 720), interpolation=cv2.INTER_AREA))
@@ -890,6 +895,7 @@ class TestEventRowMatch(TaskTestCase):
     def test_default_search_box_scales_with_resolution(self):
         # 框由框架按分辨率等比换算：720p 下应约为一半（模板尺寸同样减半，仍装得下）。
         original = cv2.imread(EVENT_LIST)
+        assert original is not None  # 测试图必定存在；读不到就直接失败，不用等 cv2 抛出难懂的错。
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, 'event_list_720p.png')
             cv2.imwrite(path, cv2.resize(original, (1280, 720), interpolation=cv2.INTER_AREA))
@@ -903,6 +909,7 @@ class TestEventRowMatch(TaskTestCase):
         # 保底包是 0.5 倍降采样的整图（scripts/build_event_assets.py 的产物形态）：
         # 直接当模板用应仍命中同一行（实测 0.952）。
         original = cv2.imread(BANNER)
+        assert original is not None  # 测试图必定存在；读不到就直接失败，不用等 cv2 抛出难懂的错。
         packed = cv2.resize(original, (original.shape[1] // 2, original.shape[0] // 2),
                             interpolation=cv2.INTER_AREA)
         with tempfile.TemporaryDirectory() as tmp:
@@ -938,7 +945,10 @@ class TestBuildEventBannersScript(unittest.TestCase):
             with patch.object(event_calendar, 'download_banner', side_effect=self._fake_download()):
                 result = build_event_assets.build_one(self._event(), 0.5, out_dir, timeout=5.0)
             self.assertEqual(os.path.join(out_dir, 'K.png'), result)
-            self.assertEqual((50, 150), cv2.imread(result).shape[:2])  # 0.5 倍且等比。
+            assert result is not None  # 上一步已断言路径；这里只为收窄 build_one 的 Optional 返回。
+            packed = cv2.imread(result)
+            assert packed is not None  # 上一步刚写出的产物，读不到就直接失败。
+            self.assertEqual((50, 150), packed.shape[:2])  # 0.5 倍且等比。
             self.assertEqual(['K.png'], os.listdir(out_dir))  # 只产出保底图，原图不留在仓库。
 
     def test_build_one_propagates_attempts_to_download(self):

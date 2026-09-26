@@ -1,5 +1,5 @@
-import unittest
 import re
+import unittest
 from unittest.mock import call, patch
 
 from ok.feature.Box import Box
@@ -9,12 +9,12 @@ from ok.test.TaskTestCase import TaskTestCase
 from src.config import config
 from src.screens import LOGIN_PAGE_PATTERN, SCREENS, _keyword
 from src.tasks.HarvestTask import HarvestTask
-
 from tests.support.asserts import assert_called_once_semantic
 
 
 class TestScreenRecovery(TaskTestCase):
     task_class = HarvestTask
+    task: HarvestTask
 
     config = config
 

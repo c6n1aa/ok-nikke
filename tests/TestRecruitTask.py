@@ -38,6 +38,7 @@ class _DebugOffTestCase(TaskTestCase):
 
 class TestRecruitTask(_DebugOffTestCase):
     task_class = RecruitTask
+    task: RecruitTask
 
     config = config
 

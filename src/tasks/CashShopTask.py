@@ -47,7 +47,7 @@ class CashShopTask(NikkeBaseTask):  # 付费商店免费礼包领取任务，继
     def _do_stepup_pack(self):  # STEP UP 免费礼包：限时礼包页 → STEP UP 页签 → 免费按钮。
         self._switch_nav("cash_shop_limited_time_page", "cash_shop_nav_limited_time_package")  # 切到限时礼包页（已在则跳过点击）。
         tab_bar = self.get_box_by_name("box_cash_shop_tab_bars")  # 获取页签栏标注区域。
-        self.wait_click_ocr(box=tab_bar, match=re.compile("STEP\s+UP", re.IGNORECASE), time_out=10, raise_if_not_found=True, after_sleep=1)  # OCR 识别并点击 STEP UP 页签。
+        self.wait_click_ocr(box=tab_bar, match=re.compile(r"STEP\s+UP", re.IGNORECASE), time_out=10, raise_if_not_found=True, after_sleep=1)  # OCR 识别并点击 STEP UP 页签。
         free_box = self.wait_ocr(box=self.get_box_by_name("box_cash_shop_stepup_free"), match=re.compile("免费", re.IGNORECASE), time_out=3, raise_if_not_found=False)  # 等待在免费购买按钮区域 OCR 识别“免费”。
         if free_box:  # 识别到免费按钮。
             self.click_box(free_box[0], after_sleep=1)  # 点击免费按钮购买礼包。

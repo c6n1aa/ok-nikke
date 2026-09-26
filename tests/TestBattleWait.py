@@ -4,14 +4,15 @@ from unittest.mock import patch
 from ok.feature.Box import Box
 from ok.test.TaskTestCase import TaskTestCase
 
-from src.config import config
 import src.tasks.base._battle as battle_module
 import src.tasks.NikkeBaseTask as nbt
+from src.config import config
 from src.tasks.HarvestTask import HarvestTask
 
 
 class TestBattleWait(TaskTestCase):
     task_class = HarvestTask
+    task: HarvestTask
 
     config = config
 
@@ -56,7 +57,7 @@ class TestBattleWait(TaskTestCase):
         statistics_box = Box(2210, 1339, 34, 38, confidence=0.85, name="battle_finish_statistics")
         with patch.object(self.task, "sleep"), \
                 patch.object(self.task, "next_frame"), \
-                patch.object(self.task, "get_box_by_name", return_value=text_box) as box_mock, \
+                patch.object(self.task, "get_box_by_name", return_value=text_box), \
                 patch.object(self.task, "_region_ocr_cached", return_value=[]) as ocr_mock, \
                 patch.object(self.task, "find_one",
                              side_effect=[statistics_box, statistics_box]) as find_mock:
@@ -100,7 +101,7 @@ class TestBattleWait(TaskTestCase):
 
         def fake_next_frame():
             self.task._screen_cache.clear()  # 模拟帧推进：与基类覆写的失效语义一致。
-            return None
+            return
         with patch.object(battle_module, "INTERRUPTS", {"screens": [], "features": ["disconnect_mark"]}), \
                 patch.object(self.task, "sleep"), \
                 patch.object(self.task, "next_frame", side_effect=fake_next_frame), \

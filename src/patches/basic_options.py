@@ -1,7 +1,7 @@
 import os
 
-from ok import Logger
 import ok.util.GlobalConfig as _global_config_module
+from ok import Logger
 
 logger = Logger.get_logger(__name__)
 
@@ -58,7 +58,7 @@ def _get_desktop_path():
         if buf.value and os.path.isdir(buf.value):
             return buf.value
     except Exception as e:
-        logger.error(f'get desktop path error', e)
+        logger.error('get desktop path error', e)
     return None
 
 

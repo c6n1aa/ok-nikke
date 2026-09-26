@@ -210,7 +210,7 @@ def _stage_fuzzy_contains(text, keyword, max_distance=STAGE_MAX_KEYWORD_DISTANCE
     if keyword in text:  # 完整子串命中。
         return True
     window = len(keyword)  # 滑动窗口长度。
-    for start in range(0, len(text) - window + 1):  # 逐窗口比较，容忍字母级抖动。
+    for start in range(len(text) - window + 1):  # 逐窗口比较，容忍字母级抖动。
         if stage_edit_distance(text[start:start + window], keyword) <= max_distance:
             return True
     return False
@@ -315,7 +315,7 @@ def _median_gap(gaps):
 def anchor_pitch(anchors, scale):
     """行距：锚点 y 中心间距的中位数（先剔除漏行造成的成倍间距）；测不出间距时用兜底值。"""
     centers = sorted(block.center_y for block in anchors)  # 锚点按 y 排序。
-    gaps = [b - a for a, b in zip(centers, centers[1:]) if b - a > 1]  # 相邻间距。
+    gaps = [b - a for a, b in zip(centers, centers[1:], strict=False) if b - a > 1]  # 相邻间距（错位一格的自身配对，长度天然差一）。
     if not gaps:  # 单锚点/无锚点。
         fallback = row_pitch_fallback(scale)  # 兜底行距（按分辨率缩放）。
         logger.debug(f"行距兜底：锚点 {len(anchors)} 个测不出间距，用 {fallback:.0f}px")
@@ -391,7 +391,7 @@ def _estimate_pitch(number_blocks, scale):
         else:
             lines.append([center])
     line_centers = [sum(line) / len(line) for line in lines]  # 每条行线的中心。
-    gaps = [b - a for a, b in zip(line_centers, line_centers[1:]) if b - a > 1]  # 相邻行线间距。
+    gaps = [b - a for a, b in zip(line_centers, line_centers[1:], strict=False) if b - a > 1]  # 相邻行线间距（错位一格的自身配对，长度天然差一）。
     if len(gaps) < 2:  # 只有一个间距（两个编号行线）：可能正好跨过漏检行，量不出本页行距。
         return fallback, False
     pitch = _median_gap(gaps)  # 正常行距的中位数。
@@ -477,7 +477,9 @@ def _select_sequence(rows, allowed=ALLOWED_IDS, measured=False):
     调用方补扫（`sequence_gaps`）。
     """
     pitch = max(1.0, sorted(row.box[3] - row.box[1] for row in rows)[len(rows) // 2]) if rows else 1.0  # 行距（行框高）。
-    paths = {(0, None): (0, 0.0, 0, 0.0, ())}  # (上一行编号序号, 上一行下标) -> (字面行数, -位置偏差, 保留行数, -编号偏差, 路径)。
+    # (上一行编号序号, 上一行下标) -> (字面行数, -位置偏差, 保留行数, -编号偏差, 路径)；显式标注是因为
+    # 初值里的 None 下标与空路径会让 pyright 把键/值类型推成比实际更窄的字面类型。
+    paths: dict[tuple[int, int | None], tuple[int, float, int, float, tuple]] = {(0, None): (0, 0.0, 0, 0.0, ())}
     for position, row in enumerate(rows):  # 逐行（已按 y 排序）。
         options = [index for index in (_id_index(option, allowed) for option in row.options) if index]  # 本行的合法读数。
         current = dict(paths)  # 本行判为噪声（丢弃）：上一步的状态原样保留。
@@ -499,7 +501,7 @@ def _select_sequence(rows, allowed=ALLOWED_IDS, measured=False):
                          score[2] + 1,  # 保留行数。
                          score[3] - correction,  # 编号偏差。
                          score[4] + ((position, index),))  # 赋值路径。
-                if value[:4] > current.get((index, position), (-1, -1.0, -1, -1.0))[:4]:  # 目标函数更优才替换。
+                if value[:4] > current.get((index, position), (-1, -1.0, -1, -1.0, ()))[:4]:  # 目标函数更优才替换。
                     current[(index, position)] = value
         paths = current
     best = max(paths.values(), key=lambda score: score[:4])  # 全局最优那套解释。
@@ -564,12 +566,16 @@ def _pick_stacked_row(group, previous, following, pitch, allowed=ALLOWED_IDS):
     """
     scored = []  # (位置偏差, 行)。
     for row in group:
+        row_index = _id_index(row.stage_id, allowed)  # 本行编号序号（不在候选表内为 None）。
         error = 0.0  # 与前后行的序列几何偏差。
         for neighbour in (previous, following):
             if neighbour is None:  # 该侧没有已保留行（列表边缘）。
                 continue
+            neighbour_index = _id_index(neighbour.stage_id, allowed)  # 邻行编号序号。
+            if row_index is None or neighbour_index is None:  # 任一侧读不出候选编号：这一侧不参与打分。
+                continue
             gap = abs(row.center_y - neighbour.center_y) / pitch  # 实测隔了几行。
-            error += abs(_id_index(row.stage_id, allowed) - _id_index(neighbour.stage_id, allowed) - gap)  # 编号该差几关。
+            error += abs(row_index - neighbour_index - gap)  # 编号该差几关。
         scored.append((error, row))
     return min(scored, key=lambda item: item[0])[1]  # 偏差最小的那个（并列取靠上的）。
 
@@ -635,7 +641,7 @@ def sequence_gaps(rows, allowed=ALLOWED_IDS):
     """
     numbered = [(row, _id_index(row.stage_id, allowed)) for row in rows if row.stage_id]  # 有编号的行。
     gaps = []  # 缺口区列表。
-    for (first, first_index), (second, second_index) in zip(numbered, numbered[1:]):  # 相邻已识别行成对比较。
+    for (first, first_index), (second, second_index) in zip(numbered, numbered[1:], strict=False):  # 相邻已识别行成对比较（错位一格，长度天然差一）。
         if first_index is None or second_index is None or second_index - first_index <= 1:  # 不是缺口。
             continue
         first_y = _box_center_y(first.box)  # 前一行中心。
@@ -660,7 +666,8 @@ def tail_band(rows, list_box, frame_height, allowed=ALLOWED_IDS):
     numbered = [row for row in rows if row.stage_id]  # 有编号的行（`parse` 保证按 y 升序）。
     if not numbered:  # 一行都没有：末尾在哪无从判断。
         return None
-    if _id_index(numbered[-1].stage_id, allowed) >= len(allowed):  # 已经是候选表里最后一关。
+    last_index = _id_index(numbered[-1].stage_id, allowed)  # 最后一行的编号序号（不在候选表内为 None）。
+    if last_index is None or last_index >= len(allowed):  # 读不出候选编号 / 已经是候选表里最后一关。
         return None
     top = int(numbered[-1].box[3])  # 最后一行行框的下边缘（行框高按行距切，即该行文字带的下沿）。
     limit = list_box[1] + list_box[3]  # 列表区底边。

@@ -19,6 +19,8 @@ dependencies = [
 # 开发期专用，uv export --no-dev 会排除，不进 requirements.txt。
 dev = [
     "polib>=1.2.0",
+    "pyright>=1.1.414",
+    "ruff>=0.16.9",
 ]
 
 [tool.uv]
@@ -37,3 +39,53 @@ exclude-dependencies = [
 name = "pypi"
 url = "https://pypi.org/simple"
 default = true
+
+[tool.ruff]
+# 只查仓库内源码。运行期产物目录（configs/logs/screenshots/cache 等）已被 .gitignore 覆盖，
+# ruff 默认 respect-gitignore；这里补上不是 gitignore 命中但同样不该查的子模块与文档站产物。
+target-version = "py312"
+line-length = 120  # E501 未纳入 select：本仓库注释密集且多为中文，行宽只用于 isort/格式判断
+extend-exclude = ["ok_templates", "site", "dev_tools", "_delete_"]
+
+[tool.ruff.lint]
+# 显式列规则集：ruff 默认集随版本变化，不写死会让 CI 结果随升级漂移。
+select = [
+    "E4",   # pycodestyle：导入位置（E402）
+    "E7",   # pycodestyle：多余语句
+    "E9",   # pycodestyle：语法级错误
+    "W",    # pycodestyle：警告（文件末尾换行、尾随空白等）
+    "F",    # pyflakes：未使用导入/变量、未定义名
+    "I",    # isort：导入排序
+    "UP",   # pyupgrade：过时写法
+    "B",    # flake8-bugbear：常见 bug 模式
+    "C4",   # flake8-comprehensions
+    "PIE",  # flake8-pie
+    "RET",  # flake8-return
+]
+
+[tool.pyright]
+# 用仓库内 .venv 解析 ok-script / PySide6 / cv2 等依赖，否则一律报 reportMissingImports。
+venvPath = "."
+venv = ".venv"
+pythonVersion = "3.12"
+typeCheckingMode = "basic"
+# 显式列 include：.github/.agents 是隐藏目录，pyright 默认不分析，而这两个目录下有入库脚本。
+include = ["src", "tests", "scripts", "launcher", ".github/scripts", ".agents/skills",
+           "main.py", "main_debug.py", "update.py"]
+exclude = ["**/__pycache__", "dev_tools", "_delete_", "ok_templates", "site"]
+
+# 关掉的两条规则都是 ok-script 侧的类型信息失真造成的误报，不是本仓库的问题：
+#
+# reportAttributeAccessIssue：ok-script 大量属性是运行期动态挂的——EventBus 的事件
+#   （communicate.notification 等）、Qt 控件属性、ok.test 的 mock；加上 src/tasks 的
+#   mixin 组合写法（mixin 里的 self 不是完整任务类，看不到兄弟 mixin 的方法），
+#   这条规则在本仓库只会产出上千条「属性不存在」的假报错。
+# reportArgumentType：ok-script 的签名比运行时窄——click_box 声明收 Box | List[Box]，
+#   运行时同时收 coco 特征名字符串（click_box("box_xxx")）；ocr 的 x/y/to_x/to_y 声明
+#   int，运行时按相对坐标收 float；after_sleep/settle_time 声明 int，实际按秒收 float。
+reportAttributeAccessIssue = "none"
+reportArgumentType = "none"
+
+# 测试里对 mock 返回值（find_one / load_snapshot / get_box_by_name）的 Optional 取值，按文件用
+# `# pyright: reportOptionalMemberAccess=false, reportOptionalSubscript=false` 局部关掉；
+# src/ 仍受这两条规则约束（「find_one 返回 None 还直接取 .x」正是它们要拦的 bug）。

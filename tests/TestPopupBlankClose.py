@@ -12,6 +12,7 @@ class TestPopupBlankClose(TaskTestCase):
     """基类通用「点击空白关闭模态弹窗」：缺省坐标、补点与失败语义。"""
 
     task_class = DailyTask
+    task: DailyTask
 
     config = config
 

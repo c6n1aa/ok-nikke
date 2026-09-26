@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """src/win_input.py 合成触控指针输入后端的纯逻辑单元测试。
 
 不触碰真实环境（不创建合成设备、不注入、不抓窗口），只测坐标转换、锚点位置选择、
@@ -14,8 +13,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-import src.win_input as win_input
-from src.win_input import SyntheticTouch, _Command
+import src.win_input as win_input  # noqa: E402  必须先插入 ROOT 才能导入被测模块。
+from src.win_input import SyntheticTouch, _Command  # noqa: E402  同上。
 
 
 def _metrics(side_effect):

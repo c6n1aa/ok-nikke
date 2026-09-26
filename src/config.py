@@ -1,8 +1,6 @@
 import os
 import sys
 
-import numpy as np
-
 from src.patches import apply_all  # 受控补丁唯一入口
 from src.win_input import SyntheticTouch  # 合成触控指针交互后端（WM_POINTER 路径）
 
@@ -25,7 +23,7 @@ def _read_version():
     candidates.append(os.path.join(os.getcwd(), VERSION_FILE))
     for path in candidates:
         try:
-            with open(path, 'r', encoding='utf-8') as f:
+            with open(path, encoding='utf-8') as f:
                 # lstrip BOM：CI 里用 PowerShell Set-Content -Encoding utf8 会写入 BOM，
                 # 不清理会让版本号变成 "\ufeffvX"，后续版本比较全部失真
                 text = f.read().lstrip('\ufeff').strip()

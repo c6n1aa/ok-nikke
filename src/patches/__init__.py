@@ -4,7 +4,18 @@
 # - apply_all() 是唯一入口，在 src/config.py 顶部调用（早于 ok.OK(config) 构造）；
 # - 项目内任何其他代码都不得自行修补 ok 包，新增补丁一律加到这里的对应模块，
 #   不要手写自定义控件/到处散落补丁。
-from src.patches import about_update, basic_options, language, notification_tab, ocr_threads, runtime, start_controller, start_tab, startup_splash, tasks_tab
+from src.patches import (
+    about_update,
+    basic_options,
+    language,
+    notification_tab,
+    ocr_threads,
+    runtime,
+    start_controller,
+    start_tab,
+    startup_splash,
+    tasks_tab,
+)
 
 
 def apply_all():

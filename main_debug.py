@@ -31,6 +31,7 @@ if __name__ == '__main__':
         sys.exit(0)
 
     import ok
+
     from src.config import config
 
     config = config

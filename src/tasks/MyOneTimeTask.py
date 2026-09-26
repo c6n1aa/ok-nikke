@@ -1,8 +1,8 @@
 import re
 
+from ok import og
 from qfluentwidgets import FluentIcon
 
-from ok import og
 from src.tasks.NikkeBaseTask import NikkeBaseTask
 
 
@@ -112,6 +112,7 @@ class MyOneTimeTask(NikkeBaseTask):
             options = self.config_type[key]["options_available"]
             if any(item not in options for item in value):
                 return "请仅选择可用的下拉框选项值。"
+        return None  # 未命中任何校验规则：返回 None 表示通过。
 
     def show_config_values(self):
         for key, value in self.config.items():

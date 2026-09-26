@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """启动画面：主窗口构建完成前给用户「正在启动」的反馈。
 
 框架启动链路里，QApplication 建好之后要花约 4 秒构造 MainWindow 与各 tab（开发机实测
@@ -9,13 +8,12 @@ App.do_show_main 前后显示/关闭，并按 tab 推进进度条。
 
 from __future__ import annotations
 
-from PySide6.QtCore import QEventLoop, Qt
-from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QVBoxLayout
-from qfluentwidgets import BodyLabel, ProgressBar, SubtitleLabel
-
 from ok.ui.qt.common.design_system import DesignToken
 from ok.ui.qt.widget.BaseWindow import BaseWindow
 from ok.util.logger import Logger
+from PySide6.QtCore import QEventLoop, Qt
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QVBoxLayout
+from qfluentwidgets import BodyLabel, ProgressBar, SubtitleLabel
 
 logger = Logger.get_logger(__name__)
 

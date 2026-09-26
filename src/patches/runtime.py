@@ -11,7 +11,7 @@ def _patch_openvino_telemetry():
     # 断网时 socket 永久挂起，解释器退出时 join 该线程导致进程无法结束。
     # backend_ga 同样用无超时的 urlopen。这里把两个后端的实际发送替换为直接返回。
     try:
-        from openvino_telemetry.backend import backend_ga4, backend_ga
+        from openvino_telemetry.backend import backend_ga, backend_ga4  # pyright: ignore[reportMissingImports]
     except ImportError:  # 当前 OCR 后端是 onnxruntime，未装 openvino 时跳过
         return
 
@@ -126,8 +126,8 @@ def _ensure_focus_guard_registered():
 def _patch_executor_focus_guard():
     # 包装 TaskExecutor.next_frame：一次性任务取帧时确保焦点守卫已注册，
     # 由守卫在窗口失焦时暂停执行器、回前台时恢复，取代原先的“自动抢前台”。
-    from ok.task.TaskExecutor import TaskExecutor
     from ok.task.task import TriggerTask
+    from ok.task.TaskExecutor import TaskExecutor
 
     original_next_frame = TaskExecutor.next_frame
 
@@ -164,8 +164,13 @@ def interaction_requires_foreground(interaction=None):
         from src.win_input import SyntheticTouch  # 延迟导入，按当前交互方式判断是否依赖前台。
         if issubclass(interaction_type, SyntheticTouch):
             return True  # 合成触控命中认 Z 序，点击前把游戏窗口置前，需要窗口位于前台。
-        from ok.device.interaction_methods import (ForegroundPostMessageInteraction, GenshinInteraction,
-                                                   PostMessageInteraction, PyDirectInteraction, PynputInteraction)
+        from ok.device.interaction_methods import (
+            ForegroundPostMessageInteraction,
+            GenshinInteraction,
+            PostMessageInteraction,
+            PyDirectInteraction,
+            PynputInteraction,
+        )
         if issubclass(interaction_type, (PynputInteraction, PyDirectInteraction, ForegroundPostMessageInteraction)):
             return True  # 窗口在后台时点击被静默跳过。
         if issubclass(interaction_type, (PostMessageInteraction, GenshinInteraction)):

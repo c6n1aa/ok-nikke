@@ -1,9 +1,12 @@
+# pyright: reportOptionalMemberAccess=false, reportOptionalSubscript=false
+# 仅本测试文件：mock 出来的 find_one/load_snapshot 返回值已知非空，直接取属性；src/ 仍由这两条规则把关。
 import unittest  # 单元测试模块。
 from unittest.mock import patch  # mock 模块，用于替换耗时/副作用方法。
 
+from ok.test.TaskTestCase import TaskTestCase  # 导入测试基类。
+
 from src.config import config  # 导入项目配置（含 feature_set 与模板配置）。
 from src.tasks.DailyTask import DailyTask  # 导入待测任务类（继承 NikkeBaseTask）。
-from ok.test.TaskTestCase import TaskTestCase  # 导入测试基类。
 
 
 class TestDailyLoginRewardPopup(TaskTestCase):
@@ -17,6 +20,7 @@ class TestDailyLoginRewardPopup(TaskTestCase):
     """
 
     task_class = DailyTask
+    task: DailyTask
 
     config = config
 

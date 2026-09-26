@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """更新源配置 + 「检查/执行更新/读更新说明」的薄封装（无 UI，无新依赖）。
 
 设计要点：
@@ -94,15 +93,15 @@ def package_root() -> str:
     return os.getcwd()
 
 
-def config_path(root: str = None) -> str:
+def config_path(root: str | None = None) -> str:
     return os.path.join(root or package_root(), UPDATE_CONFIG_REL)
 
 
-def update_script_path(root: str = None) -> str:
+def update_script_path(root: str | None = None) -> str:
     return os.path.join(root or package_root(), UPDATE_SCRIPT)
 
 
-def python_exe(root: str = None) -> str:
+def python_exe(root: str | None = None) -> str:
     """执行 update.py 用的解释器：优先包内独立解释器，开发环境用当前解释器。"""
     bundled = os.path.join(root or package_root(), 'python', 'python.exe')
     if os.path.isfile(bundled):
@@ -110,11 +109,11 @@ def python_exe(root: str = None) -> str:
     return sys.executable
 
 
-def load(root: str = None) -> dict:
+def load(root: str | None = None) -> dict:
     """读更新源配置；缺失/损坏/字段非法时回落到默认值。"""
     config = dict(DEFAULT_UPDATE_CONFIG)
     try:
-        with open(config_path(root), 'r', encoding='utf-8') as f:
+        with open(config_path(root), encoding='utf-8') as f:
             data = json.load(f)
     except Exception:
         return config
@@ -137,7 +136,7 @@ def _normalize_pip_index(value) -> str:
     return DEFAULT_UPDATE_CONFIG['pip_index']
 
 
-def save(config: dict, root: str = None) -> bool:
+def save(config: dict, root: str | None = None) -> bool:
     """写更新源配置：只落允许的键，非法 channel / pip_index 归一化，缺目录自动创建。"""
     payload = dict(DEFAULT_UPDATE_CONFIG)
     for key in payload:
@@ -259,11 +258,11 @@ def parse_tags(stdout: str) -> list:
     return [str(tag) for tag in tags if str(tag).strip()][:MAX_TAGS]
 
 
-def build_list_tags_command(root: str = None) -> list:
+def build_list_tags_command(root: str | None = None) -> list:
     return [python_exe(root), update_script_path(root), '--root', root or package_root(), '--list-tags']
 
 
-def list_remote_tags(root: str = None, timeout: int = LIST_TAGS_TIMEOUT):
+def list_remote_tags(root: str | None = None, timeout: int = LIST_TAGS_TIMEOUT):
     """检查更新：返回 (tags, error)，tags 为新到旧排序，error 为空表示成功。
 
     走子进程调 update.py：git 由包内 `git/cmd/git.exe` 提供，不依赖用户环境。
@@ -273,7 +272,7 @@ def list_remote_tags(root: str = None, timeout: int = LIST_TAGS_TIMEOUT):
     try:
         completed = subprocess.run(
             build_list_tags_command(root), cwd=root or package_root(), timeout=timeout,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            capture_output=True,
             creationflags=0x08000000 if os.name == 'nt' else 0,
         )
     except subprocess.TimeoutExpired:
@@ -315,7 +314,7 @@ def release_notes_text(body: str) -> str:
     return re.sub(r'\n{3,}', '\n\n', '\n'.join(lines)).strip()
 
 
-def read_release_notes(tag: str, root: str = None) -> str:
+def read_release_notes(tag: str, root: str | None = None) -> str:
     """读该版本的更新说明：本地 `changelog/<tag>.md` → 卡片纯文本；没有或读不到返回空串。
 
     更新/降级完成后目标 tag 的代码就在本地，所以这是纯本地读取、不联网；CNB 镜像没有 Release，
@@ -327,20 +326,20 @@ def read_release_notes(tag: str, root: str = None) -> str:
         return ''
     path = os.path.join(root or package_root(), LOCAL_NOTES_DIR, f'{tag}.md')
     try:
-        with open(path, 'r', encoding='utf-8') as f:
+        with open(path, encoding='utf-8') as f:
             text = f.read()
     except OSError:
         return ''
     return release_notes_text(text)
 
 
-def build_update_command(target: str, root: str = None, wait_pid: int = 0) -> list:
+def build_update_command(target: str, root: str | None = None, wait_pid: int = 0) -> list:
     root = root or package_root()
     return [python_exe(root), update_script_path(root), '--root', root, '--target', target,
             '--wait-pid', str(int(wait_pid or 0))]
 
 
-def start_update(target: str, root: str = None, wait_pid: int = 0):
+def start_update(target: str, root: str | None = None, wait_pid: int = 0):
     """启动 update.py（不等待）：它会等本进程退出后再 fetch/checkout/pip。
 
     用 CREATE_NEW_CONSOLE 开一个控制台窗口：拉代码/装依赖/失败原因都看得见，
@@ -356,13 +355,13 @@ def start_update(target: str, root: str = None, wait_pid: int = 0):
     )
 
 
-def read_versions(root: str = None) -> tuple:
+def read_versions(root: str | None = None) -> tuple:
     """返回 (当前版本, 上一版本)（来自 version.txt / version.txt.prev，缺失为空串）。"""
     current, previous = '', ''
     base = root or package_root()
     for name, setter in (('version.txt', 'current'), ('version.txt.prev', 'previous')):
         try:
-            with open(os.path.join(base, name), 'r', encoding='utf-8') as f:
+            with open(os.path.join(base, name), encoding='utf-8') as f:
                 value = f.read().lstrip('\ufeff').strip()
         except OSError:
             value = ''
@@ -373,14 +372,14 @@ def read_versions(root: str = None) -> tuple:
     return current, previous
 
 
-def read_update_failure(root: str = None):
+def read_update_failure(root: str | None = None):
     """上次更新失败的记录：{'target','reason'}；无记录或文件损坏返回 None。
 
     由 update.py 写在 configs/update_failed.json（成功更新时会被删掉），
     这里读出来在「关于 → 应用更新」里回显，避免用户「更新完还是旧版本但不知道为什么」。
     """
     try:
-        with open(os.path.join(root or package_root(), UPDATE_FAILED_REL), 'r', encoding='utf-8') as f:
+        with open(os.path.join(root or package_root(), UPDATE_FAILED_REL), encoding='utf-8') as f:
             data = json.load(f)
     except Exception:
         return None

@@ -41,8 +41,9 @@ class TestStartTabOverlaySwitch(unittest.TestCase):
         start_tab_patch.apply()
         if overlay_state_error:  # 模拟取悬浮窗状态失败。
             overlay_state = MagicMock(side_effect=RuntimeError('boom'))
-        else:
-            overlay_state = lambda: {'boxes': overlay_enabled}
+        else:  # 模拟取悬浮窗状态成功。
+            def overlay_state():
+                return {'boxes': overlay_enabled}
         app = SimpleNamespace(overlay_state=overlay_state, set_overlay_setting=MagicMock(return_value={'boxes': False}))
         with patch.object(og, 'app', app):
             tab = StartTab.__new__(StartTab)

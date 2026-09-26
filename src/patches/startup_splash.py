@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """启动画面补丁：把「正在启动」的进度反馈接到框架启动链路上。
 
 `ok.OK(config)` → `App.do_show_main` → `MainWindow` 构造这一段没有事件循环，实测约 4 秒
@@ -53,7 +52,7 @@ class StartupSplashFlow:
         try:
             splash = self.splash_factory()
         except Exception as e:  # 启动画面失败不能拖住启动流程
-            logger.error(f'create startup splash error', e)
+            logger.error('create startup splash error', e)
             return
         self.splash = splash
         self.started_at = time.monotonic()
@@ -77,12 +76,13 @@ class StartupSplashFlow:
         try:
             splash.finish()
         except Exception as e:
-            logger.error(f'finish startup splash error', e)
+            logger.error('finish startup splash error', e)
         logger.info(f'startup splash closed after {elapsed:.1f}s')
 
 
 def _create_splash():
     from ok import og
+
     from src.ui.StartupSplash import StartupSplash
 
     return StartupSplash(og.app.title, og.app.icon)

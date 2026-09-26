@@ -3,7 +3,6 @@ import re  # 正则模块，资金不足提示的 OCR 部分匹配使用。
 
 import cv2  # OpenCV 模块，废铁商店图标模板读取与缩放使用。
 import numpy as np  # 数值计算模块，SOLD OUT 横幅带的像素统计使用。
-
 from ok.feature.Box import Box  # 框类型，构造网格每格的匹配区域。
 from ok.task.exceptions import WaitFailedException  # 框架等待失败异常，子流程断言失败时抛出由 try_step 捕获。
 
@@ -211,7 +210,7 @@ class ShopTask(NikkeBaseTask):  # 商店自动兑换任务，继承项目基类�
         try:  # coco 特征可能缺失（含无帧瞬态，get_box_by_name 统一抛 ValueError）。
             free_box = self.get_box_by_name("box_shop_general_free")  # 免费刷新标志标注区域（已按当前分辨率缩放）。
         except ValueError:  # 区域缺失时转等待失败异常。
-            raise WaitFailedException("box_shop_general_free 特征缺失")  # 由 try_step 捕获恢复，与 _assert_shop_title 同款兜底。
+            raise WaitFailedException("box_shop_general_free 特征缺失") from None  # 由 try_step 捕获恢复，与 _assert_shop_title 同款兜底。
         if not self.wait_until(lambda: self.is_feature_enabled(free_box), time_out=5, raise_if_not_found=False):  # 等待区域变为高亮彩色；超时说明无免费刷新（time_out 兼容进店过场动画）。
             self.log_info("普通商店无免费刷新机会，跳过。")  # 记录跳过原因。
             return  # 无免费刷新机会直接结束。
@@ -364,7 +363,7 @@ class ShopTask(NikkeBaseTask):  # 商店自动兑换任务，继承项目基类�
         try:  # coco 特征可能缺失。
             title_box = self.get_box_by_name("box_shop_title")  # 获取商店标题标注区域（已按当前分辨率缩放）。
         except ValueError:  # 特征缺失时抛等待失败异常。
-            raise WaitFailedException("box_shop_title 特征缺失")  # 由 try_step 捕获恢复。
+            raise WaitFailedException("box_shop_title 特征缺失") from None  # 由 try_step 捕获恢复；原 ValueError 只是取框细节，不保留上下文。
         if self.wait_ocr(box=title_box, match=re.compile(keyword, re.IGNORECASE), time_out=10,
                          raise_if_not_found=False) is None:  # OCR 未匹配到关键词。
             raise WaitFailedException(f"未确认进入商店：{keyword}")  # 抛异常由 try_step 捕获恢复。

@@ -1,4 +1,5 @@
-# -*- coding: utf-8 -*-
+# pyright: reportOptionalMemberAccess=false, reportOptionalSubscript=false
+# 仅本测试文件：mock 出来的 find_one/load_snapshot 返回值已知非空，直接取属性；src/ 仍由这两条规则把关。
 """src/update_config.py 与「关于/更新」页补丁的单元测试。
 
 不联网、不创建窗口：只测配置读写、命令拼装、tag 解析、版本比较、补丁接线与版本变更消费。
@@ -333,9 +334,10 @@ class TestStartUpdate(unittest.TestCase):
 class TestAboutUpdatePatch(unittest.TestCase):
 
     def test_apply_swaps_framework_update_ui(self):
-        import ok.ui.qt.MainWindow as main_window_module
         import ok.ui.qt.about.AboutTab as about_tab_module
+        import ok.ui.qt.MainWindow as main_window_module
         from ok.ui.qt.about.UpdateCard import ChangeLogView
+
         from src.ui.UpdateCard import NikkeUpdateCard
 
         original_changelog = ChangeLogView

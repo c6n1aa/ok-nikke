@@ -1,10 +1,10 @@
-import cv2  # OpenCV 模块，咨询次数 OCR 前对裁剪图做固定倍率放大。
 import os  # 路径拼接模块，定位 assets/db/advise.db 咨询数据库。
 import random  # 随机模块，答案匹配无法决策时随机二选一。
 import re  # 正则模块，OCR 关键词部分匹配与答案文本规范化。
 import sqlite3  # SQLite 模块，只读查询咨询答案库。
 import time  # 时间模块，对话推进循环的超时控制。
 
+import cv2  # OpenCV 模块，咨询次数 OCR 前对裁剪图做固定倍率放大。
 from ok.task.exceptions import WaitFailedException  # 框架等待失败异常，断言失败时抛出由 try_step 捕获恢复。
 
 from src.tasks.NikkeBaseTask import NikkeBaseTask  # 项目基类，所有任务统一继承它。
@@ -350,7 +350,7 @@ class OutpostTask(NikkeBaseTask):  # 前哨基地任务：执行派遣公告栏�
                 bad_key = _normalize_answer_text(bad)  # 规范化错误答案。
                 if good_key in candidates and bad_key in candidates:  # 两个选项恰为该行的正确/错误答案。
                     return candidates[good_key]  # 点击正确答案。
-            for key, box in candidates.items():  # 排除法：选项命中任一 bad 即选另一个。
+            for key in candidates:  # 排除法：选项命中任一 bad 即选另一个。
                 if key in bad_set:  # 该选项是错误答案。
                     others = [item for k, item in candidates.items() if k != key]  # 其余选项。
                     if len(others) == 1:  # 恰剩一个候选。
@@ -466,7 +466,7 @@ class OutpostTask(NikkeBaseTask):  # 前哨基地任务：执行派遣公告栏�
 
     def _advise_locale(self):  # 运行时语言配置映射为咨询库 locale 代码（en/ja/zh_CN/zh_TW），不支持返回空串。
         locale = getattr(self.executor, "locale", None)  # 读取执行器语言配置。
-        name = locale.name() if hasattr(locale, "name") else str(locale or "")  # LocaleName 兼容。
+        name = locale.name() if locale is not None and hasattr(locale, "name") else str(locale or "")  # LocaleName 兼容。
         name = name.replace("-", "_")  # 统一分隔符。
         if name.startswith("zh"):  # 中文区：繁体变体归 zh_TW，其余归 zh_CN。
             return "zh_TW" if name.startswith(("zh_TW", "zh_HK", "zh_MO")) else "zh_CN"  # 返回映射结果。

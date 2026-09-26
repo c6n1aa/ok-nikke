@@ -1,3 +1,5 @@
+# pyright: reportOptionalMemberAccess=false, reportOptionalSubscript=false
+# 仅本测试文件：mock 出来的 find_one/load_snapshot 返回值已知非空，直接取属性；src/ 仍由这两条规则把关。
 import itertools
 import os
 import shutil
@@ -8,15 +10,19 @@ from unittest.mock import patch
 
 from ok import og
 from ok.feature.Box import Box
-from ok.test.TaskTestCase import TaskTestCase
-
 from ok.task.exceptions import WaitFailedException
+from ok.test.TaskTestCase import TaskTestCase
 
 from src.config import config
 from src.screens import _keyword
-from src.tasks.OutpostTask import _ADVISE_MAX_SWITCH, _BF_LIST_OPEN_MAX_ATTEMPTS, _SINGLE_OPTION_CLICK_X, \
-    OutpostTask, _normalize_answer_text, _normalize_character_name
-
+from src.tasks.OutpostTask import (
+    _ADVISE_MAX_SWITCH,
+    _BF_LIST_OPEN_MAX_ATTEMPTS,
+    _SINGLE_OPTION_CLICK_X,
+    OutpostTask,
+    _normalize_answer_text,
+    _normalize_character_name,
+)
 from tests.support.asserts import assert_called_once_semantic
 
 _TEST_CONFIG_DIR = os.path.join('dev_tools', 'test_configs')
@@ -53,6 +59,7 @@ class TestOutpostTaskMeta(_DebugOffTestCase):
     """元数据/注册表/纯函数测试，不触达子流程。"""
 
     task_class = OutpostTask
+    task: OutpostTask
 
     config = config
 
@@ -196,6 +203,7 @@ class TestOutpostTaskRun(_DebugOffTestCase):
     """run 入口编排测试。"""
 
     task_class = OutpostTask
+    task: OutpostTask
 
     config = config
 
@@ -247,6 +255,7 @@ class TestOutpostTaskDispatch(_DebugOffTestCase):
     """派遣子流程测试：覆盖成功/跳过/失败/已完成跳过分支。"""
 
     task_class = OutpostTask
+    task: OutpostTask
 
     config = config
 
@@ -342,6 +351,7 @@ class TestOutpostTaskAdvise(_DebugOffTestCase):
     """咨询子流程测试：覆盖成功/跳过/失败/已完成跳过及各判断分支。"""
 
     task_class = OutpostTask
+    task: OutpostTask
 
     config = config
 
@@ -412,7 +422,6 @@ class TestOutpostTaskAdvise(_DebugOffTestCase):
         exit_mock.assert_called_once()
 
     def test_flow_full_round_advises_then_count_zero_ends(self):
-        advise_box = _named_box("box_advise_feature")
         with patch.object(self.task, "_enter_advise"), \
                 patch.object(self.task, "assert_screen"), \
                 patch.object(self.task, "get_box_by_name", side_effect=lambda name: _named_box(name)), \
@@ -584,6 +593,7 @@ class TestOutpostTaskAdviseOnce(_DebugOffTestCase):
     """单次咨询（_advise_once/_answer_conversation）测试。"""
 
     task_class = OutpostTask
+    task: OutpostTask
 
     config = config
 
@@ -726,6 +736,7 @@ class TestOutpostTaskBriefEncounter(_DebugOffTestCase):
     """突发剧情子流程测试：覆盖跳过/次数用尽/空列表/逐条清理/展开失败分支。"""
 
     task_class = OutpostTask
+    task: OutpostTask
 
     config = config
 
@@ -833,6 +844,7 @@ class TestOutpostDailyIntegration(_DebugOffTestCase):
     """验证日常编排：前哨基地开关开启时 DailyTask 调度 OutpostTask，关闭则跳过。"""
 
     task_class = OutpostTask
+    task: OutpostTask
 
     config = config
 

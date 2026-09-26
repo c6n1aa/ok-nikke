@@ -27,6 +27,7 @@ _SUB_FLOW_KEYS = ("收获", "歼灭", "前哨基地", "商店", "付费商店", 
 
 class TestDailyTask(TaskTestCase):
     task_class = DailyTask  # 被测任务类。
+    task: DailyTask
 
     config = config  # 共享全局配置。
 

@@ -38,6 +38,7 @@ ok-nikke 是基于 PyPI `ok-script`（2.x）构建的《胜利女神：NIKKE》W
 | 操作 | 命令 |
 |---|---|
 | 装依赖 | `uv sync` |
+| 静态检查 | `.\.venv\Scripts\ruff.exe check .` + `.\.venv\Scripts\pyright.exe`（配置在 `pyproject.toml`，CI 同步跑） |
 | 跑测试 | `.\.venv\Scripts\python.exe -m unittest tests.TestMain`（全量 `run_tests.ps1`） |
 | 编入口 exe | `.\.venv\Scripts\python.exe launcher\build.py` |
 | 编译词条 | `.\.venv\Scripts\python.exe .agents\skills\ok-script-i18n\scripts\task_i18n_helper.py compile` |

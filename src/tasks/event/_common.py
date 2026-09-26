@@ -6,10 +6,13 @@
 import cv2  # OpenCV：滑动前后截取列表区做像素差，判画面有没有变化（到底 / 到顶）。
 
 from src import event_calendar  # 活动列表区标注特征名（缺省滚动区）。
-
 from src.tasks.event._const import (
-    _SCROLL_SWIPE_DURATION, _SCROLL_AFTER_SLEEP, _SCROLL_TOP_MAX_SWIPES, _SCROLL_UNCHANGED_RATIO,
-    _SWIPE_START_RATIO, _SWIPE_END_RATIO,
+    _SCROLL_AFTER_SLEEP,
+    _SCROLL_SWIPE_DURATION,
+    _SCROLL_TOP_MAX_SWIPES,
+    _SCROLL_UNCHANGED_RATIO,
+    _SWIPE_END_RATIO,
+    _SWIPE_START_RATIO,
 )
 
 

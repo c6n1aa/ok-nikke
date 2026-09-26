@@ -111,7 +111,7 @@ def import_xal(target_dir=None):
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])  # 命令行入口。
+    parser = argparse.ArgumentParser(description=(__doc__ or '').splitlines()[0])  # 命令行入口，摘要取模块 docstring 首行。
     parser.add_argument('--target', default='assets',  # 输出目录，默认覆盖仓库根 assets/。
                         help='output directory, relative to repo root (default: assets)')
     args = parser.parse_args()

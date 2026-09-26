@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """ok-nikke 自己的「关于 → 应用更新」卡片。
 
 替换框架基于 pyappify 启动器的 UpdateCard（无 launcher 时它只会报「不支持」）。
@@ -13,15 +12,13 @@ from __future__ import annotations
 import os
 import threading
 
-from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QDesktopServices
-from PySide6.QtCore import QUrl
-from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
-from qfluentwidgets import BodyLabel, ComboBox, FluentIcon, MessageBox, PrimaryPushButton, PushButton
-
 from ok.core.events import communicate
 from ok.ui.qt.common.design_system import DesignToken, control_width
 from ok.util.logger import Logger
+from PySide6.QtCore import Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import QDesktopServices
+from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
+from qfluentwidgets import BodyLabel, ComboBox, FluentIcon, MessageBox, PrimaryPushButton, PushButton
 
 from src import update_config
 

@@ -1,3 +1,5 @@
+# pyright: reportOptionalMemberAccess=false, reportOptionalSubscript=false
+# 仅本测试文件：mock 出来的 find_one/load_snapshot 返回值已知非空，直接取属性；src/ 仍由这两条规则把关。
 """`src/event_stage.py` 的离线解析测试。
 
 fixtures 是真实活动关卡页截图跑项目同款 onnxocr 的产物（tests/fixtures/event_stage/*.json，由
@@ -569,7 +571,7 @@ class TestEventStagePipeline(unittest.TestCase):
         rects = es.ocr_tiles(950, 0, 729, 1440, es.ocr_tile_overlap(1.0), 1.0)
         tile = es.ROW_PITCH_AT_REF * es.OCR_TILE_ROWS
         self.assertEqual([(950, 0, 729, tile), (950, tile - 120, 729, tile), (950, 2 * (tile - 120), 729, 240)], rects)
-        for x, y, width, height in rects:
+        for x, _y, width, height in rects:  # 只关心 x/宽高：y 由下面的重叠断言单独校验。
             self.assertEqual(950, x)  # 宽度在限内：不横切。
             self.assertEqual(729, width)
             self.assertLessEqual(max(width, height), es.OCR_TILE_LIMIT)

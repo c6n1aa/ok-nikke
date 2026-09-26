@@ -1,6 +1,8 @@
-from ok.feature.Box import Box, find_boxes_by_name  # 检测框对象与按名过滤工具（find_boxes_by_name 用于复刻 ocr(match=...) 的过滤语义）。
+from ok.feature.Box import (  # 检测框对象与按名过滤工具（find_boxes_by_name 用于复刻 ocr(match=...) 的过滤语义）。
+    Box,
+    find_boxes_by_name,
+)
 from ok.task.exceptions import WaitFailedException  # 界面断言失败时抛出的等待失败异常（由 try_step 捕获恢复）。
-
 
 _CACHE_MISS = object()  # 帧级判定缓存的「未命中」哨兵：与「命中但结果为 None」区分。
 

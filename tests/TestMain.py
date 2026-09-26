@@ -1,23 +1,23 @@
 # Test case
 import unittest
 
-from PySide6.QtGui import QFontMetrics
-
-from src.config import config
-from ok.ui.qt.common.design_system import control_width
 from ok.test.TaskTestCase import TaskTestCase
+from ok.ui.qt.common.design_system import control_width
 from ok.ui.qt.tasks.ConfigItemFactory import config_widget
 from ok.ui.qt.tasks.LabelAndButtons import LabelAndButtons
 from ok.ui.qt.tasks.LabelAndFileSelector import LabelAndFileSelector
 from ok.ui.qt.tasks.ModifyListDialog import ModifyListDialog
 from ok.ui.qt.tasks.ModifyListItem import ModifyListItem
+from PySide6.QtGui import QFontMetrics
 from qfluentwidgets import PushButton
 
+from src.config import config
 from src.tasks.MyOneTimeTask import MyOneTimeTask
 
 
 class TestMyOneTimeTask(TaskTestCase):
     task_class = MyOneTimeTask
+    task: MyOneTimeTask
 
     config = config
 

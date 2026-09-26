@@ -1,14 +1,16 @@
-import unittest  # 单元测试模块。
 import re  # 正则模块：遮罩关键词现均为 re.Pattern，断言需用到。
+import unittest  # 单元测试模块。
 from unittest.mock import patch  # mock 模块，用于替换耗时/副作用方法。
+
+from ok.test.TaskTestCase import TaskTestCase  # 导入测试基类。
 
 from src.config import config  # 导入项目配置（含 feature_set 与模板配置）。
 from src.tasks.DailyTask import DailyTask  # 导入待测任务类（继承 NikkeBaseTask）。
-from ok.test.TaskTestCase import TaskTestCase  # 导入测试基类。
 
 
 class TestRupeeFlashSalePopup(TaskTestCase):
     task_class = DailyTask
+    task: DailyTask
 
     config = config
 

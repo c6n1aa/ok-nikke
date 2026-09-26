@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """「关于/更新」页补丁：去掉框架基于 pyappify 启动器的更新 UI，换成 ok-nikke 自己的实现。
 
 为什么必须补：
@@ -32,7 +31,7 @@ _PENDING_CHANGE = None
 _PENDING_CONSUMED = False
 
 
-def pending_version_change(root: str = None):
+def pending_version_change(root: str | None = None):
     """返回 {action, from_version, to_version} 或 None；只消费一次（删除 .prev 文件）。"""
     global _PENDING_CHANGE, _PENDING_CONSUMED
     if _PENDING_CONSUMED:
@@ -75,6 +74,7 @@ def _get_startup_version_change(pyappify_module=None):
 
 def _patch_update_card():
     import ok.ui.qt.about.AboutTab as about_tab_module
+
     from src.ui.UpdateCard import NikkeUpdateCard
 
     about_tab_module.UpdateCard = NikkeUpdateCard
@@ -83,8 +83,8 @@ def _patch_update_card():
 
 def _patch_startup_version_change():
     # MainWindow 与 AboutTab 都在导入时绑定了这个名字，两处都要换
-    import ok.ui.qt.MainWindow as main_window_module
     import ok.ui.qt.about.AboutTab as about_tab_module
+    import ok.ui.qt.MainWindow as main_window_module
 
     main_window_module.get_startup_version_change = _get_startup_version_change
     about_tab_module.get_startup_version_change = _get_startup_version_change

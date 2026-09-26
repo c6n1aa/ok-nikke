@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """编译入口 shim：launcher/launcher.c -> ok-nikke.exe。
 
 自动探测工具链：优先 MinGW（windres + gcc），其次 MSVC（rc + cl，需在 vcvars 环境）。

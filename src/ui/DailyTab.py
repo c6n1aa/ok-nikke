@@ -1,23 +1,22 @@
+from ok import Logger, og
+from ok.ui.qt.common.design_system import configure_page_layout
+from ok.ui.qt.tasks.ConfigCard import ConfigContentMixin
+from ok.ui.qt.widget.CustomTab import CustomTab
+from ok.ui.qt.widget.ExpandCardLayout import ExpandCardLayout
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 from qfluentwidgets import ExpandSettingCard, FluentIcon, SwitchButton
 
-from ok import Logger, og
-from ok.ui.qt.tasks.ConfigCard import ConfigContentMixin
-from ok.ui.qt.widget.CustomTab import CustomTab
-from ok.ui.qt.widget.ExpandCardLayout import ExpandCardLayout
-from ok.ui.qt.common.design_system import configure_page_layout
-
+from src.tasks.ArkTask import ArkTask
+from src.tasks.CashShopTask import CashShopTask
 from src.tasks.DailyTask import DailyTask
+from src.tasks.EventTask import EventTask
 from src.tasks.HarvestTask import HarvestTask
 from src.tasks.OutpostDefenseTask import OutpostDefenseTask
 from src.tasks.OutpostTask import OutpostTask
-from src.tasks.ShopTask import ShopTask
-from src.tasks.CashShopTask import CashShopTask
-from src.tasks.RecruitTask import RecruitTask
-from src.tasks.ArkTask import ArkTask
 from src.tasks.RaidTask import RaidTask
-from src.tasks.EventTask import EventTask
+from src.tasks.RecruitTask import RecruitTask
+from src.tasks.ShopTask import ShopTask
 
 
 class SubTaskCard(ConfigContentMixin, ExpandSettingCard):
@@ -65,7 +64,7 @@ class SubTaskCard(ConfigContentMixin, ExpandSettingCard):
         target_height = header_height + content_height if isExpand else header_height
         parent = self.parentWidget()
         parent_updates_enabled = parent is not None and parent.updatesEnabled()
-        if parent_updates_enabled:
+        if parent is not None and parent_updates_enabled:
             parent.setUpdatesEnabled(False)
         self.expandAni.stop()
         try:
@@ -81,7 +80,7 @@ class SubTaskCard(ConfigContentMixin, ExpandSettingCard):
                 parent_layout.invalidate()
                 parent_layout.activate()
         finally:
-            if parent_updates_enabled:
+            if parent is not None and parent_updates_enabled:
                 parent.setUpdatesEnabled(True)
                 parent.update()
 
@@ -101,6 +100,8 @@ class SubTaskCard(ConfigContentMixin, ExpandSettingCard):
         bottom = margins.top()
         for index in range(self.viewLayout.count()):
             item = self.viewLayout.itemAt(index)
+            if item is None:  # 下标合法时不会为 None，仅用于收窄类型。
+                continue
             widget = item.widget()
             if widget is not None and widget.isHidden():
                 continue

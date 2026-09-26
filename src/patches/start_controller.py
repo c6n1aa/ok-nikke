@@ -2,12 +2,11 @@ import os
 import time
 
 import cv2
+import ok.ui.qt.StartController as start_controller_module
 import win32con
 import win32gui
-
-import ok.ui.qt.StartController as start_controller_module
 from ok import Logger, og
-from ok.device.capture_methods.bitblt_utils import clean_up_bitblt, capture_by_bitblt
+from ok.device.capture_methods.bitblt_utils import capture_by_bitblt, clean_up_bitblt
 from ok.ui.qt.Communicate import communicate
 from ok.util.process import execute, is_admin
 from ok.util.window import find_hwnd, get_window_bounds, resize_window, show_title_bar
@@ -109,7 +108,7 @@ class NikkeStartController(start_controller_module.StartController):
             logger.info(
                 f'game window resized to {target_width}x{target_height}, now {hwnd_window.width}x{hwnd_window.height}')
         except Exception as e:
-            logger.error(f'ensure min game window size error', e)
+            logger.error('ensure min game window size error', e)
 
     def _bring_game_window_to_front(self):
         # 启动任务前把游戏窗口切到前台，仅对依赖前台的交互方式生效（Pynput/PyDirect/ForegroundPostMessage）：
@@ -189,7 +188,7 @@ class NikkeStartController(start_controller_module.StartController):
             _, hwnd, _, _, _, _, _, _ = find_hwnd(None, self._game_exe_names(), 1, 1)
             return hwnd is not None and hwnd > 0
         except Exception as e:
-            logger.error(f'find game hwnd error', e)
+            logger.error('find game hwnd error', e)
             return False
 
     def _game_process_running(self):
@@ -205,7 +204,7 @@ class NikkeStartController(start_controller_module.StartController):
                 if name in exe_names:
                     return True
         except Exception as e:
-            logger.error(f'check game process error', e)
+            logger.error('check game process error', e)
             return False
         return False
 
@@ -221,7 +220,7 @@ class NikkeStartController(start_controller_module.StartController):
             try:
                 _, hwnd, full_path, _, _, _, _, _ = find_hwnd(None, [exe_name], 1, 1)
             except Exception as e:
-                logger.error(f'find launcher hwnd error', e)
+                logger.error('find launcher hwnd error', e)
                 hwnd = 0
             if hwnd and hwnd > 0:
                 logger.info(f'launcher window found hwnd={hwnd} {full_path}')
@@ -246,7 +245,7 @@ class NikkeStartController(start_controller_module.StartController):
         stable_since = None
         while not self.exit_event.is_set():
             if not win32gui.IsWindow(launcher_hwnd):
-                logger.error(f'launcher window disappeared while waiting to stabilize')
+                logger.error('launcher window disappeared while waiting to stabilize')
                 return False
             self._bring_window_forward(launcher_hwnd)
             rect = win32gui.GetWindowRect(launcher_hwnd)
@@ -260,7 +259,7 @@ class NikkeStartController(start_controller_module.StartController):
                 # 允许加载动画/边框的微小抖动，避免 OCR 迟迟不开始。
                 stable_size = size
                 stable_since = now
-            elif now - stable_since >= self.LAUNCHER_STABLE_SECONDS and now - first_seen >= self.LAUNCHER_SETTLE_SECONDS:
+            elif stable_since is not None and now - stable_since >= self.LAUNCHER_STABLE_SECONDS and now - first_seen >= self.LAUNCHER_SETTLE_SECONDS:  # stable_since 与 stable_size 同生共死，这里显式判空只为让类型收窄。
                 logger.info(f'launcher window stable {size[0]}x{size[1]}, start ocr')
                 return True
             if now > deadline:
@@ -364,7 +363,7 @@ class NikkeStartController(start_controller_module.StartController):
         try:
             _, _, _, _, client_w, client_h, _ = get_window_bounds(launcher_hwnd)
         except Exception as e:
-            logger.error(f'get launcher window bounds error', e)
+            logger.error('get launcher window bounds error', e)
             return None
         if not client_w or not client_h:
             return None
@@ -414,7 +413,7 @@ class NikkeStartController(start_controller_module.StartController):
                     best = (bx + bw / 2, by + bh / 2)
                     best_area = area
         except Exception as e:
-            logger.error(f'parse ocr result error', e)
+            logger.error('parse ocr result error', e)
             return None
         if best is None:
             return None
@@ -427,7 +426,7 @@ class NikkeStartController(start_controller_module.StartController):
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
             return og.executor.ocr_lib('default').ocr(frame)
         except Exception as e:
-            logger.error(f'launcher ocr error', e)
+            logger.error('launcher ocr error', e)
             return None
 
     def _bring_window_forward(self, hwnd):
@@ -456,7 +455,7 @@ class NikkeStartController(start_controller_module.StartController):
             logger.info(f'launcher start button clicked at {int(screen_x)},{int(screen_y)}')
             return True
         except Exception as e:
-            logger.error(f'click launcher start button error', e)
+            logger.error('click launcher start button error', e)
             communicate.starting_emulator.emit(True, f'模拟点击启动器失败: {e}', 0)
             return False
 

@@ -2,12 +2,12 @@ import os
 import unittest
 from unittest.mock import PropertyMock, patch
 
-from src.config import config
-from src.tasks.HarvestTask import HarvestTask
-from src.tasks.OutpostDefenseTask import OutpostDefenseTask
 from ok.feature.Box import Box
 from ok.test.TaskTestCase import TaskTestCase
 
+from src.config import config
+from src.tasks.HarvestTask import HarvestTask
+from src.tasks.OutpostDefenseTask import OutpostDefenseTask
 from tests.support.asserts import assert_called_once_semantic
 
 _TEST_CONFIG_DIR = os.path.join('dev_tools', 'test_configs')
@@ -37,6 +37,7 @@ def _fake_box(name, x=1, y=1, w=10, h=10):
 
 class TestHarvestTask(_DebugOffTestCase):
     task_class = HarvestTask
+    task: HarvestTask
 
     config = config
 
@@ -372,6 +373,7 @@ class TestHarvestTask(_DebugOffTestCase):
 
 class TestOutpostDefenseTask(_DebugOffTestCase):
     task_class = OutpostDefenseTask
+    task: OutpostDefenseTask
 
     config = config
 

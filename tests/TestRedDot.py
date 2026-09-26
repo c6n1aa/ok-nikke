@@ -1,10 +1,11 @@
+# pyright: reportOptionalMemberAccess=false, reportOptionalSubscript=false
+# 仅本测试文件：mock 出来的 find_one/load_snapshot 返回值已知非空，直接取属性；src/ 仍由这两条规则把关。
 import os
 import tempfile
 import unittest
 
 import cv2
 import numpy as np
-
 from ok.feature.Box import Box
 from ok.test.TaskTestCase import TaskTestCase
 
@@ -28,6 +29,7 @@ def make_frame(dot_color=None, dot_center=DOT_CENTER, dot_radius=DOT_RADIUS):
 
 class TestRedDot(TaskTestCase):
     task_class = HarvestTask
+    task: HarvestTask
     config = config
 
     @classmethod

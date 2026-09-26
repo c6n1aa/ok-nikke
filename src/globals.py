@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import sys
 import threading
+import traceback
 
-from PySide6.QtCore import QObject
 from ok import Logger, og
+from PySide6.QtCore import QObject
 
 from src import event_calendar
 
@@ -98,7 +99,8 @@ def _refresh_event_calendar(exit_event, notifier=None):
         else:
             logger.info('活动日历刷新失败（接口不可达），使用保底图/缓存')
     except Exception:  # noqa: BLE001 - 静默刷新，异常不影响启动。
-        logger.debug('event calendar refresh failed', exc_info=True)
+        # ok 的 Logger 只收一个 message（没有 stdlib logging 的 exc_info 参数），堆栈自己拼进消息。
+        logger.debug(f'event calendar refresh failed: {traceback.format_exc()}')
 
 
 def _default_notifier():
@@ -113,6 +115,7 @@ def expire_notify_enabled():
     """「活动结束提醒」开关是否开启（通知配置卡片里的自定义项；取不到配置按开启处理，保证旧配置升级后行为不变）。"""
     try:
         from ok.util.GlobalConfig import NOTIFICATION_OPTION_NAME
+
         from src.patches.notification_tab import EXPIRE_NOTIFY_ENABLED_KEY
         return bool(og.global_config.get_config(NOTIFICATION_OPTION_NAME).get(EXPIRE_NOTIFY_ENABLED_KEY, True))
     except Exception:  # noqa: BLE001 - og/配置未就绪（headless、测试、早期启动）时不阻断，按开启走。

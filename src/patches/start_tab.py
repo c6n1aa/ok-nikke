@@ -12,7 +12,7 @@ def _disable_overlay_boxes():
             og.app.set_overlay_setting('boxes', False)
             logger.info('release build: disabled persisted overlay boxes setting')
     except Exception as e:
-        logger.error(f'disable overlay boxes error', e)
+        logger.error('disable overlay boxes error', e)
 
 
 def _patch_start_tab_hide_overlay_switch():

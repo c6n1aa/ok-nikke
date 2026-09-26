@@ -1,4 +1,5 @@
-# -*- coding: utf-8 -*-
+# pyright: reportOptionalMemberAccess=false, reportOptionalSubscript=false
+# 仅本测试文件：mock 出来的 find_one/load_snapshot 返回值已知非空，直接取属性；src/ 仍由这两条规则把关。
 """`.github/scripts/release_notes.py`（Release 正文生成）的单元测试。
 
 不联网、不发版：解析/分节/渲染用纯函数覆盖；再用一个真实临时 git 仓库验证
@@ -50,7 +51,7 @@ class TestParseCommit(unittest.TestCase):
 class TestRenderBody(unittest.TestCase):
 
     def render(self, commits, **kwargs):
-        options = dict(tag='v0.3.0', prev_tag='v0.2.0', repo='o/r')
+        options = {'tag': 'v0.3.0', 'prev_tag': 'v0.2.0', 'repo': 'o/r'}
         options.update(kwargs)
         return release_notes.render_body(commits, **options)
 
@@ -114,7 +115,7 @@ class TestRenderChangelog(unittest.TestCase):
     """只输出「更新日志」正文（deploy 写 changelog/<tag>.md 用）。"""
 
     def render(self, commits, **kwargs):
-        options = dict(tag='v0.3.0', prev_tag='v0.2.0')
+        options = {'tag': 'v0.3.0', 'prev_tag': 'v0.2.0'}
         options.update(kwargs)
         return release_notes.render_changelog(commits, **options)
 

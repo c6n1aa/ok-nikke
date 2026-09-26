@@ -1,20 +1,23 @@
-from src.tasks.NikkeBaseTask import NikkeBaseTask  # 项目基类，所有任务统一继承它。
-
-from src.tasks.event._entry import EventEntryMixin  # 入口探测 / 菜单导航 / 接管 / 子流程分派。
-from src.tasks.event._list import EventListMixin  # 活动列表处理（滚动 + banner 定位）。
-from src.tasks.event._story import EventStoryMixin  # 剧情推图链与扫荡。
-from src.tasks.event._stage import EventStageMixin  # 关卡页读取 / 详情页 / 快速战斗。
 from src.tasks.event._challenge import EventChallengeMixin  # 活动挑战。
-from src.tasks.event._mission import EventMissionMixin  # 活动任务弹窗领取。
-from src.tasks.event._minigame import EventMinigameMixin  # 活动内置小游戏。
 from src.tasks.event._checkin import EventCheckinMixin  # 活动签到印章。
 from src.tasks.event._claim import EventClaimMixin  # 「全部领取」按钮原语。
 from src.tasks.event._common import EventCommonMixin  # 通用小工具（区域解析 / 列表滚动）。
-
 from src.tasks.event._const import (  # 常量与身份工具集中处（避免 mixin 反向依赖本模块构成环）。
-    _STORY_MODES, _SWEEP_STAGES, _SWEEP_STAGE_DEFAULT, _EVENT_KEY_PREFIX, _LEGACY_DONE_KEY, event_identity,
+    _EVENT_KEY_PREFIX,
+    _LEGACY_DONE_KEY,
+    _STORY_MODES,
+    _SWEEP_STAGE_DEFAULT,
+    _SWEEP_STAGES,
     event_done_key,
+    event_identity,
 )
+from src.tasks.event._entry import EventEntryMixin  # 入口探测 / 菜单导航 / 接管 / 子流程分派。
+from src.tasks.event._list import EventListMixin  # 活动列表处理（滚动 + banner 定位）。
+from src.tasks.event._minigame import EventMinigameMixin  # 活动内置小游戏。
+from src.tasks.event._mission import EventMissionMixin  # 活动任务弹窗领取。
+from src.tasks.event._stage import EventStageMixin  # 关卡页读取 / 详情页 / 快速战斗。
+from src.tasks.event._story import EventStoryMixin  # 剧情推图链与扫荡。
+from src.tasks.NikkeBaseTask import NikkeBaseTask  # 项目基类，所有任务统一继承它。
 
 
 class EventTask(EventEntryMixin, EventListMixin, EventStoryMixin, EventStageMixin,

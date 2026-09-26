@@ -5,18 +5,26 @@
 """
 
 import cv2  # OpenCV：按区域预放大后再送 OCR（检测器不放大输入，低分辨率下小字会丢）。
-
 from ok.feature.Box import Box  # 解析层行框（x1,y1,x2,y2 四元组）转可点击 Box。
-
 from ok.task.exceptions import WaitFailedException  # 战斗等待超时等流程断言抛出的等待失败异常。
 
-from src import event_calendar  # 分辨率缩放比（OCR 预放大与兜底行距按它算）。
-from src import event_stage  # 关卡页读取策略（切片 / 预放大 / 行解析；OCR 以回调注入）。
-
+from src import (
+    event_calendar,  # 分辨率缩放比（OCR 预放大与兜底行距按它算）。
+    event_stage,  # 关卡页读取策略（切片 / 预放大 / 行解析；OCR 以回调注入）。
+)
 from src.tasks.event._const import (
-    _STAGE_SWIPE_START_RATIO, _STAGE_SCAN_MAX_SCROLLS, _STAGE_LIST_BOX, _STORY_DIALOG_WAIT, _STORY_SKIP_MAX,
-    _STAGE_ENTER_TIMEOUT, _STORY_POLL_INTERVAL, _SWEEP_BATTLE_TIMEOUT, _SWEEP_PAGE_FEATURE, _SWEEP_MAX_FEATURE,
-    _SWEEP_START_BOX, _SWEEP_CLOSE_FEATURE,
+    _STAGE_ENTER_TIMEOUT,
+    _STAGE_LIST_BOX,
+    _STAGE_SCAN_MAX_SCROLLS,
+    _STAGE_SWIPE_START_RATIO,
+    _STORY_DIALOG_WAIT,
+    _STORY_POLL_INTERVAL,
+    _STORY_SKIP_MAX,
+    _SWEEP_BATTLE_TIMEOUT,
+    _SWEEP_CLOSE_FEATURE,
+    _SWEEP_MAX_FEATURE,
+    _SWEEP_PAGE_FEATURE,
+    _SWEEP_START_BOX,
 )
 
 
