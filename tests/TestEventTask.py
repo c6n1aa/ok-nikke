@@ -1,21 +1,20 @@
+# pyright: reportOptionalMemberAccess=false, reportOptionalSubscript=false
+# 仅本测试文件：mock 出来的 find_one/load_snapshot 返回值已知非空，直接取属性；src/ 仍由这两条规则把关。
 import os
 import time
 import unittest
 from unittest.mock import MagicMock, PropertyMock, call, patch
 
 import numpy as np
-
 from ok.feature.Box import Box
 from ok.task.exceptions import WaitFailedException
 from ok.test.TaskTestCase import TaskTestCase
 
 from src import event_calendar, event_stage
 from src.config import config
-from src.tasks.EventTask import EventTask
 from src.tasks.event._const import event_done_key, event_identity
-
-from tests.support.asserts import (assert_any_call_semantic, assert_called_once_semantic,
-                                   assert_last_call_semantic)
+from src.tasks.EventTask import EventTask
+from tests.support.asserts import assert_any_call_semantic, assert_called_once_semantic, assert_last_call_semantic
 
 _TEST_CONFIG_DIR = os.path.join('dev_tools', 'test_configs')
 
@@ -55,6 +54,7 @@ class _DebugOffTestCase(TaskTestCase):
 
 class TestEventTask(_DebugOffTestCase):
     task_class = EventTask
+    task: EventTask
 
     config = config
 
@@ -346,7 +346,6 @@ class TestEventTask(_DebugOffTestCase):
     def test_takeover_event_runs_subflows_even_when_identity_already_done(self):
         # 接管不做整体短路：身份撞上「本日已完成的候选」时仍要跑子流程，否则日历外的往期活动（档案馆）连剧情都不会推。
         # 非幂等流程靠各自的 _subflow_completed 读身份键跳过（见 test_do_checkin_skips_when_identity_key_done）。
-        event = _fake_event('key1', '活动A', 'https://cdn/x.png')
         self.task.mark_done(event_done_key(event_identity('key1')), 'day')
         with patch.object(self.task, '_ensure_event_menu') as menu_mock, \
                 patch.object(self.task, '_resolve_takeover_identity', return_value=event_identity('key1')), \
@@ -358,7 +357,6 @@ class TestEventTask(_DebugOffTestCase):
 
     def test_takeover_event_does_not_record_inferred_identity(self):
         # 接管身份是推断出来的（非权威）：流程照跑但不落任何身份键（写错会误标到别的活动头上）。
-        event = _fake_event('key1', '活动A', 'https://cdn/x.png')
         with patch.object(self.task, '_ensure_event_menu'), \
                 patch.object(self.task, '_resolve_takeover_identity', return_value=event_identity('key1')), \
                 patch.object(self.task, '_run_event_subflows') as subflows_mock:
@@ -852,7 +850,7 @@ class TestEventTask(_DebugOffTestCase):
 
     def test_find_claim_all_scans_panel_region(self):
         hit = self._claim_all_box()
-        with patch.object(self.task, 'box_of_screen', return_value=Box(0, 0, 10, 10, confidence=1, name='area')) as area_mock, \
+        with patch.object(self.task, 'box_of_screen', return_value=Box(0, 0, 10, 10, confidence=1, name='area')), \
                 patch.object(self.task, 'ocr', return_value=[hit]) as ocr_mock:
             found = self.task._find_claim_all()
         self.assertEqual(hit, found)
@@ -1261,7 +1259,7 @@ class TestEventTask(_DebugOffTestCase):
         wait_mock.assert_called_once()  # 每轮点完等第二段重新可领。
         args, kwargs = wait_mock.call_args
         self.assertEqual('_claim_all_claimable', args[0].__func__.__name__)  # 判据是「重新可领」，而非遮罩必须出现。
-        from src.tasks.event._const import _MISSION_CLAIM_SETTLE_TIMEOUT, _MISSION_CLAIM_SETTLE
+        from src.tasks.event._const import _MISSION_CLAIM_SETTLE, _MISSION_CLAIM_SETTLE_TIMEOUT
         self.assertEqual(_MISSION_CLAIM_SETTLE_TIMEOUT, kwargs['time_out'])  # 给第二段渲染留出窗口。
         self.assertEqual(_MISSION_CLAIM_SETTLE, kwargs['settle_time'])  # 可领后稳定确认，吸收按钮入场动画。
         self.assertFalse(kwargs['raise_if_not_found'])  # 超时静默，不抛异常，由下一轮灰白判态兜底。
@@ -1328,7 +1326,6 @@ class TestEventTask(_DebugOffTestCase):
 
     def test_flow_challenge_enters_and_returns_to_menu_when_no_stage(self):
         # 进入路径：就位主页 → 定位挑战入口 → transition 守卫式进入挑战页 → 无可用关卡则直接回菜单页。
-        from src.tasks.event._const import _SD_ARRIVE_TIMEOUT
         entry = self._challenge_entry()
         with patch.object(self.task, '_nav_to_event_main') as nav_mock, \
                 patch.object(self.task, '_entry_box', return_value=entry) as entry_mock, \
@@ -1694,7 +1691,6 @@ class TestEventTask(_DebugOffTestCase):
     def test_scroll_list_down_stops_at_bottom(self):
         box = Box(0, 0, 100, 200, confidence=1, name='list')
         a = np.zeros((20, 20, 3), dtype=np.uint8)
-        b = np.full((20, 20, 3), 255, dtype=np.uint8)
         with patch.object(self.task, '_list_area_box', return_value=box), \
                 patch.object(self.task, '_list_area_frame', side_effect=[a, a, a]), \
                 patch.object(self.task, '_swipe_list_up') as swipe_mock:
@@ -1892,14 +1888,14 @@ class TestEventTask(_DebugOffTestCase):
             self.assertIsNone(self.task._entry_box('剧情'))
 
     def test_entry_box_shifts_small_event_story_click_up(self):
-        # 小活动剧情入口「加成奖励妮姬」：命中文字在按钮下缘，点击框沿 Y 轴上移 0.06 屏高。
+        # 小活动剧情入口「加成奖励妮姬」：命中文字在按钮下缘，点击框沿 Y 轴上移 0.08 屏高落到上方 ENTER。
         menu = Box(0, 0, 100, 50, confidence=1, name='band')
         hit = Box(60, 700, 30, 20, confidence=1, name='加成奖励妮姬')
         with patch.object(self.task, '_menu_boxes', return_value=[menu]), \
                 patch.object(self.task, 'ocr', return_value=[hit]), \
                 _fixed_height(self.task, 1000):
             found = self.task._entry_box('剧情')
-        self.assertEqual(700 - 60, found.y)  # 上移 0.06 × 1000 = 60px。
+        self.assertEqual(700 - 80, found.y)  # 上移 0.08 × 1000 = 80px。
         self.assertEqual((60, 30, 20), (found.x, found.width, found.height))  # 水平与尺寸不变。
         self.assertEqual(700, hit.y)  # 原命中框不被就地改写（同帧 OCR 结果被多处复用）。
 
@@ -2819,7 +2815,7 @@ class TestEventTask(_DebugOffTestCase):
                 patch.object(self.task, 'find_one', side_effect=find_one), \
                 patch.object(self.task, 'wait_battle_finish', return_value=('success', confirm)), \
                 patch.object(self.task, 'wait_click_feature') as close_mock, \
-                patch.object(self.task, 'assert_screen') as assert_mock:
+                patch.object(self.task, 'assert_screen'):
             self.task._sweep_stage('1-11')
         self.assertEqual(_SWEEP_PAGE_FEATURE, wait_feature_mock.call_args_list[1].args[0])  # 第一轮等次数弹窗。
         self.assertTrue(wait_feature_mock.call_args_list[1].kwargs['raise_if_not_found'])  # 弹窗必现语义。
