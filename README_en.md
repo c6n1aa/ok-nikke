@@ -71,7 +71,7 @@ Notes:
 ## 📝 TODO
 
 - [ ] i18n
-- [ ] Event free recruit (screenshot feature not yet captured)
+- [ ] Event free recruit
 - [ ] TBD
 
 ## ✨ Features
