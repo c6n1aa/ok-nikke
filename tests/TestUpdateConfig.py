@@ -14,7 +14,8 @@ import os
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
@@ -404,6 +405,108 @@ class TestAboutUpdatePatch(unittest.TestCase):
                 self.assertIsNone(about_update.pending_version_change(folder))
             finally:
                 about_update._PENDING_CONSUMED = original
+
+
+class _FakeProjectCard:
+    """假项目卡片：只记录 url 与是否被摘掉。"""
+
+    def __init__(self, url):
+        self.url = url
+        self.parent_cleared = False
+        self.deleted = False
+
+    def setParent(self, parent):
+        self.parent_cleared = parent is None
+
+    def deleteLater(self):
+        self.deleted = True
+
+
+class _FakeGridLayout:
+    """假网格布局：记录 removeWidget/addWidget 的调用。"""
+
+    def __init__(self):
+        self.removed = []
+        self.added = []
+
+    def removeWidget(self, card):
+        self.removed.append(card)
+
+    def addWidget(self, card, row, column):
+        self.added.append((card, row, column))
+
+
+class _FakeProjectsGroup:
+    """假「其他项目」卡片：findChild/findChildren 返回预置的假网格与假卡片。"""
+
+    def __init__(self, grid, cards):
+        self.grid = grid
+        self.cards = cards
+
+    def findChild(self, _cls):
+        return self.grid
+
+    def findChildren(self, _cls):
+        return list(self.cards)
+
+
+class TestAboutProjectsPrune(unittest.TestCase):
+    """「关于」页「其他项目」卡片只保留 ok-script 与 ok-script 模板项目。"""
+
+    KEPT_URL = 'https://github.com/ok-oldking/ok-script'
+    TEMPLATE_URL = 'https://github.com/ok-oldking/ok-script-app'
+    OTHER_URL = 'https://github.com/ok-oldking/ok-wuthering-waves'
+
+    def _prune(self, urls):
+        cards = [_FakeProjectCard(url) for url in urls]
+        grid = _FakeGridLayout()
+        about_update._prune_project_cards(
+            SimpleNamespace(group=_FakeProjectsGroup(grid, cards)))
+        return cards, grid
+
+    def test_keeps_only_ok_script_and_template(self):
+        cards, grid = self._prune([self.KEPT_URL, self.TEMPLATE_URL, self.OTHER_URL])
+        self.assertEqual([(cards[0], 0, 0), (cards[1], 0, 1)], grid.added)
+        self.assertTrue(cards[2].parent_cleared)  # 其余卡片必须从布局摘掉并销毁，只隐藏会留下空位。
+        self.assertTrue(cards[2].deleted)
+        for card in cards[:2]:
+            self.assertFalse(card.parent_cleared)
+            self.assertFalse(card.deleted)
+        self.assertEqual(cards, grid.removed)  # 先全部移出，再按保留项重排。
+
+    def test_kept_cards_are_relaid_out_in_two_columns(self):
+        """框架会过滤掉与当前应用 GitHub 链接相同的项目，重排要补上空位。"""
+        cards, grid = self._prune([self.OTHER_URL, self.KEPT_URL, self.TEMPLATE_URL])
+        self.assertEqual([(cards[1], 0, 0), (cards[2], 0, 1)], grid.added)
+
+    def test_url_matching_ignores_case_and_trailing_slash(self):
+        cards, grid = self._prune(['https://GitHub.com/ok-oldking/ok-script/', self.OTHER_URL])
+        self.assertEqual([cards[0]], [card for card, _, _ in grid.added])
+        self.assertFalse(cards[0].deleted)
+
+    def test_no_group_or_grid_is_a_no_op(self):
+        about_update._prune_project_cards(SimpleNamespace())  # 框架没建这张卡片。
+        about_update._prune_project_cards(  # 框架换了卡片结构，找不到网格布局。
+            SimpleNamespace(group=SimpleNamespace(findChild=lambda _cls: None)))
+
+    def test_patch_wraps_about_tab_init(self):
+        import ok.ui.qt.about.AboutTab as about_tab_module
+
+        cards = [_FakeProjectCard(self.KEPT_URL), _FakeProjectCard(self.OTHER_URL)]
+        grid = _FakeGridLayout()
+        fake_init = MagicMock(side_effect=lambda self, config, pyappify_module=None, exit_event=None:
+                              setattr(self, 'group', _FakeProjectsGroup(grid, cards)))
+        saved_init = about_tab_module.AboutTab.__init__
+        try:
+            about_tab_module.AboutTab.__init__ = fake_init
+            about_update._patch_about_projects()
+            tab = about_tab_module.AboutTab.__new__(about_tab_module.AboutTab)
+            tab.__init__({}, None)
+        finally:
+            about_tab_module.AboutTab.__init__ = saved_init
+        fake_init.assert_called_once()  # 框架原有构建流程照常执行。
+        self.assertEqual([cards[0]], [card for card, _, _ in grid.added])
+        self.assertTrue(cards[1].deleted)
 
 
 if __name__ == '__main__':

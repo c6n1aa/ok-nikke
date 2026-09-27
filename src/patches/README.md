@@ -21,6 +21,8 @@
 
 把 `ok.ui.qt.StartController.StartController` 替换为 `NikkeStartController`，其 `start_device` 流程：管理员检查 → 判断 `nikke.exe` 游戏主进程是否已在运行（若在运行则跳过启动器）→ 否则启动配置的启动器（`nikke_launcher.exe` 或 `.lnk`，自动解析）→ 在可配置区域内 OCR 找到并点击启动按钮（点完先观察 `LAUNCHER_CLICK_VERIFY_TIMEOUT` 秒：游戏窗口/进程出现、启动器退出或按钮不再被识别才算生效；按钮仍在说明首次识别的坐标已被界面移位作废，重新 OCR 定位后再点，最多 `LAUNCHER_CLICK_MAX_ATTEMPTS` 次）→ 等待游戏窗口出现 → 调整到最小窗口尺寸 → 按交互方式把游戏窗口置前。没有直接启动回退：若未配置启动器且游戏未在运行，提示用户配置启动器或手动启动游戏。
 
+包装 `check_device_error`（框架 `_wait_until_device_ready` 每轮唯一的闸门）：等待期间先还原被最小化的游戏窗口。最小化窗口的客户区是 0x0，会被框架 `find_hwnd` 的尺寸过滤掉（设备因此判定为未连接，`start_device` 于是走「游戏主进程已在运行」分支跳过启动器），`pos_valid` 也恒为 False，框架兜底用的 `resize_window` 走 `SetWindowPos`、实测同样还原不了最小化窗口（窗口仍停在 -32000,-32000）；而唯一会 `SW_RESTORE` 的 `_bring_game_window_to_front` 排在等待之后，永远走不到，启动流程只会在遮罩对话框后面空转到 `start_timeout`（表现为「点开始后应用卡住、倒计时在跑、迟迟连不上游戏」）。窗口句柄取 `HwndWindow` 跟踪到的那个，取不到（应用启动时游戏就已经最小化，`HwndWindow.hwnd` 一直是 0）时按进程名在 `find_all_visible_windows` 里兜底找最大的候选；还原按交互方式选命令（依赖前台用 `SW_RESTORE`，可后台点击用 `SW_SHOWNOACTIVATE` 不抢焦点），还原后立刻刷新窗口尺寸并重跑一次 `do_refresh`：最小化期间 WGC 取不到帧会降级成 BitBlt（拿不到 D3D 画面），必须按已还原的窗口重选一次截图方式。
+
 启动前的置前（`_bring_game_window_to_front`）复用 `interaction_requires_foreground()`：`Pynput`/`PyDirect`/`ForegroundPostMessage` 依赖窗口前台（后台时点击被静默跳过、executor 取不到帧），先调 `HwndWindow.bring_to_front()`；`Genshin`/`PostMessage` 后台可点击，跳过以保留后台运行能力。只用 `bring_to_front`，不用 `AttachThreadInput`（会把本线程与游戏线程的输入队列绑定，与 GUI 焦点争夺叠加会死锁）。
 
 ### ocr_threads.py
@@ -55,4 +57,4 @@ OpenVINO 遥测兜底（未装时跳过）；在 `HwndWindow.visible_monitors` �
 
 ### about_update.py
 
-替换框架基于 pyappify 启动器的更新 UI 为本项目实现：`AboutTab.UpdateCard` 换成 `src.ui.UpdateCard.NikkeUpdateCard`；`get_startup_version_change` 换成基于 `version.txt`/`version.txt.prev` 的实现（首次调用即消费 `.prev` 文件），卡片正文是本次更新的**更新说明**——读包内 `changelog/<tag>.md`（随 tag 提交，CNB 镜像由 CI 补写，纯本地读取、不联网）；该文件不存在时正文留空，由替换后的 `ChangeLogView` 与包装的 `AboutTab.add_card` 把整张卡片收起；启动自检延迟由框架默认 30 秒改为 3 秒（`update_check_delay_ms`）。依赖 `src/update_config.py`。
+替换框架基于 pyappify 启动器的更新 UI 为本项目实现：`AboutTab.UpdateCard` 换成 `src.ui.UpdateCard.NikkeUpdateCard`；`get_startup_version_change` 换成基于 `version.txt`/`version.txt.prev` 的实现（首次调用即消费 `.prev` 文件），卡片正文是本次更新的**更新说明**——读包内 `changelog/<tag>.md`（随 tag 提交，CNB 镜像由 CI 补写，纯本地读取、不联网）；该文件不存在时正文留空，由替换后的 `ChangeLogView` 与包装的 `AboutTab.add_card` 把整张卡片收起；启动自检延迟由框架默认 30 秒改为 3 秒（`update_check_delay_ms`）；包装 `AboutTab.__init__`，构建完成后把「其他项目」卡片裁剪到只剩 `KEEP_PROJECT_URLS` 里的两项（ok-script 与 ok-script 模板项目，按 URL 匹配、忽略大小写与结尾斜杠），其余卡片从网格布局摘掉并销毁后按两列重排（只 `setVisible(False)` 会留下空位）。依赖 `src/update_config.py`。

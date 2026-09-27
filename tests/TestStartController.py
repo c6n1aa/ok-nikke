@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from ok import og
+from ok.util import window as ok_window
 
 from src.patches import runtime as runtime_patch  # noqa: E402  供 patch.object 替换 interaction_requires_foreground。
 from src.patches import start_controller as start_controller_patch
@@ -109,6 +110,162 @@ class TestStartControllerForeground(unittest.TestCase):
             self.assertTrue(controller.start_device(initial_refresh_done=True))  # 启动成功。
         self.assertEqual(['resize', 'front'], order)  # 先调尺寸再置前。
         communicate.starting_emulator.emit.assert_called_with(True, None, 0)  # 收尾信号不变。
+
+
+class TestStartControllerMinimizedWindow(unittest.TestCase):
+    """_restore_game_window / _game_window_hwnd / check_device_error：最小化游戏窗口的还原。"""
+
+    @staticmethod
+    def _minimized_controller():
+        """带 windows 配置的控制器（_game_window_hwnd 兜底路径要读配置里的进程名）。"""
+        controller = _controller()
+        controller.config = {'windows': {'exe': ['nikke.exe']}}
+        return controller
+
+    @contextmanager
+    def _restore_env(self, hwnd=0x1234, iconic=True, window_alive=True, requires_foreground=True,
+                     device_kind='windows', visible_windows=(), rects=None,
+                     show_error=None, refresh_error=None):
+        """拦截窗口状态与刷新：记录 ShowWindow 命令、窗口尺寸刷新与 do_refresh 调用。"""
+        hwnd_window = SimpleNamespace(hwnd=hwnd, updates=0)
+
+        def _update_window_size():
+            hwnd_window.updates += 1
+
+        hwnd_window.do_update_window_size = _update_window_size
+        device_manager = SimpleNamespace(hwnd_window=hwnd_window, refreshes=0,
+                                         get_preferred_device=lambda: {'device': device_kind})
+
+        def _do_refresh(current=False):
+            if refresh_error:
+                raise refresh_error
+            device_manager.refreshes += 1
+
+        device_manager.do_refresh = _do_refresh
+        shown = []
+
+        def _show_window(window_hwnd, command):
+            if show_error:
+                raise show_error
+            shown.append((window_hwnd, command))
+
+        window_rects = rects or {}
+
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(og, 'device_manager', device_manager))
+            stack.enter_context(patch.object(runtime_patch, 'interaction_requires_foreground',
+                                             return_value=requires_foreground))
+            stack.enter_context(patch.object(ok_window, 'find_all_visible_windows',
+                                             lambda: list(visible_windows)))
+            stack.enter_context(patch.object(start_controller_patch.win32gui, 'IsWindow',
+                                             lambda window_hwnd: window_alive))
+            stack.enter_context(patch.object(start_controller_patch.win32gui, 'IsIconic',
+                                             lambda window_hwnd: iconic))
+            stack.enter_context(patch.object(start_controller_patch.win32gui, 'GetWindowRect',
+                                             lambda window_hwnd: window_rects.get(window_hwnd, (0, 0, 100, 100))))
+            stack.enter_context(patch.object(start_controller_patch.win32gui, 'ShowWindow', _show_window))
+            yield shown, hwnd_window, device_manager
+
+    def test_restores_minimized_window_and_resolves_capture_again(self):
+        """依赖前台的交互方式：SW_RESTORE 还原、刷新窗口尺寸，并重跑 do_refresh 重选截图方式。"""
+        with self._restore_env(requires_foreground=True) as (shown, hwnd_window, device_manager):
+            self.assertTrue(self._minimized_controller()._restore_game_window())
+        self.assertEqual([(0x1234, start_controller_patch.win32con.SW_RESTORE)], shown)
+        self.assertEqual(1, hwnd_window.updates)  # 立刻刷新 pos_valid。
+        self.assertEqual(1, device_manager.refreshes)  # 重选截图方式，避免停在最小化期间降级的 BitBlt。
+
+    def test_uses_show_no_activate_for_background_interaction(self):
+        """可后台点击的交互方式：用 SW_SHOWNOACTIVATE 还原，不抢用户焦点。"""
+        with self._restore_env(requires_foreground=False) as (shown, hwnd_window, device_manager):
+            self.assertTrue(self._minimized_controller()._restore_game_window())
+        self.assertEqual([(0x1234, start_controller_patch.win32con.SW_SHOWNOACTIVATE)], shown)
+        self.assertEqual(1, device_manager.refreshes)
+
+    def test_falls_back_to_visible_windows_when_hwnd_untracked(self):
+        """应用启动时游戏就已经最小化：HwndWindow.hwnd 是 0，按进程名兜底找到窗口并还原。"""
+        windows = [(0x2222, 'NIKKE', 'nikke.exe', 'D:\\NIKKE\\game\\nikke.exe')]
+        with self._restore_env(hwnd=0, visible_windows=windows) as (shown, _hwnd_window, device_manager):
+            self.assertTrue(self._minimized_controller()._restore_game_window())
+        self.assertEqual([(0x2222, start_controller_patch.win32con.SW_RESTORE)], shown)
+        self.assertEqual(1, device_manager.refreshes)
+
+    def test_fallback_ignores_other_processes(self):
+        """兜底路径只认配置的游戏进程名：别的可见窗口不动。"""
+        windows = [(0x3333, 'Steam', 'steam.exe', 'D:\\Steam\\steam.exe')]
+        with self._restore_env(hwnd=0, visible_windows=windows) as (shown, _hwnd_window, device_manager):
+            self.assertFalse(self._minimized_controller()._restore_game_window())
+        self.assertEqual([], shown)
+        self.assertEqual(0, device_manager.refreshes)
+
+    def test_fallback_picks_the_largest_game_window(self):
+        """兜底路径有多个候选时取最大的（与 find_hwnd 口径一致），避免命中辅助小窗口。"""
+        windows = [(0x4444, 'NIKKE', 'nikke.exe', 'D:\\NIKKE\\game\\nikke.exe'),
+                   (0x5555, 'NIKKE Helper', 'nikke.exe', 'D:\\NIKKE\\game\\nikke.exe')]
+        rects = {0x4444: (0, 0, 160, 28), 0x5555: (0, 0, 1941, 1092)}
+        with self._restore_env(hwnd=0, visible_windows=windows, rects=rects) as (shown, _hwnd_window, _dm):
+            self.assertTrue(self._minimized_controller()._restore_game_window())
+        self.assertEqual([(0x5555, start_controller_patch.win32con.SW_RESTORE)], shown)
+
+    def test_noop_for_non_windows_device(self):
+        """非 Windows 设备（adb）：不动任何窗口。"""
+        windows = [(0x2222, 'NIKKE', 'nikke.exe', 'D:\\NIKKE\\game\\nikke.exe')]
+        with self._restore_env(hwnd=0, device_kind='adb', visible_windows=windows) as (shown, _hwnd, _dm):
+            self.assertFalse(self._minimized_controller()._restore_game_window())
+        self.assertEqual([], shown)
+
+    def test_noop_when_window_not_minimized(self):
+        """窗口没被最小化：不动窗口、不重跑刷新。"""
+        with self._restore_env(iconic=False) as (shown, hwnd_window, device_manager):
+            self.assertFalse(self._minimized_controller()._restore_game_window())
+        self.assertEqual([], shown)
+        self.assertEqual(0, hwnd_window.updates)
+        self.assertEqual(0, device_manager.refreshes)
+
+    def test_noop_without_hwnd(self):
+        """句柄为 0 且找不到游戏窗口（游戏还没起来）：不做任何事。"""
+        with self._restore_env(hwnd=0) as (shown, hwnd_window, device_manager):
+            self.assertFalse(self._minimized_controller()._restore_game_window())
+        self.assertEqual([], shown)
+        self.assertEqual(0, device_manager.refreshes)
+
+    def test_noop_when_hwnd_invalid(self):
+        """句柄已失效且兜底也找不到：不调用 ShowWindow，避免 1400。"""
+        with self._restore_env(window_alive=False) as (shown, _hwnd_window, device_manager):
+            self.assertFalse(self._minimized_controller()._restore_game_window())
+        self.assertEqual([], shown)
+        self.assertEqual(0, device_manager.refreshes)
+
+    def test_noop_without_hwnd_window(self):
+        """窗口对象缺失（如未配置 windows）：不抛异常，返回未还原。"""
+        device_manager = SimpleNamespace(hwnd_window=None, do_refresh=MagicMock(),
+                                         get_preferred_device=lambda: {'device': 'windows'})
+        with patch.object(og, 'device_manager', device_manager), \
+                patch.object(ok_window, 'find_all_visible_windows', list):
+            self.assertFalse(self._minimized_controller()._restore_game_window())
+
+    def test_show_window_exception_is_swallowed(self):
+        """ShowWindow 抛异常：吞掉并返回未还原，不中断启动流程。"""
+        with self._restore_env(show_error=RuntimeError('boom')) as (shown, _hwnd_window, device_manager):
+            self.assertFalse(self._minimized_controller()._restore_game_window())
+        self.assertEqual([], shown)
+        self.assertEqual(0, device_manager.refreshes)
+
+    def test_refresh_exception_is_swallowed(self):
+        """重跑 do_refresh 抛异常：吞掉，不把异常抛回等待循环。"""
+        with self._restore_env(refresh_error=RuntimeError('boom')) as (shown, _hwnd_window, _device_manager):
+            self.assertFalse(self._minimized_controller()._restore_game_window())
+        self.assertEqual([(0x1234, start_controller_patch.win32con.SW_RESTORE)], shown)  # 还原本身已经做了。
+
+    def test_check_device_error_restores_before_parent_check(self):
+        """check_device_error 先还原窗口再交给框架判断，并原样返回框架结果。"""
+        order = []
+        controller = _controller()
+        with patch.object(NikkeStartController, '_restore_game_window',
+                          lambda self: order.append('restore')), \
+                patch.object(start_controller_patch.start_controller_module.StartController, 'check_device_error',
+                             lambda self: order.append('check') or '窗口最小化或在屏幕外'):
+            self.assertEqual('窗口最小化或在屏幕外', controller.check_device_error())
+        self.assertEqual(['restore', 'check'], order)
 
 
 class TestStartControllerLauncherClick(unittest.TestCase):

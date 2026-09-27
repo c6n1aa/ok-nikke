@@ -86,6 +86,69 @@ class NikkeStartController(start_controller_module.StartController):
         # 启动等待阶段不在这里做硬性分辨率检查，避免自动缩放与最小尺寸调整逻辑冲突
         return None
 
+    def check_device_error(self):
+        # check_device_error 是框架 _wait_until_device_ready 每轮唯一的闸门，这里先还原最小化的游戏窗口：
+        # 最小化窗口的客户区是 0x0，会被框架 find_hwnd 的尺寸过滤掉（实测 find_hwnd 返回 0），
+        # 设备因此判定为未连接，start_device 走"游戏主进程已在运行"分支跳过启动器，
+        # 之后每轮都返回"未连接"；而唯一会 SW_RESTORE 的 _bring_game_window_to_front 排在等待之后，
+        # 永远走不到，启动流程只能在遮罩对话框后面空转到 start_timeout。先还原再交给框架判断即可连通。
+        self._restore_game_window()
+        return super().check_device_error()
+
+    def _restore_game_window(self):
+        """还原最小化的游戏窗口（截图/识别的前提），返回本轮是否做了还原。
+
+        最小化窗口的客户区是 0x0：既会被框架 find_hwnd 的尺寸过滤掉（设备判定为未连接，
+        start_device 于是走"游戏主进程已在运行"分支跳过启动器），pos_valid 也恒为 False。
+        还原后重跑一次 do_refresh：最小化期间 WGC 取不到帧会降级成 BitBlt（拿不到 D3D 画面），
+        要让 use_windows_capture 按已还原的窗口重新选一次截图方式。
+        """
+        try:
+            device = og.device_manager.get_preferred_device()
+            if not device or device.get('device') != 'windows':
+                return False
+            hwnd = self._game_window_hwnd()
+            if not hwnd or not win32gui.IsIconic(hwnd):
+                return False
+            from src.patches.runtime import interaction_requires_foreground  # 延迟导入，按当前交互方式选命令。
+            # 依赖前台的交互方式直接激活（后续 _bring_game_window_to_front 本就要把游戏置前）；
+            # 可后台点击的方式用 SW_SHOWNOACTIVATE 还原，不抢用户焦点、保留后台运行能力。
+            command = win32con.SW_RESTORE if interaction_requires_foreground() else win32con.SW_SHOWNOACTIVATE
+            win32gui.ShowWindow(hwnd, command)
+            hwnd_window = getattr(og.device_manager, 'hwnd_window', None)
+            if hwnd_window is not None:
+                hwnd_window.do_update_window_size()  # 立刻刷新 pos_valid，本轮检查就能通过。
+            logger.info(f'restored minimized game window {hwnd} with command {command}')
+            og.device_manager.do_refresh(True)
+            return True
+        except Exception as e:
+            logger.warning(f'restore minimized game window failed: {e}')
+            return False
+
+    def _game_window_hwnd(self):
+        """游戏窗口句柄：先用 HwndWindow 跟踪到的句柄，取不到时按进程名在可见顶层窗口里找最大的那个。
+
+        最小化窗口的客户区是 0x0，会被框架 find_hwnd 的尺寸过滤掉，所以 HwndWindow.hwnd 可能一直是 0
+        （应用启动时游戏就已经最小化的情况）；后一条兜底路径用 find_all_visible_windows（不过滤尺寸）。
+        """
+        hwnd_window = getattr(og.device_manager, 'hwnd_window', None)
+        hwnd = getattr(hwnd_window, 'hwnd', 0) if hwnd_window is not None else 0
+        if hwnd and win32gui.IsWindow(hwnd):
+            return hwnd
+        from ok.util.window import compare_path_safe, find_all_visible_windows
+        exe_names = self._game_exe_names()
+        best_hwnd = 0
+        best_area = 0
+        for candidate, _title, exe_name, exe_full_path in find_all_visible_windows():
+            if not any(compare_path_safe(exe_name, name) or compare_path_safe(name, exe_full_path)
+                       for name in exe_names):
+                continue
+            left, top, right, bottom = win32gui.GetWindowRect(candidate)
+            area = max(0, right - left) * max(0, bottom - top)
+            if area > best_area:
+                best_hwnd, best_area = candidate, area
+        return best_hwnd
+
     def _ensure_min_game_window_size(self):
         # 检测游戏主进程窗口尺寸，若小于 1600x900(客户端区域) 则自动调整为 1600x900
         try:

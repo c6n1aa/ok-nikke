@@ -15,6 +15,8 @@
    避免每次启动都弹）。卡片正文是本次更新的**更新说明**：读包内 `changelog/<tag>.md`
    （随 tag 提交，CNB 镜像由 CI 补写，纯本地读取、不联网）；没有该文件时正文留空，
    由 `_patch_empty_changelog` 把整张卡片收起，避免留白。
+3. `AboutTab.__init__` → 构建完成后把「其他项目」卡片裁剪到只剩 `KEEP_PROJECT_URLS`
+   里的两项（ok-script 与 ok-script 模板项目），其余 ok-script 系列应用不再展示。
 """
 
 from __future__ import annotations
@@ -122,6 +124,63 @@ def _patch_empty_changelog():
     logger.info('patched AboutTab.add_card + ChangeLogView to collapse empty changelog cards')
 
 
+# 「关于」页「其他项目」卡片只留这两项：ok-script 本体与 ok-script 模板项目。
+KEEP_PROJECT_URLS = (
+    'https://github.com/ok-oldking/ok-script',
+    'https://github.com/ok-oldking/ok-script-app',
+)
+
+
+def _normalize_project_url(url):
+    return str(url or '').strip().rstrip('/').lower()
+
+
+def _keep_project(url):
+    return _normalize_project_url(url) in KEEP_PROJECT_URLS
+
+
+def _prune_project_cards(tab):
+    """把「其他项目」卡片裁剪到只剩 KEEP_PROJECT_URLS 里的两项。
+
+    框架把项目清单硬编码在 `AboutTab.__init__` 里，这里在构建完成后摘掉其余卡片：
+    只 `setVisible(False)` 仍会占着网格单元格（留出空行空列），所以要从布局里
+    `removeWidget` 再 `deleteLater`，最后把保留的卡片按两列重新排布——框架会过滤掉与
+    当前应用 GitHub 链接相同的项目，重排能补上空出来的位置。只影响「关于」页，不动 ok 源码。
+    """
+    group = getattr(tab, 'group', None)
+    if group is None:  # 框架没建这张卡片（项目清单为空）时无事可做。
+        return
+    from ok.ui.qt.about.ProjectCard import ProjectCard
+    from PySide6.QtWidgets import QGridLayout
+
+    grid = group.findChild(QGridLayout)
+    if grid is None:  # 框架换了卡片结构：不猜布局，直接跳过。
+        return
+    kept = []
+    for card in group.findChildren(ProjectCard):
+        grid.removeWidget(card)
+        if _keep_project(card.url):
+            kept.append(card)
+        else:
+            card.setParent(None)
+            card.deleteLater()
+    for index, card in enumerate(kept):
+        grid.addWidget(card, index // 2, index % 2)
+
+
+def _patch_about_projects():
+    import ok.ui.qt.about.AboutTab as about_tab_module
+
+    original_init = about_tab_module.AboutTab.__init__
+
+    def __init__(self, config, pyappify_module=None, exit_event=None):
+        original_init(self, config, pyappify_module, exit_event)
+        _prune_project_cards(self)
+
+    about_tab_module.AboutTab.__init__ = __init__
+    logger.info('patched AboutTab.__init__ to keep only the ok-script projects')
+
+
 STARTUP_UPDATE_CHECK_DELAY_MS = 3000  # 启动自检延迟（框架默认 30 秒，用户等得太久）
 
 
@@ -147,3 +206,4 @@ def apply():
     _patch_startup_version_change()
     _patch_update_check_delay()
     _patch_empty_changelog()
+    _patch_about_projects()
