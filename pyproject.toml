@@ -2,6 +2,8 @@
 name = "ok-nikke"
 version = "0.0.1"
 description = "ok-nikke automation app"
+license = "GPL-3.0-only"
+license-files = ["LICENSE"]
 requires-python = ">=3.12,<3.13"
 # onnxocr / OpenCC / PySide6 / pynput 等全部由 ok-script 的 extras 带出，不在这里重复声明。唯一有意保留的偏差是排除 pywin32 312，
 # 以及显式 pin PySide6-Essentials / pyside6-fluent-widgets（配合下方 [tool.uv] exclude-dependencies

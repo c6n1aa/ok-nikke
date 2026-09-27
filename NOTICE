@@ -1,0 +1,131 @@
+ok-nikke 第三方组件与素材声明
+============================
+
+本文件列出 ok-nikke 所使用的第三方组件及其许可证，并明确不属于本项目许可范围的素材。
+分发本项目（含 GitHub Releases 的便携包）时，本文件与 LICENSE 须一并提供。
+
+1. 本项目许可
+-------------
+
+除第 4 节明确排除的素材外，ok-nikke 自身代码以 GNU General Public License v3.0
+（SPDX: GPL-3.0-only）授权，全文见 LICENSE。
+
+本项目采用 GPL-3.0 的直接原因是所依赖的界面组件库 PySide6-Fluent-Widgets 采用
+GPL-3.0 / 商业双授权，其强 copyleft 性质沿依赖链传递至本项目。若需以其他许可
+（含闭源分发）发布本项目，须先取得该库的商业授权。
+
+2. 第三方组件
+-------------
+
+### ok-script
+
+- 用途：本项目的基础框架（GUI、任务调度、界面识别），为主要上游依赖
+- 许可：Apache License 2.0 + Commons Clause License Condition v1.0 + 附加条款
+- 全文：https://github.com/ok-oldking/ok-script/blob/master/LICENSE.txt
+- 版权：Copyright (c) 2026 ok-oldking
+- 说明：该许可并非 OSI 认可的开源许可。Commons Clause 限制将 ok-script 本身作为
+  商品出售；附加条款明确允许在闭源与商业项目中使用，但要求使用方在网站、代码仓库
+  或软件本身至少一处署名 ok-script 并给出链接。本项目已在 README「致谢」中履行该
+  署名义务。附加条款第 5 条同时声明，使用其 Qt UI 组件须另行遵守 PySide6-Fluent-
+  Widgets 上游项目的许可。
+
+### PySide6-Fluent-Widgets (qfluentwidgets)
+
+- 用途：Qt 界面组件库（本项目直接使用，ok-script 亦依赖）
+- 许可：GPL-3.0（非商业用途）；商业用途须购买商业授权
+- 全文：https://github.com/zhiyiYo/PyQt-Fluent-Widgets/blob/PySide6/LICENSE
+- 版权：Copyright (c) zhiyiYo
+
+### MaaFramework
+
+- 用途：src/win_input.py 的合成触控指针（WM_POINTER）实现移植自其 AnchoredTouchInput
+- 许可：GNU Lesser General Public License v3.0（SPDX: LGPL-3.0；上游未标注 only/or-later）
+- 全文：https://github.com/MaaXYZ/MaaFramework/blob/main/LICENSE.md
+- 来源文件：source/MaaWin32ControlUnit/Input/AnchoredTouchInput.cpp
+- 版权：Copyright (c) MaaXYZ
+- 说明：本项目为纯 Python 移植，不链接、不捆绑 MaaFramework 的库或二进制，因此
+  LGPL-3.0 §4（组合作品须允许替换库）不适用。LGPL-3.0 以 GPL-3.0 的条款为基础并
+  附加额外许可，本衍生文件随本项目按 GPL-3.0 分发，并已在 src/win_input.py 文件头
+  保留上游版权归属与修改声明。
+
+### Qt / PySide6
+
+- 组件：PySide6-Essentials、shiboken6
+- 用途：GUI 运行时
+- 许可：LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only（本项目取 GPL-3.0 分支）
+- 版权：Copyright (c) The Qt Company Ltd.
+
+### 其他 Python 依赖
+
+以下组件均与 GPL-3.0 兼容：
+
+| 组件 | 许可 |
+| --- | --- |
+| onnxruntime | MIT |
+| opencv-python | Apache-2.0 |
+| onnxocr-ppocrv5 | Apache-2.0 |
+| OpenCC | Apache-2.0 |
+| numpy | BSD-3-Clause |
+| pillow | MIT-CMU (HPND) |
+| shapely | BSD-3-Clause |
+| protobuf | BSD-3-Clause |
+| psutil | BSD-3-Clause |
+| requests | Apache-2.0 |
+| urllib3 | MIT |
+| charset-normalizer | MIT |
+| idna | BSD-3-Clause |
+| certifi | MPL-2.0 |
+| pywin32 | PSF-2.0 |
+| comtypes | MIT |
+| pycaw | MIT |
+| adbutils | MIT |
+| flatbuffers | Apache-2.0 |
+| deprecation | Apache-2.0 |
+| pyclipper | MIT |
+| retry2 | Apache-2.0 |
+| ok-d3dshot | MIT |
+| pyappify | MIT |
+| PyDirectInput | MIT |
+| six | MIT |
+| decorator | BSD-2-Clause |
+| darkdetect | BSD-3-Clause |
+| nodeenv | BSD-3-Clause |
+| mouse | MIT |
+| packaging | Apache-2.0 OR BSD-2-Clause |
+| typing_extensions | PSF-2.0 |
+| pynput | LGPL-3.0 |
+| PySideSix-Frameless-Window | LGPL-3.0 |
+
+完整组件清单与锁定版本以 pyproject.toml、uv.lock 和 requirements.txt 为准；各组件的
+许可全文见其分发包内的许可证文件。
+
+3. 分发时的许可证提供
+---------------------
+
+分发本项目二进制（含便携包）时须随附：
+
+- LICENSE（GPL-3.0 全文）
+- 本 NOTICE 文件
+- 对应源码（本项目源码公开于 https://github.com/c6n1aa/ok-nikke ，满足 GPL-3.0 §6(d)）
+
+4. 明确排除：游戏素材
+---------------------
+
+以下素材不属于本项目代码的许可范围，本项目不对其主张任何权利，亦不授予他人使用
+这些素材的权利：
+
+- assets/images/*.png、assets/event_banner/*.png —— 游戏界面模板图集
+- assets/template/**/*.png —— 游戏界面元素裁剪图
+- assets/coco_annotations.json —— 基于上述素材生成的标注数据
+- tests/images/*.png —— 游戏画面截图（测试用固定输入帧）
+- icons/icon.png、icons/icon.ico —— 含游戏角色形象的应用图标
+
+《胜利女神：NIKKE》(Goddess of Victory: NIKKE) 及其全部游戏内图像、角色形象与界面
+素材的版权归 Shift Up Corp. 及其关联方所有。本项目仅为界面识别技术目的引用这些素材。
+如需再分发本项目，请自行移除或替换上述素材。
+
+5. 数据文件
+-----------
+
+assets/db/advise.db 由 c6n1aa/nikke-advise-data 仓库构建后导入本仓库；该仓库目前
+未声明许可证。

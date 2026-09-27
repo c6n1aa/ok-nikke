@@ -26,7 +26,7 @@
 
 本软件为外部辅助工具，旨在自动化《胜利女神：NIKKE》Windows 客户端的部分游戏流程。它完全通过模拟常规用户界面与游戏交互，遵循相关法律法规，不会修改任何游戏文件或数据。
 
-本软件开源、免费，仅供个人学习与交流使用，请勿用于任何商业或营利性目的。开发者团队拥有本项目的最终解释权。因使用本软件而产生的任何问题（包括但不限于账号被限制或封禁），均与本项目及开发者无关。
+本软件开源、免费，采用 GPL-3.0 许可（详见 [LICENSE](LICENSE)）。因使用本软件而产生的任何问题（包括但不限于账号被限制或封禁），均与本项目及开发者无关。
 
 ### 关于游戏官方对自动化程序的态度
 
@@ -142,3 +142,8 @@ uv sync
 
 - [ok-script](https://github.com/ok-oldking/ok-script)
 - [MaaFramework](https://github.com/MaaXYZ/MaaFramework) — 合成触控指针（WM_POINTER）交互方式取自该框架
+
+## 📄 许可证
+
+本项目以 **GNU General Public License v3.0**（`GPL-3.0-only`）授权，全文见 [LICENSE](LICENSE)。
+采用 GPL-3.0 的原因、第三方组件许可，以及**不在许可范围内的游戏图像素材**，详见 [NOTICE](NOTICE)。

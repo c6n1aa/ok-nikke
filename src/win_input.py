@@ -1,13 +1,26 @@
 """合成触控指针（WM_POINTER）输入后端。
 
 用 CreateSyntheticPointerDevice / InjectSyntheticPointerInput 注入 PT_TOUCH 触控，
-游戏收到 WM_POINTER 消息，绕过 NIKKE 对 SendInput / PostMessage 的过滤。机制取自
-MaaFramework AnchoredTouchInput：
+游戏收到 WM_POINTER 消息，绕过 NIKKE 对 SendInput / PostMessage 的过滤。
+
+本文件是 MaaXYZ/MaaFramework 的 AnchoredTouchInput 的 Python 移植改写版本：
+- 来源：https://github.com/MaaXYZ/MaaFramework 的
+  source/MaaWin32ControlUnit/Input/AnchoredTouchInput.cpp（main 分支）
+- 版权：Copyright (c) MaaXYZ，以 LGPL-3.0 授权；本文件随本项目按 GPL-3.0 分发
+  （LGPL-3.0 以 GPL-3.0 的条款为基础并附加额外许可），全文见 LICENSE 与 NOTICE。
+- 修改：2026-09-18 移植为 Python，并移除上游的「窗口借用」体系（dim_window /
+  ensure_hittable / 前序兄弟窗口 Z 序还原），改用 _bring_to_front 直接置前。
+
+移植要点（机制取自上游）：
 - 首个接触点是「主指针」会被提升为鼠标事件抢光标，故放 4x4 锚点窗口先按下占住主指针，
   操作点作第二接触点注入。
-- ptPixelLocation 期望虚拟屏幕左上角相对坐标，须减 (SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN)。
 - 命中判定认 Z 序，注入前把游戏窗口提到最上层。
 - 键盘未实现（no-op 告警）。
+
+本地实现差异：
+- 注入坐标须减 (SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN)；上游只做 ClientToScreen，
+  不做该减法。
+- 另有坐标抖动、按住超时自动释放、queue 化 worker 等自有设计。
 """
 
 import ctypes

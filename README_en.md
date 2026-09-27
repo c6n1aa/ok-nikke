@@ -26,7 +26,7 @@
 
 This software is an external helper tool that automates parts of the Windows client of Goddess of Victory: NIKKE. It interacts with the game entirely by simulating normal user-interface input, complies with applicable laws and regulations, and never modifies any game files or data.
 
-This software is open-source and free, provided for personal learning and communication only. Do not use it for any commercial or profit-making purpose. The developers retain the final interpretation. Any problems arising from using this software (including, without limitation, account restrictions or bans) are unrelated to the project and its developers.
+This software is open-source and free, licensed under GPL-3.0 (see [LICENSE](LICENSE)). Any problems arising from using this software (including, without limitation, account restrictions or bans) are unrelated to the project and its developers.
 
 ### The Official Stance on Automation
 
@@ -137,3 +137,8 @@ This project is built on the [ok-script](https://ok-script.com) framework. Feel 
 
 - [ok-script](https://github.com/ok-oldking/ok-script)
 - [MaaFramework](https://github.com/MaaXYZ/MaaFramework) — the synthetic touch pointer (WM_POINTER) interaction method is adapted from this framework
+
+## 📄 License
+
+This project is licensed under the **GNU General Public License v3.0** (`GPL-3.0-only`); see [LICENSE](LICENSE) for the full text.
+Why GPL-3.0, third-party component licenses, and the **game image assets excluded from this project's license** are documented in [NOTICE](NOTICE).
