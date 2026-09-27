@@ -74,7 +74,7 @@ class EventListMixin:
 
     def _pending_events(self, refresh=True):  # 待处理剧情活动快照：本地读快照；快照缺失/过期时按 refresh 决定是否联网刷新。
         snapshot = event_calendar.load_snapshot()  # 应用启动已在后台静默刷新，纯本地读。
-        if refresh and (snapshot is None or not snapshot.is_fresh(600)):  # 无快照或快照超过 600s TTL，且允许联网。
+        if refresh and (snapshot is None or not snapshot.is_fresh()):  # 无快照或已过新鲜期（30 分钟 / 跨过官方时区 05:00 刷新），且允许联网。
             snapshot = event_calendar.refresh()  # 刷新（内部含保底包兜底，不抛异常）。
         if snapshot is None:  # 不联网且没有本地快照（首次运行且离线）。
             return []  # 无本地数据即无待处理活动。

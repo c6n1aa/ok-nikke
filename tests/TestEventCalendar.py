@@ -5,6 +5,7 @@
 期望坐标来自 2560x1440 实机截图（tests/images/event_list.png）与官方活动图
 （tests/images/event_banner_great_villain_union.png）的离线标定；测量脚本是开发期的一次性脚本，已不保留。
 """
+import datetime
 import hashlib
 import os
 import tempfile
@@ -19,7 +20,7 @@ import numpy as np
 from ok.test.TaskTestCase import TaskTestCase
 
 from scripts import build_event_assets
-from src import event_calendar
+from src import event_calendar, game_time
 from src import globals as app_globals
 from src.config import config
 from src.tasks.HarvestTask import HarvestTask
@@ -377,10 +378,30 @@ class TestEventCalendarSnapshot(unittest.TestCase):
             loaded = event_calendar.load_snapshot(cache_dir)
         self.assertEqual(snapshot.events, loaded.events)  # CalendarEvent 是 frozen dataclass，可直接比较。
         self.assertEqual(snapshot.status, loaded.status)
-        self.assertTrue(loaded.is_fresh(60))  # 刚拉的在 ttl 内。
-        self.assertFalse(loaded.is_fresh(0))  # ttl=0 视为已过期。
+        self.assertTrue(loaded.is_fresh(60, now=loaded.fetched_at))  # 刚拉的在 ttl 内（now 钉在拉取时刻，不受真实日期影响）。
+        self.assertFalse(loaded.is_fresh(0, now=loaded.fetched_at))  # ttl=0 视为已过期。
         self.assertEqual([{'name': 'Coop'}], loaded.status_of('raid'))
         self.assertEqual([], loaded.status_of('arena'))  # 不存在的分类返回空列表。
+
+    def test_status_window_reads_string_times(self):
+        # 状态段的时间是接口原文的字符串，status_window 统一转 int 供比较。
+        snapshot = event_calendar.CalendarSnapshot(fetched_at=1, events=(), status={'raid': [
+            {'name': 'Solo Raid', 'type': 'SoloRaid', 'start_time': '100', 'end_time': '200'},
+            {'name': 'Coordinated Operation', 'type': 'CooperationEvent', 'start_time': '300', 'end_time': '400'}]})
+        self.assertEqual((100, 200), snapshot.status_window('SoloRaid'))
+        self.assertEqual((300, 400), snapshot.status_window('CooperationEvent'))
+
+    def test_status_window_returns_none_when_unusable(self):
+        snapshot = event_calendar.CalendarSnapshot(fetched_at=1, events=(), status={'raid': [
+            {'type': 'SoloRaid', 'start_time': '100'},  # 缺 end_time。
+            {'type': 'CooperationEvent', 'start_time': 'x', 'end_time': '200'}]})  # 非数字。
+        self.assertIsNone(snapshot.status_window('SoloRaid'))
+        self.assertIsNone(snapshot.status_window('CooperationEvent'))
+        self.assertIsNone(snapshot.status_window('ArenaChampionSeason'))  # 没有该条目。
+        empty = event_calendar.CalendarSnapshot(fetched_at=1, events=(), status={})
+        self.assertIsNone(empty.status_window('SoloRaid'))  # 状态段为空。
+        broken = event_calendar.CalendarSnapshot(fetched_at=1, events=(), status={'raid': 'x'})  # 手改缓存导致分类不是列表。
+        self.assertIsNone(broken.status_window('SoloRaid'))
 
     def test_load_snapshot_returns_none_when_missing_or_broken(self):
         with tempfile.TemporaryDirectory() as cache_dir:
@@ -606,6 +627,39 @@ class TestEventCalendarSnapshot(unittest.TestCase):
                     patch.object(event_calendar.time, 'time', return_value=1789000000):  # 钉死在活动窗口内，不受真实日期影响。
                 events = event_calendar.prepare(cache_dir=cache_dir, bundled_dir=os.path.join(tmp, 'bundled'))
         self.assertEqual(['EVENT_BANNER_STORY'], [event.key for event in events])  # 轻量入口与 refresh 同源。
+
+
+class TestSnapshotFreshness(unittest.TestCase):
+    """快照新鲜期：默认 30 分钟 TTL，且跨过官方时区（UTC+9）05:00 的每日刷新即过期（纯函数，不触网）。
+
+    刷新时刻本身的换算见 tests/TestGameTime.py。
+    """
+
+    @staticmethod
+    def _game(day, hour, minute=0):
+        """2026-09 某日官方时区（UTC+9）时刻的 unix 秒（只关心日/时/分）。"""
+        return int(datetime.datetime(2026, 9, day, hour, minute, tzinfo=game_time.GAME_TZ).timestamp())
+
+    @staticmethod
+    def _snapshot(fetched_at):
+        return event_calendar.CalendarSnapshot(fetched_at=fetched_at, events=(), status={})
+
+    def test_is_fresh_ttl_defaults_to_30_minutes(self):
+        now = self._game(27, 12)
+        self.assertTrue(self._snapshot(now - 1799).is_fresh(now=now))  # 29 分 59 秒前拉的。
+        self.assertFalse(self._snapshot(now - 1800).is_fresh(now=now))  # 整 30 分钟即过期（严格小于）。
+
+    def test_is_fresh_expires_across_daily_reset(self):
+        now = self._game(27, 5, 10)
+        self.assertFalse(self._snapshot(self._game(27, 4, 50)).is_fresh(now=now))  # 20 分钟前拉的，但跨过了 05:00 刷新。
+        self.assertTrue(self._snapshot(self._game(27, 5, 5)).is_fresh(now=now))  # 刷新之后拉的仍新鲜。
+
+    def test_is_fresh_before_reset_only_checks_ttl(self):
+        now = self._game(27, 4, 50)
+        self.assertTrue(self._snapshot(self._game(27, 4, 45)).is_fresh(now=now))  # 05:00 前按前一天的刷新时刻比，只受 TTL 约束。
+
+    def test_is_fresh_false_without_online_data(self):
+        self.assertFalse(self._snapshot(0).is_fresh(now=self._game(27, 12)))  # fetched_at=0：没拿到线上数据。
 
 
 class TestGlobalsStartupRefresh(unittest.TestCase):

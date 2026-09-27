@@ -498,10 +498,25 @@ class TestEventTask(_DebugOffTestCase):
         from src import event_calendar
         expired = _fake_event('old', '旧活动', 'https://cdn/old.png', end_time=1)
         unknown = _fake_event('unknown', '未知时间', 'https://cdn/unknown.png', end_time=0)
-        snapshot = event_calendar.CalendarSnapshot(fetched_at=time.time(), events=(expired, unknown), status={})
-        with patch.object(event_calendar, 'load_snapshot', return_value=snapshot):
+        now = int(time.time())
+        snapshot = event_calendar.CalendarSnapshot(fetched_at=now, events=(expired, unknown), status={})
+        with patch.object(event_calendar.time, 'time', return_value=now), \
+                patch.object(event_calendar, 'load_snapshot', return_value=snapshot), \
+                patch.object(event_calendar, 'refresh', side_effect=AssertionError('新鲜快照不应联网')):
             events = self.task._pending_events()
         self.assertEqual(['unknown'], [event.key for event in events])
+
+    def test_pending_events_refreshes_when_snapshot_stale(self):
+        # 跨过当日 04:00 刷新的旧快照即使不到 30 分钟也要联网刷新（当日数据已换）。
+        from src import event_calendar
+        new = _fake_event('new', '新活动', 'https://cdn/new.png', end_time=0)
+        stale = event_calendar.CalendarSnapshot(fetched_at=1, events=(), status={})
+        fresh = event_calendar.CalendarSnapshot(fetched_at=int(time.time()), events=(new,), status={})
+        with patch.object(event_calendar, 'load_snapshot', return_value=stale), \
+                patch.object(event_calendar, 'refresh', return_value=fresh) as refresh_mock:
+            events = self.task._pending_events()
+        refresh_mock.assert_called_once()
+        self.assertEqual(['new'], [event.key for event in events])
 
     def test_pending_events_refreshes_when_snapshot_missing(self):
         # 无快照时走 refresh（唯一联网入口），结果按未过期过滤后取最新 2 个。

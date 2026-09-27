@@ -1,11 +1,24 @@
 
+import datetime  # 日志里把开放窗口按官方时区格式化。
+import time  # 与活动日历里的开放窗口比较当前时刻。
+
 from ok.task.exceptions import WaitFailedException  # 导入等待失败异常，流程断言失败时抛出由 try_step 捕获恢复。
 
+from src import event_calendar  # 只读本地活动日历缓存，用于限时挑战的开放期前置判断。
 from src.tasks.NikkeBaseTask import NikkeBaseTask  # 导入项目基类，所有任务统一继承它。
 
 # 个人突袭结果页点击空白的相对坐标（屏幕右下中部空白区，同 OutpostTask 咨询对话的推进点击）。
 _SOLO_RAID_RESULT_BLANK_X = 0.7
 _SOLO_RAID_RESULT_BLANK_Y = 0.85
+
+# 活动日历 raid 分类里两项限时挑战的 type。
+_COOP_EVENT_TYPE = "CooperationEvent"  # 协同作战。
+_SOLO_RAID_EVENT_TYPE = "SoloRaid"  # 个人突袭。
+
+
+def _format_local_time(unix_seconds):  # 按运行机器的本地时区输出「月-日 时:分 ±偏移」，仅用于日志。
+    # 经 UTC 中转再转本地：Windows 上对 1970 附近的 naive 本地时间调 astimezone() 会抛 OSError。
+    return datetime.datetime.fromtimestamp(unix_seconds, datetime.UTC).astimezone().strftime('%m-%d %H:%M %z')
 
 
 class RaidTask(NikkeBaseTask):  # 定义讨伐任务类，包含协同作战与个人突袭两个子流程。
@@ -24,6 +37,27 @@ class RaidTask(NikkeBaseTask):  # 定义讨伐任务类，包含协同作战与�
             "协同作战": "自动匹配协同作战-普通难度",  # 协同作战开关说明。
             "个人突袭": "自动执行个人突袭任务",  # 个人突袭开关说明。
         })  # 结束帮助文本更新。
+
+    # ---- 活动日历开放期前置判断 ----
+
+    def _closed_by_calendar(self, event_type, label):  # 按本地活动日历缓存判断限时挑战是否已过开放期（只读缓存，不联网）。
+        """缓存新鲜且活动日历显示不在开放期（含无该条目）时返回 True；缓存不可用时返回 False，交回实机判定。"""
+        snapshot = event_calendar.load_snapshot()  # 只读 cache/event_banner/calendar.json。
+        if snapshot is None or not snapshot.is_fresh():  # 无缓存，或已过新鲜期（30 分钟 / 官方时区 05:00 刷新）。
+            self.log_info(f"{label}：本地活动日历缓存不可用，按实机状态判断。")
+            return False
+        window = snapshot.status_window(event_type)
+        if window is None:  # 新鲜缓存里没有该条目：官方已下架。
+            self.log_info(f"{label}：活动日历无该条目，视为已结束，跳过。")
+            return True
+        start, end = window
+        now = time.time()
+        if start <= now <= end:
+            self.log_info(f"{label}：活动日历显示开放至 {_format_local_time(end)}（本地时间），按实机状态执行。")
+            return False
+        state = "尚未开放" if now < start else "已结束"
+        self.log_info(f"{label}：活动日历显示{state}（{_format_local_time(start)} ~ {_format_local_time(end)}，本地时间），跳过。")
+        return True
 
     # ---- 协同作战 helpers ----
 
@@ -126,6 +160,9 @@ class RaidTask(NikkeBaseTask):  # 定义讨伐任务类，包含协同作战与�
         if self.is_done("coop", "day"):  # 本周期内已完成则直接跳过。
             self.log_info("今日协同作战已完成，跳过。")  # 记录跳过原因。
             return  # 结束本子流程。
+        if self._closed_by_calendar(_COOP_EVENT_TYPE, "协同作战"):  # 活动日历显示不在开放期。
+            self.mark_done("coop", "day")  # 与实机「入口不存在」同口径：视为今日已完成。
+            return
         success = self.try_step(  # 协同作战整体流程以大厅为起点，用恢复协议包裹。
             lambda: self._do_coop_flow(),  # 执行协同作战主流程。
             name="协同作战",  # 步骤名用于日志与失败截图。
@@ -239,6 +276,9 @@ class RaidTask(NikkeBaseTask):  # 定义讨伐任务类，包含协同作战与�
         if self.is_done("solo_raid", "day"):  # 本周期内已完成则直接跳过。
             self.log_info("今日个人突袭已完成，跳过。")  # 记录跳过原因。
             return  # 结束本子流程。
+        if self._closed_by_calendar(_SOLO_RAID_EVENT_TYPE, "个人突袭"):  # 活动日历显示不在开放期。
+            self.mark_done("solo_raid", "day")  # 与实机「入口不存在」同口径：视为今日已完成。
+            return
         success = self.try_step(  # 个人突袭整体流程用恢复协议包裹。
             lambda: self._do_solo_raid_flow(),  # 执行个人突袭主流程。
             name="个人突袭",  # 步骤名用于日志与失败截图。

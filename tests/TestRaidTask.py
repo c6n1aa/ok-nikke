@@ -1,7 +1,9 @@
 # pyright: reportOptionalMemberAccess=false, reportOptionalSubscript=false
 # 仅本测试文件：mock 出来的 find_one/load_snapshot 返回值已知非空，直接取属性；src/ 仍由这两条规则把关。
 
+import datetime
 import os
+import time
 import unittest
 from unittest.mock import patch
 
@@ -10,9 +12,10 @@ from ok.feature.Box import Box
 from ok.task.exceptions import WaitFailedException
 from ok.test.TaskTestCase import TaskTestCase
 
+from src import event_calendar
 from src.config import config
 from src.tasks.ArkTask import ArkTask
-from src.tasks.RaidTask import RaidTask
+from src.tasks.RaidTask import RaidTask, _format_local_time
 from tests.support.asserts import assert_any_call_semantic, assert_called_once_semantic
 
 _TEST_CONFIG_DIR = os.path.join('dev_tools', 'test_configs')
@@ -31,6 +34,10 @@ class _DebugOffTestCase(TaskTestCase):
         patcher = patch.object(self.task, '_in_debug', return_value=False)
         patcher.start()
         self.addCleanup(patcher.stop)
+        # 限时挑战的开放期前置判断会读本地活动日历缓存：统一打桩为「无缓存」，用例不受开发者本地缓存影响。
+        calendar_patcher = patch.object(event_calendar, 'load_snapshot', return_value=None)
+        calendar_patcher.start()
+        self.addCleanup(calendar_patcher.stop)
 
 class TestRaidTaskConfig(_DebugOffTestCase):
     task_class = RaidTask
@@ -93,6 +100,110 @@ class TestRaidTaskSkip(_DebugOffTestCase):
         with patch.object(self.task, "_do_solo_raid_flow", side_effect=AssertionError("不应执行已完成流程")):
             self.task._do_solo_raid()
         self.assertTrue(self.task.is_done("solo_raid", "day"))
+
+class TestRaidTaskCalendarGate(_DebugOffTestCase):
+    """限时挑战的开放期前置判断：缓存新鲜时按活动日历时间决定是否进游戏，其余情况交回实机流程。"""
+
+    task_class = RaidTask
+    task: RaidTask
+    config = config
+
+    def setUp(self):
+        super().setUp()
+        _isolate_task_config(self.task, 'RaidTask')
+        self.task.clear_done_all()
+        self.task.config["协同作战"] = True
+        self.task.config["个人突袭"] = True
+
+    @staticmethod
+    def _item(event_type, start, end):
+        """活动日历 raid 分类里的一条状态（时间同接口原文是字符串）。"""
+        return {'type': event_type, 'name': event_type, 'start_time': str(start), 'end_time': str(end)}
+
+    @staticmethod
+    def _gate(status, fetched_at=None):
+        """打桩本地快照，并禁止刷新缓存（前置判断只读缓存）。返回两个 patcher。"""
+        snapshot = event_calendar.CalendarSnapshot(
+            fetched_at=int(time.time()) if fetched_at is None else fetched_at, events=(), status=status)
+        return (patch.object(event_calendar, 'load_snapshot', return_value=snapshot),
+                patch.object(event_calendar, 'refresh', side_effect=AssertionError('前置判断不应刷新缓存')))
+
+    def test_log_time_uses_local_timezone(self):
+        # 日志时间带运行机器的本地偏移（不是官方时区 UTC+9 的偏移）：本机不是 UTC+9 时能立刻暴露回归。
+        self.assertTrue(_format_local_time(0).endswith(datetime.datetime.now().astimezone().strftime('%z')))
+
+    def test_coop_skipped_when_calendar_ended(self):
+        now = int(time.time())
+        load, refresh = self._gate({'raid': [self._item('CooperationEvent', now - 7200, now - 3600)]})
+        with load, refresh, patch.object(self.task, '_do_coop_flow', side_effect=AssertionError('已结束不应进游戏')):
+            self.task._do_coop()
+        self.assertTrue(self.task.is_done('coop', 'day'))  # 与实机「入口不存在」同口径：视为已完成。
+
+    def test_coop_skipped_when_calendar_not_started(self):
+        now = int(time.time())
+        load, refresh = self._gate({'raid': [self._item('CooperationEvent', now + 3600, now + 7200)]})
+        with load, refresh, patch.object(self.task, '_do_coop_flow', side_effect=AssertionError('未开放不应进游戏')):
+            self.task._do_coop()
+        self.assertTrue(self.task.is_done('coop', 'day'))
+
+    def test_coop_runs_when_calendar_open(self):
+        now = int(time.time())
+        load, refresh = self._gate({'raid': [self._item('CooperationEvent', now - 3600, now + 3600)]})
+        with load, refresh, \
+                patch.object(self.task, 'try_step', side_effect=lambda fn, **kw: fn() or True), \
+                patch.object(self.task, '_do_coop_flow') as flow:
+            self.task._do_coop()
+        flow.assert_called_once()  # 仍在开放期：照常走实机流程。
+        self.assertTrue(self.task.is_done('coop', 'day'))
+
+    def test_coop_falls_back_when_snapshot_stale(self):
+        now = int(time.time())
+        load, refresh = self._gate({'raid': [self._item('CooperationEvent', now - 7200, now - 3600)]}, fetched_at=1)
+        with load, refresh, \
+                patch.object(self.task, 'try_step', side_effect=lambda fn, **kw: fn() or True), \
+                patch.object(self.task, '_do_coop_flow') as flow:
+            self.task._do_coop()
+        flow.assert_called_once()  # 缓存已过新鲜期：时间不可信，交回实机判断。
+
+    def test_coop_falls_back_without_snapshot(self):
+        with patch.object(event_calendar, 'load_snapshot', return_value=None), \
+                patch.object(event_calendar, 'refresh', side_effect=AssertionError('前置判断不应刷新缓存')), \
+                patch.object(self.task, 'try_step', side_effect=lambda fn, **kw: fn() or True), \
+                patch.object(self.task, '_do_coop_flow') as flow:
+            self.task._do_coop()
+        flow.assert_called_once()
+
+    def test_coop_skipped_when_entry_missing(self):
+        now = int(time.time())
+        load, refresh = self._gate({'raid': [self._item('SoloRaid', now - 3600, now + 3600)]})  # 只有个突条目。
+        with load, refresh, patch.object(self.task, '_do_coop_flow', side_effect=AssertionError('已下架不应进游戏')):
+            self.task._do_coop()
+        self.assertTrue(self.task.is_done('coop', 'day'))  # 新鲜缓存里没有该条目：视为已下架。
+
+    def test_solo_raid_skipped_when_calendar_ended(self):
+        now = int(time.time())
+        load, refresh = self._gate({'raid': [self._item('SoloRaid', now - 7200, now - 3600)]})
+        with load, refresh, patch.object(self.task, '_do_solo_raid_flow', side_effect=AssertionError('已结束不应进游戏')):
+            self.task._do_solo_raid()
+        self.assertTrue(self.task.is_done('solo_raid', 'day'))
+
+    def test_solo_raid_skipped_when_entry_missing(self):
+        now = int(time.time())
+        load, refresh = self._gate({'raid': [self._item('CooperationEvent', now - 3600, now + 3600)]})  # 只有协同条目。
+        with load, refresh, patch.object(self.task, '_do_solo_raid_flow', side_effect=AssertionError('已下架不应进游戏')):
+            self.task._do_solo_raid()
+        self.assertTrue(self.task.is_done('solo_raid', 'day'))
+
+    def test_solo_raid_runs_when_calendar_open(self):
+        now = int(time.time())
+        load, refresh = self._gate({'raid': [self._item('SoloRaid', now - 3600, now + 3600)]})
+        with load, refresh, \
+                patch.object(self.task, 'try_step', side_effect=lambda fn, **kw: fn() or True), \
+                patch.object(self.task, '_do_solo_raid_flow') as flow:
+            self.task._do_solo_raid()
+        flow.assert_called_once()
+        self.assertTrue(self.task.is_done('solo_raid', 'day'))
+
 
 class TestRaidTaskRun(_DebugOffTestCase):
     task_class = RaidTask

@@ -1,23 +1,23 @@
-import datetime  # 日期时间模块，处理北京时区与周期刷新。
+import datetime  # 日期时间模块，处理官方时区与周期刷新。
 
-_BEIJING_TZ = datetime.timezone(datetime.timedelta(hours=8))  # 北京时间 UTC+8，无夏令时
+from src.game_time import DAY_RESET_HOUR, GAME_TZ  # 官方时间口径：UTC+9 与每日 05:00 刷新（与活动日历同源）。
 
 
 class DoneStateMixin:
     """完成状态与周期刷新：记录/判定任务子流程在「日/周/月」周期内是否已执行。
 
     完成状态统一走 `self.config[_execution_states_key]`（default_config 里注册过，
-    跨重启保留），按北京时间刷新规则（日 04:00 / 周二）划分周期；debug 模式不判定也不落盘。
+    跨重启保留），按官方时区（UTC+9）刷新规则（日 05:00 / 周二）划分周期；debug 模式不判定也不落盘。
     """
 
-    # NIKKE 刷新规则：日常每天北京时间 04:00，周常每周二刷新。
-    _day_reset_hour = 4        # 日常刷新时刻（北京时间，时）
+    # NIKKE 刷新规则：日常每天官方时区（UTC+9）05:00（= 北京时间 04:00），周常每周二刷新。
+    _day_reset_hour = DAY_RESET_HOUR  # 日常刷新时刻（官方时区，时）
     _week_reset_weekday = 1    # 周常刷新星期（周一=0，周二=1）
     _execution_states_key = "_execution_states"  # 下划线前缀为内部状态，不进 GUI 选项列表
 
-    def _now_bj(self) -> datetime.datetime:
-        """当前北京时间（带时区）。"""
-        return datetime.datetime.now(_BEIJING_TZ)
+    def _now_game(self) -> datetime.datetime:
+        """当前官方时区（UTC+9）时间。"""
+        return datetime.datetime.now(GAME_TZ)
 
     def _in_debug(self) -> bool:
         """是否处于 debug 模式（main_debug.py 运行）。"""
@@ -25,9 +25,10 @@ class DoneStateMixin:
 
     def _period_start(self, period: str, now: datetime.datetime) -> datetime.datetime:
         """计算 now 所属周期的起始时刻（按刷新规则）。period: day/week/month"""
+        now = now.astimezone(GAME_TZ)  # 旧记录可能带其它偏移（如 +08:00），统一到官方时区再划周期。
         if period == "day":
             start = now.replace(hour=self._day_reset_hour, minute=0, second=0, microsecond=0)
-            if now < start:  # 凌晨 0:00-04:00 属于前一个周期
+            if now < start:  # 官方时区 00:00-05:00 属于前一个周期
                 start -= datetime.timedelta(days=1)
             return start
         if period == "week":
@@ -53,14 +54,14 @@ class DoneStateMixin:
             stored_dt = datetime.datetime.fromisoformat(stored)
         except (ValueError, TypeError):
             return False
-        return self._period_start(period, stored_dt) == self._period_start(period, self._now_bj())
+        return self._period_start(period, stored_dt) == self._period_start(period, self._now_game())
 
     def mark_done(self, key: str, period: str = "day") -> None:
-        """记录 key 在本周期已完成（存当前北京时间，立即落盘到 configs/）。"""
+        """记录 key 在本周期已完成（存当前官方时区时间，立即落盘到 configs/）。"""
         if self._in_debug():  # debug 模式下不记录已完成状态。
             return  # 不落盘，避免调试时被误判为已完成。
         states = dict(self.config.get(self._execution_states_key) or {})
-        states[key] = self._now_bj().isoformat()
+        states[key] = self._now_game().isoformat()
         self.config[self._execution_states_key] = states
         self.config.save_file()  # 同键内容更新时 __setitem__ 判定值未变不落盘，需手动保存
 

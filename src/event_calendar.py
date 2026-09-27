@@ -28,6 +28,8 @@ from dataclasses import asdict, dataclass  # 活动条目/快照结构与其 JSO
 
 import cv2  # 图像裁剪与缩放。
 
+from src.game_time import day_reset_time  # 官方时区（UTC+9）的每日刷新时刻：快照新鲜期的跨天判定。
+
 logger = logging.getLogger(__name__)  # 不引入 ok 框架，日志走 stdlib。
 
 # ---- 几何标定（2560x1440 实测） ----
@@ -47,6 +49,7 @@ EVENT_TYPES = ("StoryEvent", "FieldHubEvent")  # 剧情大活动的 type（登�
 STATUS_CATEGORIES = ("version_event", "raid", "arena")  # 状态信息收录：版本活动 / 协同作战+单人突袭 / 竞技场。
 SNAPSHOT_NAME = "calendar.json"  # 状态快照文件名。
 EXPIRE_NOTIFY_SECONDS = 24 * 3600  # 「即将结束」判定的提前量：结束时间在未来 24 小时内。
+FRESH_TTL_SECONDS = 30 * 60  # 快照新鲜期：距上次成功拉取不足该秒数（且未跨过当日刷新时刻）才算新鲜。
 BANNER_KEY_PREFIX = "EVENT_BANNER_"  # 展示名从 banner 键推导时去掉的前缀。
 ATTEMPTS = 3  # 网络请求默认尝试次数（含首次）。
 RETRY_DELAY = 0.8  # 重试间隔（秒）。
@@ -81,13 +84,34 @@ class CalendarSnapshot:
     events: tuple  # tuple[CalendarEvent]。
     status: dict  # 分类 -> [条目状态 dict]。
 
-    def is_fresh(self, ttl_seconds):
-        """距上次成功拉取是否在 ttl 秒内。"""
-        return bool(self.fetched_at) and (time.time() - self.fetched_at) < ttl_seconds
+    def is_fresh(self, ttl_seconds=FRESH_TTL_SECONDS, now=None):
+        """快照是否仍可用：距上次成功拉取不足 ttl_seconds，且拉取发生在最近一次每日刷新（官方时区 05:00）之后。
+
+        跨过刷新时刻的旧快照即使还在 ttl 内也算过期；now 供测试注入（unix 秒），缺省取真实时间。
+        """
+        if not self.fetched_at:  # fetched_at=0：没拿到线上数据。
+            return False
+        now = time.time() if now is None else now
+        return self.fetched_at >= day_reset_time(now) and (now - self.fetched_at) < ttl_seconds
 
     def status_of(self, category):
         """某分类的状态条目（不存在时为空列表）。"""
         return list(self.status.get(category) or [])
+
+    def status_window(self, event_type):
+        """状态段里 type 匹配条目的开放窗口 (start_time, end_time)（unix 秒）；无该条目或时间不可用返回 None。
+
+        状态段的时间是接口原文的字符串（events 段已在 parse_events 里转成 int），这里统一转 int。
+        """
+        for items in self.status.values():
+            for item in items or []:
+                if not isinstance(item, dict) or item.get("type") != event_type:
+                    continue
+                try:
+                    return (int(item["start_time"]), int(item["end_time"]))
+                except (KeyError, TypeError, ValueError):  # 字段缺失或非数字。
+                    return None
+        return None
 
     def pick_events(self, count=1, now=None):
         """按开始时间倒序取前 count 个未过期活动（最新在前；时间缺失记 0 的排最后，同时间保持接口顺序）。

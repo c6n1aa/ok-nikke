@@ -11,7 +11,6 @@ from src import event_calendar
 
 logger = Logger.get_logger(__name__)
 
-REFRESH_TTL_SECONDS = 600  # 距上次成功拉取不足该秒数则跳过（频繁重启不重复请求）。
 EXPIRE_TITLE = 'ok-nikke'  # InfoBar 提示标题。
 EXPIRE_NOTIFY_DELAY_MS = 2000  # 启动补发提示的延迟：让主窗口先稳定显示，避免盖在加载/置顶动画上。
 
@@ -86,7 +85,7 @@ def _refresh_event_calendar(exit_event, notifier=None):
     """后台刷新活动日历（状态 + 活动图）；刷新成功后提示即将结束的活动，失败只记日志。"""
     try:
         snapshot = event_calendar.load_snapshot()
-        if snapshot is not None and snapshot.is_fresh(REFRESH_TTL_SECONDS):
+        if snapshot is not None and snapshot.is_fresh():  # 新鲜期见 event_calendar.FRESH_TTL_SECONDS。
             return
         if exit_event is not None and exit_event.is_set():  # 应用已在退出，不再发起请求。
             return
