@@ -20,7 +20,7 @@ ok-nikke is an automation app for the Windows client of Goddess of Victory: NIKK
 | Outpost Defense | Farm the outpost defense, optionally spending gems for extra runs |
 | Cash Shop | Claim free STEP UP / daily / weekly / monthly packages |
 | Shop | Buy items from the ordinary / arena / scrapyard shops |
-| Recruit | Event free recruit / friendship-point recruit / ordinary recruit |
+| Recruit | Friendship-point recruit / ordinary recruit |
 | Outpost | Dispatch / advise / brief encounters |
 | Ark | Manufacturer towers / simulation room / interception / arena |
 | Raid | Limited-time challenges (co-op / solo raid) |

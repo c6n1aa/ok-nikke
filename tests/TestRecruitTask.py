@@ -1,4 +1,4 @@
-﻿import os
+import os
 import unittest
 from unittest.mock import patch
 
@@ -53,7 +53,7 @@ class TestRecruitTask(_DebugOffTestCase):
 
     def test_config_defaults(self):
         self.assertEqual("招募", self.task.name)
-        self.assertEqual("活动免费招募/友情点招募/普通招募", self.task.description)
+        self.assertEqual("友情点招募/普通招募", self.task.description)
         self.assertNotIn("招募", self.task.default_config)  # 总开关由日常编排的「招募」键承担，任务自身不重复。
         self.assertTrue(self.task.default_config["友情点招募"])
         self.assertFalse(self.task.default_config["折扣普通招募"])

@@ -62,6 +62,7 @@ The official notice dated 2026/09/16:
 
 Notes:
 
+- System requirement: Windows 10 1809 or later (the synthetic pointer APIs were introduced in that version).
 - The game must run at a 16:9 resolution of at least 1600×900.
 - Input method: `SyntheticTouch` uses a synthetic touch pointer (WM_POINTER) to bypass the game's input filtering and requires the game window in the foreground.
 - While a task runs, the app pauses automatically when the game window loses focus or is not in the foreground, and resumes when it comes back.
@@ -70,6 +71,7 @@ Notes:
 ## 📝 TODO
 
 - [ ] i18n
+- [ ] Event free recruit (screenshot feature not yet captured)
 - [ ] TBD
 
 ## ✨ Features
@@ -81,7 +83,7 @@ Notes:
 | Outpost Defense | Farm the outpost defense, optionally spending gems for extra runs |
 | Cash Shop | Claim free STEP UP / daily / weekly / monthly packages |
 | Shop | Buy items from the ordinary / arena / scrapyard shops |
-| Recruit | Event free recruit / friendship-point recruit / ordinary recruit |
+| Recruit | Friendship-point recruit / ordinary recruit |
 | Outpost | Dispatch / advise / brief encounters |
 | Ark | Manufacturer towers / simulation room / interception / arena |
 | Raid | Limited-time challenges (co-op / solo raid) |

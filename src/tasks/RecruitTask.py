@@ -12,14 +12,14 @@ _CONFIRM_PATTERN = re.compile(r"确认", re.IGNORECASE)
 _MAX_RECRUIT_PAGES = 8
 
 
-class RecruitTask(NikkeBaseTask):  # 招募任务：每日免费招募/友情点招募/折扣普通招募。
+class RecruitTask(NikkeBaseTask):  # 招募任务：友情点招募/折扣普通招募。
 
     done_keys = {"recruit": "day"}  # 完成状态：日常刷新。
 
     def __init__(self, *args, **kwargs):  # 初始化任务元数据与配置。
         super().__init__(*args, **kwargs)  # 必须先调用父类初始化。
         self.name = "招募"  # 任务显示名称。
-        self.description = "活动免费招募/友情点招募/普通招募"  # 任务说明。
+        self.description = "友情点招募/普通招募"  # 任务说明。
         self.default_config.update({  # 子任务专属设置，独立持久化到 configs/（总开关由日常编排的「招募」键承担，不在此重复）。
             # "免费活动单抽": True,  # 每日活动免费招募（暂缺截图特征未实现）。
             "友情点招募": True,  # 是否使用10友情点进行招募。

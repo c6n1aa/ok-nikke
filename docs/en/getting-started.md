@@ -17,6 +17,7 @@
 
 - Each subtask under the "Tasks" view can be run individually and once; changing a task's settings under the "Tasks" view syncs them into the daily settings.
 - **Global server** users can set the launcher path via the settings view and afterwards start the game directly from inside the app.
+- System requirement: Windows 10 1809 or later (the synthetic pointer APIs were introduced in that version).
 - The game must run at a 16:9 resolution of at least 1600×900.
 - Input method: `SyntheticTouch` uses a synthetic touch pointer (WM_POINTER) to bypass the game's input filtering and requires the game window in the foreground.
 - While a task runs, if the game window loses focus or is not in the foreground the app pauses automatically and resumes when the game window comes back, so clicks are not lost.
