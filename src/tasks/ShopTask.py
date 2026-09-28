@@ -216,7 +216,7 @@ class ShopTask(NikkeBaseTask):  # 商店自动兑换任务，继承项目基类�
             return  # 无免费刷新机会直接结束。
         self.click_box("box_shop_general_refresh", after_sleep=1)  # 有免费刷新机会，点击免费刷新按钮。
         if self.wait_feature("general_shop_refresh_free", time_out=5, raise_if_not_found=False) is not None:  # 判断刷新确认弹窗是否零消耗。
-            self.wait_click_feature("general_shop_refresh_confirm", time_out=5, raise_if_not_found=True, after_sleep=1)  # 确认刷新。
+            self.wait_click_feature("general_shop_refresh_confirm", time_out=5, raise_if_not_found=True, after_sleep=2)  # 确认刷新，多等一拍等货物刷新动画播完。
             self.next_frame()  # 刷新一帧，确保读取刷新后的画面。
             if not self._is_sold_out(self._cell_box(1, 1)):  # 刷新后第 1 格可购买（非售罄）则再买一次。
                 self._buy_cell("shop_buy_confirm", row=1, col=1)  # 购买刷新后的第一列第 1 格。
