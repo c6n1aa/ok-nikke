@@ -1,6 +1,7 @@
 # pyright: reportOptionalMemberAccess=false, reportOptionalSubscript=false
 # 仅本测试文件：mock 出来的 find_one/load_snapshot 返回值已知非空，直接取属性；src/ 仍由这两条规则把关。
 import os
+import time
 import unittest
 from contextlib import ExitStack
 from types import SimpleNamespace
@@ -12,8 +13,10 @@ from ok.feature.Box import Box
 from ok.task.exceptions import WaitFailedException
 from ok.test.TaskTestCase import TaskTestCase
 
+from src import event_calendar
 from src.config import config
 from src.tasks.ArkTask import ArkTask
+from src.tasks.base._navigation import NavigationMixin
 from tests.support.asserts import assert_any_call_semantic, assert_called_once_semantic
 
 _TEST_CONFIG_DIR = os.path.join('dev_tools', 'test_configs')
@@ -53,12 +56,14 @@ class TestArkTask(_DebugOffTestCase):
         self.task.config["新人竞技场"] = False  # 默认关闭新人竞技场子流程，企业塔相关测试不受其干扰。
         self.task.config["特殊竞技场"] = False  # 默认关闭特殊竞技场子流程，企业塔相关测试不受其干扰。
         self.task.config["收取排名奖励"] = False  # 默认关闭收取排名奖励子流程，企业塔相关测试不受其干扰。
+        self.task.config["冠军竞技场"] = False  # 默认关闭冠军竞技场应援子流程，企业塔相关测试不受其干扰。
         self.task.clear_done("tribe_tower")
         self.task.clear_done("simulation")
         self.task.clear_done("interception")
         self.task.clear_done("rookie_arena")
         self.task.clear_done("special_arena")
         self.task.clear_done("ranking_reward")
+        self.task.clear_done("champion_arena")
         self.task.failed_towers = []
         exit_patcher = patch.object(self.task, "_exit_to_lobby")  # 拦截主流程收尾返回大厅步骤，避免测试触碰真实窗口。
         self.exit_patcher = exit_patcher  # 本体分支测试通过 stop() 还原真实方法调用。
@@ -85,15 +90,20 @@ class TestArkTask(_DebugOffTestCase):
         self.assertEqual(["只进行快速战斗", "BOSS选择", "异常拦截队伍配置"], anomaly_sub[True])  # 启用时展开三项。
         self.assertEqual([], anomaly_sub[False])  # 关闭时收起配置。
         self.assertEqual({"tribe_tower": "day", "simulation": "day", "interception": "day", "rookie_arena": "day",
-                          "special_arena": "day", "ranking_reward": "day"}, ArkTask.done_keys)  # 拦截战完成状态随日常刷新。
+                          "special_arena": "day", "ranking_reward": "day",
+                          "champion_arena": "day"}, ArkTask.done_keys)  # 拦截战与冠军竞技场应援完成状态随日常刷新。
         self.assertTrue(self.task.default_config["新人竞技场"])  # 新人竞技场子流程默认开启。
         self.assertTrue(self.task.default_config["对手选择策略"])  # 对手选择策略默认开启。
         self.assertTrue(self.task.default_config["特殊竞技场"])  # 特殊竞技场子流程默认开启。
         self.assertTrue(self.task.default_config["收取排名奖励"])  # 收取排名奖励子流程默认开启。
+        self.assertTrue(self.task.default_config["冠军竞技场"])  # 冠军竞技场应援子流程默认开启。
+        self.assertEqual(["新人竞技场", "对手选择策略", "特殊竞技场", "冠军竞技场", "收取排名奖励"],
+                         list(self.task.default_config)[-5:])  # 配置项顺序即 UI 顺序：三个竞技场相邻，排名奖励排最后。
         self.assertIn("新人竞技场", self.task.config_description)  # 新人竞技场配置有中文帮助文本。
         self.assertIn("对手选择策略", self.task.config_description)  # 对手选择策略配置有中文帮助文本。
         self.assertIn("特殊竞技场", self.task.config_description)  # 特殊竞技场配置有中文帮助文本。
         self.assertIn("收取排名奖励", self.task.config_description)  # 收取排名奖励配置有中文帮助文本。
+        self.assertIn("冠军竞技场", self.task.config_description)  # 冠军竞技场配置有中文帮助文本。
         rookie_sub = self.task.config_type["新人竞技场"]["sub_configs"]  # 开关联动对手选择策略显隐。
         self.assertEqual(["对手选择策略"], rookie_sub[True])  # 启用时显示对手选择策略开关。
         self.assertEqual([], rookie_sub[False])  # 关闭时收起配置。
@@ -543,12 +553,14 @@ class TestArkTaskSimulation(_DebugOffTestCase):
         self.task.config["新人竞技场"] = False  # 关闭新人竞技场子流程，保证测试顺序隔离。
         self.task.config["特殊竞技场"] = False  # 关闭特殊竞技场子流程，保证测试顺序隔离。
         self.task.config["收取排名奖励"] = False  # 关闭收取排名奖励子流程，保证测试顺序隔离。
+        self.task.config["冠军竞技场"] = False  # 关闭冠军竞技场应援子流程，保证测试顺序隔离。
         self.task.clear_done("simulation")
         self.task.clear_done("tribe_tower")
         self.task.clear_done("interception")
         self.task.clear_done("rookie_arena")
         self.task.clear_done("special_arena")
         self.task.clear_done("ranking_reward")
+        self.task.clear_done("champion_arena")
         exit_patcher = patch.object(self.task, "_exit_to_lobby")  # 拦截主流程收尾返回大厅步骤，避免测试触碰真实窗口。
         exit_patcher.start()
         self.addCleanup(exit_patcher.stop)
@@ -990,12 +1002,14 @@ class TestArkTaskRookieArena(_DebugOffTestCase):
         self.task.config["对手选择策略"] = self.task.default_config["对手选择策略"]
         self.task.config["特殊竞技场"] = False  # 关闭特殊竞技场子流程，隔离新人竞技场测试。
         self.task.config["收取排名奖励"] = False  # 关闭收取排名奖励子流程，隔离新人竞技场测试。
+        self.task.config["冠军竞技场"] = False  # 关闭冠军竞技场应援子流程，隔离新人竞技场测试。
         self.task.clear_done("tribe_tower")
         self.task.clear_done("simulation")
         self.task.clear_done("interception")
         self.task.clear_done("rookie_arena")
         self.task.clear_done("special_arena")
         self.task.clear_done("ranking_reward")
+        self.task.clear_done("champion_arena")
         self.task.failed_towers = []
         exit_patcher = patch.object(self.task, "_exit_to_lobby")  # 拦截主流程收尾返回大厅步骤，避免测试触碰真实窗口。
         exit_patcher.start()
@@ -1203,12 +1217,14 @@ class TestArkTaskSpecialArena(_DebugOffTestCase):
         self.task.config["对手选择策略"] = self.task.default_config["对手选择策略"]
         self.task.config["特殊竞技场"] = True  # 特殊竞技场子流程测试统一开启。
         self.task.config["收取排名奖励"] = False  # 关闭收取排名奖励子流程，隔离特殊竞技场测试。
+        self.task.config["冠军竞技场"] = False  # 关闭冠军竞技场应援子流程，隔离特殊竞技场测试。
         self.task.clear_done("tribe_tower")
         self.task.clear_done("simulation")
         self.task.clear_done("interception")
         self.task.clear_done("rookie_arena")
         self.task.clear_done("special_arena")
         self.task.clear_done("ranking_reward")
+        self.task.clear_done("champion_arena")
         self.task.failed_towers = []
         exit_patcher = patch.object(self.task, "_exit_to_lobby")  # 拦截主流程收尾返回大厅步骤，避免测试触碰真实窗口。
         exit_patcher.start()
@@ -1372,12 +1388,14 @@ class TestArkTaskRankingReward(_DebugOffTestCase):
         self.task.config["新人竞技场"] = False  # 关闭新人竞技场子流程，隔离排名奖励测试。
         self.task.config["特殊竞技场"] = False  # 关闭特殊竞技场子流程，隔离排名奖励测试。
         self.task.config["收取排名奖励"] = True  # 排名奖励子流程测试统一开启。
+        self.task.config["冠军竞技场"] = False  # 关闭冠军竞技场应援子流程，隔离排名奖励测试。
         self.task.clear_done("tribe_tower")
         self.task.clear_done("simulation")
         self.task.clear_done("interception")
         self.task.clear_done("rookie_arena")
         self.task.clear_done("special_arena")
         self.task.clear_done("ranking_reward")
+        self.task.clear_done("champion_arena")
         exit_patcher = patch.object(self.task, "_exit_to_lobby")  # 拦截主流程收尾返回大厅步骤，避免测试触碰真实窗口。
         exit_patcher.start()
         self.addCleanup(exit_patcher.stop)
@@ -1492,6 +1510,7 @@ class TestArkTaskInterception(_DebugOffTestCase):
         self.task.config["对手选择策略"] = self.task.default_config["对手选择策略"]
         self.task.config["特殊竞技场"] = False  # 关闭特殊竞技场子流程，隔离拦截战测试。
         self.task.config["收取排名奖励"] = False  # 关闭收取排名奖励子流程，隔离拦截战测试。
+        self.task.config["冠军竞技场"] = False  # 关闭冠军竞技场应援子流程，隔离拦截战测试。
         self.task.config["拦截战"] = False  # 拦截战子流程测试默认关闭。
         self.task.config["异常拦截战"] = False  # 异常拦截战子流程测试默认关闭。
         self.task.clear_done("tribe_tower")
@@ -1500,6 +1519,7 @@ class TestArkTaskInterception(_DebugOffTestCase):
         self.task.clear_done("rookie_arena")
         self.task.clear_done("special_arena")
         self.task.clear_done("ranking_reward")
+        self.task.clear_done("champion_arena")
         exit_patcher = patch.object(self.task, "_exit_to_lobby")  # 拦截主流程收尾返回大厅步骤，避免测试触碰真实窗口。
         exit_patcher.start()
         self.addCleanup(exit_patcher.stop)
@@ -1699,6 +1719,229 @@ class TestArkTaskInterception(_DebugOffTestCase):
         self.assertIn("anomaly_interception_page", self.task.screens)  # 异常个体拦截战标签页已注册。
         self.assertIn("common_interception_page", self.task.screens)  # 通用拦截战关卡页已注册。
         self.assertIn("anomaly_interception_team_select_page", self.task.screens)  # 异常个体队伍选择页已注册。
+
+
+class TestArkTaskChampionArena(_DebugOffTestCase):
+    """冠军竞技场应援子流程测试：覆盖跳过/已完成/成功/失败/应援期闸门/占比选择/弹窗缺失等分支。"""
+
+    task_class = ArkTask
+    task: ArkTask
+
+    config = config
+
+    def setUp(self):
+        super().setUp()
+        _isolate_task_config(self.task, 'ArkTask')
+        self.task.config["企业塔"] = False  # 关闭企业塔子流程，隔离冠军竞技场应援测试。
+        self.task.config["关闭自动爬塔"] = self.task.default_config["关闭自动爬塔"]
+        self.task.config["模拟室"] = False  # 关闭模拟室子流程，隔离冠军竞技场应援测试。
+        self.task.config["拦截战"] = False  # 关闭拦截战子流程，隔离冠军竞技场应援测试。
+        self.task.config["异常拦截战"] = False  # 关闭异常拦截战子流程，隔离冠军竞技场应援测试。
+        self.task.config["新人竞技场"] = False  # 关闭新人竞技场子流程，隔离冠军竞技场应援测试。
+        self.task.config["特殊竞技场"] = False  # 关闭特殊竞技场子流程，隔离冠军竞技场应援测试。
+        self.task.config["收取排名奖励"] = False  # 关闭收取排名奖励子流程，隔离冠军竞技场应援测试。
+        self.task.config["冠军竞技场"] = True  # 冠军竞技场应援子流程测试统一开启。
+        self.task.clear_done("tribe_tower")
+        self.task.clear_done("simulation")
+        self.task.clear_done("interception")
+        self.task.clear_done("rookie_arena")
+        self.task.clear_done("special_arena")
+        self.task.clear_done("ranking_reward")
+        self.task.clear_done("champion_arena")
+        self.task.failed_towers = []
+        exit_patcher = patch.object(self.task, "_exit_to_lobby")  # 拦截主流程收尾返回大厅步骤，避免测试触碰真实窗口。
+        exit_patcher.start()
+        self.addCleanup(exit_patcher.stop)
+
+    def test_skip_when_disabled(self):
+        self.task.config["冠军竞技场"] = False  # 用户未启用冠军竞技场应援。
+        with patch.object(self.task, "_do_champion_arena_cheer_flow", side_effect=AssertionError("不应执行应援流程")), \
+                patch.object(self.task, "_nav_to_ark"):
+            self.task.run()
+        self.assertFalse(self.task.is_done("champion_arena", "day"))
+
+    def test_skip_when_already_done(self):
+        self.task.mark_done("champion_arena", "day")  # 标记本周期已完成。
+        with patch.object(self.task, "_do_champion_arena_cheer_flow", side_effect=AssertionError("不应执行应援流程")), \
+                patch.object(self.task, "_nav_to_ark"):
+            self.task.run()
+        self.assertTrue(self.task.is_done("champion_arena", "day"))
+
+    def test_success_marks_done(self):
+        with patch.object(self.task, "_nav_to_ark"), \
+                patch.object(self.task, "_do_champion_arena_cheer_flow") as flow_mock:
+            self.task.run()
+        flow_mock.assert_called_once()
+        self.assertTrue(self.task.is_done("champion_arena", "day"))
+
+    def test_failure_not_marked_done(self):
+        with patch.object(self.task, "try_step", side_effect=[True, False]):
+            self.task.run()
+        self.assertFalse(self.task.is_done("champion_arena", "day"))
+
+    def test_closed_by_calendar_when_snapshot_unavailable(self):
+        """快照不可用（无缓存/不新鲜）：交回实机判定，不因日历跳过。"""
+        for snapshot in (None, event_calendar.CalendarSnapshot(fetched_at=0, events=(), status={})):
+            with patch.object(event_calendar, "load_snapshot", return_value=snapshot):
+                self.assertFalse(self.task._arena_cheer_closed_by_calendar())
+
+    def test_closed_by_calendar_when_no_betting_entry(self):
+        """新鲜缓存里没有应援条目：官方已下架/赛季结束，视为不在应援期。"""
+        snapshot = event_calendar.CalendarSnapshot(fetched_at=int(time.time()), events=(), status={'arena': [
+            {'type': 'ArenaChampionSeason', 'start_time': '100', 'end_time': '200'},
+            {'type': 'ArenaChampionBattle64', 'start_time': '100', 'end_time': '200'}]})  # 只有赛季总窗口与对战段。
+        with patch.object(event_calendar, "load_snapshot", return_value=snapshot):
+            self.assertTrue(self.task._arena_cheer_closed_by_calendar())
+
+    def test_closed_by_calendar_matches_any_betting_window(self):
+        """6 段应援窗口按前缀一次取全：落在任一段内执行，段外跳过。"""
+        now = int(time.time())
+        snapshot = event_calendar.CalendarSnapshot(fetched_at=now, events=(), status={'arena': [
+            {'type': 'ArenaChampionBetting64', 'start_time': str(now - 200), 'end_time': str(now - 100)},
+            {'type': 'ArenaChampionBetting32', 'start_time': str(now - 10), 'end_time': str(now + 100)}]})
+        with patch.object(event_calendar, "load_snapshot", return_value=snapshot):
+            self.assertFalse(self.task._arena_cheer_closed_by_calendar())  # 处于第二段应援窗口内。
+        outside = event_calendar.CalendarSnapshot(fetched_at=now, events=(), status={'arena': [
+            {'type': 'ArenaChampionBetting64', 'start_time': str(now - 200), 'end_time': str(now - 100)}]})
+        with patch.object(event_calendar, "load_snapshot", return_value=outside):
+            self.assertTrue(self.task._arena_cheer_closed_by_calendar())  # 两段之间的对战间隙。
+
+    def test_flow_skips_navigation_when_closed(self):
+        """非应援期分支：不进入任何界面，直接收尾（由调用方统一标记完成）。"""
+        with patch.object(self.task, "_arena_cheer_closed_by_calendar", return_value=True), \
+                patch.object(self.task, "_nav_to_arena", side_effect=AssertionError("不在应援期不应进入竞技场")), \
+                patch.object(self.task, "transition", side_effect=AssertionError("不在应援期不应切界面")):
+            self.task._do_champion_arena_cheer_flow()
+
+    def _cheer_flow_mocks(self, red_dominant):
+        """构造应援流程的公共补丁栈与 mock（返回上下文管理器与关键 mock 字典）。"""
+        stack = ExitStack()
+        mocks = {
+            'transition': stack.enter_context(patch.object(self.task, "transition")),
+            'click_box': stack.enter_context(patch.object(self.task, "click_box")),
+            'wait_until': stack.enter_context(patch.object(self.task, "wait_until", return_value=True)),
+            'wait_click_feature': stack.enter_context(patch.object(self.task, "wait_click_feature")),
+            'dismiss': stack.enter_context(patch.object(self.task, "dismiss_all_popups")),
+            'assert_screen': stack.enter_context(patch.object(self.task, "assert_screen", return_value=True)),
+            'get_box_by_name': stack.enter_context(
+                patch.object(self.task, "get_box_by_name",
+                             return_value=Box(987, 675, 587, 12, confidence=1, name="box_carena_cheer_ratio"))),
+            'bar': stack.enter_context(patch.object(self.task, "_champion_bar_red_dominant", return_value=red_dominant)),
+        }
+        stack.enter_context(patch.object(self.task, "_cheer_side_selected", return_value=False))  # 默认未应援过（两侧按钮都未选择）。
+        stack.enter_context(patch.object(self.task, "_arena_cheer_closed_by_calendar", return_value=False))
+        stack.enter_context(patch.object(self.task, "_nav_to_arena"))
+        return stack, mocks
+
+    def test_flow_cheers_red_dominant_side(self):
+        """成功分支：应援现状红橙段占优 → 选左侧选手 → 确认应援 → 逐级返回方舟。"""
+        stack, mocks = self._cheer_flow_mocks(red_dominant=True)
+        with stack:
+            self.task._do_champion_arena_cheer_flow()
+        assert_any_call_semantic(mocks['transition'], "carena_home", click_feature="champion_arena")  # 竞技场→冠军竞技场主界面。
+        assert_any_call_semantic(mocks['transition'], "carena_promotion", box="box_carena_promotion_enter")  # 主界面→晋级赛界面。
+        self.assertEqual(["box_carena_cheer_button", "box_carena_cheer_detail_confirm"],
+                         [c.args[0] for c in mocks['click_box'].call_args_list])  # 开弹窗→提交应援。
+        assert_called_once_semantic(mocks['dismiss'], wait_for_popup=False)  # 进晋级赛界面后先清上一轮应援的奖励遮罩（无遮罩立即返回）。
+        assert_any_call_semantic(mocks['wait_click_feature'], "carena_cheer_detail_p1", raise_if_not_found=True)  # 选红橙段对应的左侧选手。
+        self.assertEqual(["carena_home", "arena", "ark"],
+                         [c.args[0] for c in mocks['assert_screen'].call_args_list])  # 晋级赛→主界面→竞技场→方舟逐级返回。
+        mocks['bar'].assert_called_once()  # 占比条判态入参为标注区域。
+
+    def test_flow_cheers_blue_dominant_side(self):
+        """成功分支：蓝段占优 → 选右侧选手。"""
+        stack, mocks = self._cheer_flow_mocks(red_dominant=False)
+        with stack:
+            self.task._do_champion_arena_cheer_flow()
+        assert_any_call_semantic(mocks['wait_click_feature'], "carena_cheer_detail_p2", raise_if_not_found=True)  # 选蓝段对应的右侧选手。
+
+    def test_flow_raises_when_dialog_missing(self):
+        """异常分支：点击应援按钮后弹窗未出现 → 抛 WaitFailedException 交由 try_step 恢复，不提交应援。"""
+        stack, mocks = self._cheer_flow_mocks(red_dominant=True)
+        mocks['wait_until'].return_value = False  # 弹窗始终未出现。
+        with stack:
+            with self.assertRaises(WaitFailedException):
+                self.task._do_champion_arena_cheer_flow()
+        mocks['wait_click_feature'].assert_not_called()  # 未选边。
+        self.assertEqual(["box_carena_cheer_button"], [c.args[0] for c in mocks['click_box'].call_args_list])  # 未点确认。
+
+    def test_cheer_dialog_open_any_side_button(self):
+        """弹窗判据：左右两个选择按钮任一命中即视为已弹出（弹窗不注册界面）。"""
+        with patch.object(self.task, "find_one", side_effect=lambda name, *a, **k: Box(1, 1, 2, 2, name=name)
+                if name == "carena_cheer_detail_p2" else None):
+            self.assertTrue(self.task._cheer_dialog_open())  # 仅右侧按钮命中。
+        with patch.object(self.task, "find_one", return_value=None):
+            self.assertFalse(self.task._cheer_dialog_open())  # 两侧均未命中。
+
+    def test_flow_skips_when_side_already_selected(self):
+        """已应援分支：某一侧已是「已选择」→ 不选边不点应援，关掉弹窗后仍逐级返回方舟。"""
+        stack, mocks = self._cheer_flow_mocks(red_dominant=True)
+        close_mock = stack.enter_context(patch.object(self.task, "_close_cheer_dialog"))
+        with stack:
+            stack.enter_context(patch.object(self.task, "_cheer_side_selected", return_value=True))
+            self.task._do_champion_arena_cheer_flow()
+        self.assertEqual(["common_back", "common_back", "common_back"],
+                         [c.args[0] for c in mocks['wait_click_feature'].call_args_list])  # 只逐级返回三层，不点「选择」按钮。
+        mocks['dismiss'].assert_called_once()  # 进晋级赛界面后照样先清奖励遮罩。
+        self.assertEqual(["box_carena_cheer_button"], [c.args[0] for c in mocks['click_box'].call_args_list])  # 不点应援确认。
+        close_mock.assert_called_once()  # 关掉弹窗。
+        self.assertEqual(["carena_home", "arena", "ark"],
+                         [c.args[0] for c in mocks['assert_screen'].call_args_list])  # 仍按三层逐级返回方舟收尾。
+
+    def test_cheer_side_selected_by_missing_template(self):
+        """已选择判据：某一侧模板缺失即该侧已选择；两侧都在则未应援过。"""
+        def find_one(name, *args, **kwargs):  # 该侧「选择」按钮命中。
+            return Box(1, 1, 2, 2, name=name)
+
+        with patch.object(self.task, "find_one", side_effect=find_one):
+            self.assertFalse(self.task._cheer_side_selected())  # 两侧都是未选择样式。
+        with patch.object(self.task, "find_one", side_effect=lambda name, *a, **k: None
+                if name == "carena_cheer_detail_p1" else Box(1, 1, 2, 2, name=name)):
+            self.assertTrue(self.task._cheer_side_selected())  # 左侧已选择（模板换样式后失配）。
+
+    def test_recover_to_lobby_closes_cheer_dialog_first(self):
+        """失败恢复：应援弹窗开着时先关弹窗（否则模态框吞掉主页点击，重试直接放弃）。"""
+        with patch.object(self.task, "_cheer_dialog_open", return_value=True), \
+                patch.object(self.task, "_close_cheer_dialog") as close_mock, \
+                patch.object(NavigationMixin, "_recover_to_lobby", return_value=True) as base_mock:
+            self.assertTrue(self.task._recover_to_lobby())
+        close_mock.assert_called_once()  # 先关弹窗。
+        base_mock.assert_called_once()  # 再走基类恢复协议。
+        with patch.object(self.task, "_cheer_dialog_open", return_value=False), \
+                patch.object(self.task, "_close_cheer_dialog") as close_mock, \
+                patch.object(NavigationMixin, "_recover_to_lobby", return_value=True):
+            self.task._recover_to_lobby()
+        close_mock.assert_not_called()  # 弹窗没开时不额外点击。
+
+    def test_cheer_target_feature_raises_when_ratio_missing(self):
+        """占比条区域特征缺失（coco 异常）→ 抛 WaitFailedException 由 try_step 恢复，不盲选。"""
+        with patch.object(self.task, "get_box_by_name", side_effect=ValueError("missing")):
+            with self.assertRaises(WaitFailedException):
+                self.task._cheer_target_feature()
+
+    def test_champion_bar_red_dominant_by_hue(self):
+        """占比条判态：红橙段像素多于蓝段返回 True，反之 False，无帧时保守返回 False。"""
+        red_major = np.zeros((40, 100, 3), dtype=np.uint8)  # 高 40、宽 100 的条体帧。
+        red_major[:, :60] = (0, 0, 255)  # 左侧 60 列红橙（BGR）。
+        red_major[:, 60:] = (255, 0, 0)  # 右侧 40 列蓝（BGR）。
+        blue_major = np.zeros((40, 100, 3), dtype=np.uint8)  # 蓝段占优的条体帧。
+        blue_major[:, :30] = (0, 0, 255)  # 左侧 30 列红橙。
+        blue_major[:, 30:] = (255, 0, 0)  # 右侧 70 列蓝。
+        box = Box(0, 0, 100, 40, confidence=1, name="box_carena_cheer_ratio")
+        with patch.object(ArkTask, "frame", new_callable=PropertyMock, return_value=red_major):
+            self.assertTrue(self.task._champion_bar_red_dominant(box))  # 红橙段占优。
+        with patch.object(ArkTask, "frame", new_callable=PropertyMock, return_value=blue_major):
+            self.assertFalse(self.task._champion_bar_red_dominant(box))  # 蓝段占优。
+        with patch.object(ArkTask, "frame", new_callable=PropertyMock, return_value=None):
+            self.assertFalse(self.task._champion_bar_red_dominant(box))  # 无帧保守按蓝段占优。
+
+    def test_champion_arena_screens_registered(self):
+        self.assertIn("carena_home", self.task.screens)  # 冠军竞技场主界面已注册。
+        self.assertEqual("box_sub_pages_title", self.task.screens["carena_home"]["ocr_box"])  # 标题区 OCR。
+        self.assertTrue(any(p.search("冠军竞技场") for p in self.task.screens["carena_home"]["keywords"]))  # 关键词匹配主界面标题。
+        self.assertIn("carena_promotion", self.task.screens)  # 晋级赛界面已注册。
+        self.assertEqual("box_sub_pages_title", self.task.screens["carena_promotion"]["ocr_box"])
+        self.assertTrue(any(p.search("晋级赛") for p in self.task.screens["carena_promotion"]["keywords"]))  # 关键词匹配晋级赛标题。
 
 
 if __name__ == '__main__':

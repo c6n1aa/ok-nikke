@@ -25,7 +25,8 @@ class TestScreenRecovery(TaskTestCase):
         self.task.register_screen("lobby", features=["ark"])
 
     def test_global_screens_registry_matches_migrated_specs(self):
-        # 集中式注册表收录全部界面：9 个迁移自任务 __init__、3 个竞技场界面、商店/招募/方舟排名子页面、
+        # 集中式注册表收录全部界面：9 个迁移自任务 __init__、3 个竞技场界面、冠军竞技场 2 个界面、
+        # 商店/招募/方舟排名子页面、
         # 4 个拦截战界面、5 个前哨基地界面、活动列表页/活动主页/活动关卡页/活动挑战页、
         # 活动内置小游戏 6 个界面（暂停弹窗/关卡/任务弹窗/结算页/选择妮姬页/主界面）、
         # 付费商店两个礼包子页面，外加冷启动正向锚点 login_page。
@@ -49,6 +50,8 @@ class TestScreenRecovery(TaskTestCase):
             "arena": {"features": ["arena_page"]},
             "rookie_arena": {"features": ["rookie_arena_page"]},
             "special_arena": {"features": ["special_arena_page"]},
+            "carena_home": {"keywords": [_keyword("冠军竞技场")], "ocr_box": "box_sub_pages_title"},
+            "carena_promotion": {"keywords": [_keyword("晋级赛")], "ocr_box": "box_sub_pages_title"},
             "ark_ranking": {"features": ["ark_ranking_page"]},
             "interception_page": {"features": ["common_interception_active"],
                                   "keywords": [_keyword("拦截战")], "ocr_box": "box_sub_pages_title"},

@@ -113,6 +113,23 @@ class CalendarSnapshot:
                     return None
         return None
 
+    def status_windows(self, event_type_prefix):
+        """状态段里 type 以 event_type_prefix 开头的全部开放窗口 [(start, end), ...]（时间不可用跳过）。
+
+        用于一段玩法被拆成多个连续子窗口的场景（如冠军竞技场应援按 64强→决赛 分 6 段，
+        type 形如 ArenaChampionBetting64），单段精确匹配的 status_window 覆盖不到，故按前缀一次取全。
+        """
+        windows = []
+        for items in self.status.values():
+            for item in items or []:
+                if not isinstance(item, dict) or not str(item.get("type") or "").startswith(event_type_prefix):
+                    continue
+                try:
+                    windows.append((int(item["start_time"]), int(item["end_time"])))
+                except (KeyError, TypeError, ValueError):  # 字段缺失或非数字。
+                    continue
+        return windows
+
     def pick_events(self, count=1, now=None):
         """按开始时间倒序取前 count 个未过期活动（最新在前；时间缺失记 0 的排最后，同时间保持接口顺序）。
 

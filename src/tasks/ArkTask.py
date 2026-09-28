@@ -5,6 +5,7 @@ import cv2  # OpenCV，战力数字区域 OCR 前的放大预处理。
 from ok import og  # 全局单例，读取当前执行任务以判断是否由日常编排。
 from ok.task.exceptions import WaitFailedException  # 界面断言/战斗超时抛出的框架等待失败异常。
 
+from src import event_calendar  # 只读本地活动日历缓存，用于冠军竞技场应援期的前置判断。
 from src.tasks.NikkeBaseTask import NikkeBaseTask  # 项目基类，所有任务统一继承它。
 
 # 塔号 -> 企业名，用于战斗失败时提醒用户。
@@ -22,6 +23,14 @@ _ROOKIE_ARENA_CP_RATIO = 0.846
 
 # 新人竞技场刷新对手列表的最大次数：用尽后结束子流程（标记完成）。
 _ROOKIE_ARENA_MAX_REFRESH = 10
+
+# 冠军竞技场战力对比条两段颜色的色相带（OpenCV HSV，H 0~180）：左段红橙渐变、右段纯蓝。
+# 两段形状相同、亮度饱和度相近，差异只在色相，灰度/模板匹配都分不开，只能按色相区分。
+_CHAMPION_BAR_HUE_RED = (0, 26)  # 红橙段色相带（覆盖红到橙的渐变）。
+_CHAMPION_BAR_HUE_BLUE = (95, 135)  # 蓝段色相带（蓝到靛蓝）。
+
+# 冠军竞技场应援段的 type 前缀：应援按 64强→决赛 分 6 段（ArenaChampionBetting64/32/16/8/4/2）。
+_CARENA_CHEER_TYPE_PREFIX = "ArenaChampionBetting"
 
 # 异常个体拦截战可选 BOSS 列表：即「BOSS选择」下拉选项，也是队伍配置的子配置键。
 _ANOMALY_BOSSES = ["克拉肯", "镜像容器", "茵迪维利亚", "过激派", "死神"]
@@ -51,7 +60,7 @@ _ROOKIE_CP_ENCOUNTER_PAIRS = (
 class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截战/竞技场等子流程。
 
     done_keys = {"tribe_tower": "day", "simulation": "day", "interception": "day", "rookie_arena": "day",
-                 "special_arena": "day", "ranking_reward": "day"}  # 完成状态：企业塔/模拟室/拦截战/新人竞技场/特殊竞技场/排名奖励（日常刷新）。
+                 "special_arena": "day", "ranking_reward": "day", "champion_arena": "day"}  # 完成状态：企业塔/模拟室/拦截战/新人竞技场/特殊竞技场/排名奖励/冠军竞技场应援（日常刷新）。
 
     def __init__(self, *args, **kwargs):  # 初始化任务元数据与配置。
         super().__init__(*args, **kwargs)  # 必须先调用父类初始化。
@@ -75,6 +84,7 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
             "新人竞技场": True,  # 使用每天5次的免费战斗（启用此功能请先配置好队伍）。
             "对手选择策略": True,  # 优先选择稳定战力压制的对手；关闭则固定选择最下面的对手。
             "特殊竞技场": True,  # 收取特殊竞技场累计奖励。
+            "冠军竞技场": True,  # 冠军竞技场应援期自动应援（不在应援期时跳过）。
             "收取排名奖励": True,  # 进入排名界面领取排名奖励。
         })
         self.config_description.update({  # 每个配置项的帮助文本。
@@ -95,6 +105,7 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
             "新人竞技场": "使用每天5次的免费战斗(启用此功能请先配置好队伍)",
             "对手选择策略": "优先选择稳定战力压制的对手(<b>己方战力 * 0.846 > 对手战力</b>)；关闭则固定选择最下面的对手",
             "特殊竞技场": "收取特殊竞技场累计奖励",
+            "冠军竞技场": "冠军竞技场自动应援",
             "收取排名奖励": "进入排名界面领取排名奖励",
         })
         self.config_type.update({  # 配置类型与显隐控制：布尔开关联动子配置显隐（参考 ShopTask）。
@@ -143,6 +154,7 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
         self._do_interception()  # 执行拦截战子流程。
         self._do_rookie_arena()  # 执行新人竞技场子流程。
         self._do_special_arena()  # 执行特殊竞技场子流程。
+        self._do_champion_arena_cheer()  # 执行冠军竞技场应援子流程。
         self._do_ranking_reward()  # 执行收取排名奖励子流程。
         self._exit_to_lobby()  # 各子流程收尾均回到方舟界面，此处统一返回大厅收尾（基类幂等实现）。
 
@@ -558,7 +570,7 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
     def _hit_season_end_banner(self):  # 检测竞技场「赛季已结束」横幅：点击入口后弹出的全宽横带、文字居中，实测约 0.3~0.5 秒后淡出。
         return bool(self.ocr(x=0.3, y=0.40, to_x=0.7, to_y=0.60, match=_SEASON_END_PATTERN))  # OCR 只取中部横带，部分匹配命中即休赛期。
 
-    def _click_entry_race_closed(self, entry_feature, to_screen, after_sleep=1, time_out=10, reclick_at=5):
+    def _click_entry_race_closed(self, entry_feature, to_screen, after_sleep=2, time_out=10, reclick_at=5):
         """点击入口并赛跑确认：目标界面或「赛季已结束」横幅任一首帧命中即短路。
 
         竞技场系休赛期入口边：入口在画面但已关闭时，点击只弹出赛季结束横幅——
@@ -647,6 +659,87 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
         self.dismiss_all_popups(wait_for_popup=False, time_out=10)  # 清理领取后弹出的奖励遮罩弹窗。
         self._back_through_screens("arena", "ark")  # 逐级返回到方舟界面。
 
+    def _do_champion_arena_cheer(self):  # 冠军竞技场应援子流程：仅在应援期执行，为占比更高的一方应援一次。
+        if not self.config.get("冠军竞技场"):  # 用户未启用冠军竞技场子流程。
+            self.log_info("冠军竞技场未开启，跳过")  # 记录跳过原因。
+            return  # 结束本子流程。
+        if self.is_done("champion_arena", "day"):  # 本周期内已完成则直接跳过。
+            self.log_info("今日冠军竞技场应援已完成，跳过")  # 记录跳过原因。
+            return  # 结束本子流程。
+        success = self.try_step(  # 应援整体流程以方舟为起点，用恢复协议包裹。
+            lambda: self._do_champion_arena_cheer_flow(),  # 执行冠军竞技场应援流程。
+            name="冠军竞技场应援",  # 步骤名用于日志与失败截图。
+            raise_on_fail=False,  # 多次失败后跳过而非抛异常。
+        )
+        if not success:  # 流程多次失败。
+            self.log_warning("冠军竞技场应援流程多次失败，跳过")  # 记录跳过原因。
+            return  # 不标记完成，下次可重试。
+        self.mark_done("champion_arena", "day")  # 记录本周期已完成。
+        self.log_info("冠军竞技场应援任务完成")  # 记录子流程完成。
+
+    def _arena_cheer_closed_by_calendar(self):  # 按本地活动日历缓存判断当前是否不在应援期（只读缓存，不联网）。
+        """缓存新鲜且当前不在任一应援窗口（含新鲜缓存无应援条目）时返回 True；缓存不可用时返回 False，交回实机判定。"""
+        snapshot = event_calendar.load_snapshot()  # 只读 cache/event_banner/calendar.json。
+        if snapshot is None or not snapshot.is_fresh():  # 无缓存，或已过新鲜期（30 分钟 / 官方时区 05:00 刷新）。
+            self.log_info("冠军竞技场应援：本地活动日历缓存不可用，按实机状态判断。")  # 记录交回实机。
+            return False  # 不在应援期时实机也进不去冠军竞技场/晋级赛界面，交回实机不会误应援。
+        windows = snapshot.status_windows(_CARENA_CHEER_TYPE_PREFIX)  # 按前缀一次取全部应援窗口。
+        if not windows:  # 新鲜缓存里没有应援条目：官方已下架/赛季结束。
+            self.log_info("冠军竞技场应援：活动日历无应援条目，视为已结束，跳过。")  # 记录跳过原因。
+            return True  # 不在应援期。
+        now = time.time()
+        if any(start <= now <= end for start, end in windows):  # 处于任一应援窗口。
+            self.log_info("冠军竞技场应援：活动日历显示处于应援期，按实机状态执行。")  # 记录执行。
+            return False  # 在应援期。
+        self.log_info("冠军竞技场应援：活动日历显示不在应援期，跳过。")  # 记录跳过原因。
+        return True  # 不在任何应援窗口。
+
+    def _do_champion_arena_cheer_flow(self):  # 应援整体流程：方舟→竞技场→冠军竞技场主界面→晋级赛→应援弹窗→应援→逐级返回方舟。
+        if self._arena_cheer_closed_by_calendar():  # 活动日历显示不在应援期。
+            return  # 跳过（由调用方统一标记完成）。
+        self._nav_to_arena()  # 确保处于竞技场界面（正常已就位；失败恢复回大厅后由此重新进入）。
+        self.transition("carena_home", click_feature="champion_arena", wait_confirm=10, after_sleep=1)  # 点冠军竞技场入口并确认进入主界面。
+        self.transition("carena_promotion", box="box_carena_promotion_enter", wait_confirm=10, after_sleep=1)  # 点晋级赛卡片入口并确认进入对阵图界面。
+        self.dismiss_all_popups(wait_for_popup=False, time_out=10)  # 上一轮应援的奖励遮罩会盖在晋级赛界面上，先清掉再点应援按钮。
+        self.click_box("box_carena_cheer_button", raise_if_not_found=True, after_sleep=1)  # 点底部应援按钮打开弹窗（box_ 前缀为纯坐标区域，按坐标点击）。
+        if not self.wait_until(self._cheer_dialog_open, time_out=10):  # 弹窗不注册界面，用弹窗内选择按钮确认已弹出。
+            raise WaitFailedException("点击应援按钮后未出现应援弹窗")  # 抛异常由 try_step 恢复重试。
+        if self._cheer_side_selected():  # 某一侧已是「已选择」：本窗口已应援过。
+            self.log_info("应援弹窗显示已选择，本窗口已应援，跳过")  # 记录跳过原因（同一窗口内重复应援不处理）。
+            self._close_cheer_dialog()  # 关掉弹窗，否则后续返回会被模态框挡住。
+            self._back_through_screens("carena_home", "arena", "ark")  # 仍按原路径逐级返回方舟。
+            return  # 由调用方标记本周期已完成。
+        self.wait_click_feature(self._cheer_target_feature(), raise_if_not_found=True, after_sleep=1)  # 点占比更大一方的选择按钮。
+        self.click_box("box_carena_cheer_detail_confirm", raise_if_not_found=True, after_sleep=2)  # 点应援确认按钮提交，弹窗随后自动关闭。
+        self._back_through_screens("carena_home", "arena", "ark")  # 晋级赛→冠军竞技场主界面→竞技场→方舟逐级返回。
+
+    def _cheer_side_selected(self):  # 弹窗内是否已有一侧处于「已选择」：已应援侧按钮换样式，模板不再命中。
+        return (self.find_one("carena_cheer_detail_p1") is None
+                or self.find_one("carena_cheer_detail_p2") is None)  # 弹窗已确认打开时，缺失的一侧即已选择。
+
+    def _close_cheer_dialog(self):  # 关闭应援弹窗：点弹窗外的遮罩空白（模态弹窗通用关闭方式，对皮肤免疫）。
+        self.close_popup_by_blank(lambda: not self._cheer_dialog_open(), raise_on_fail=False)  # 未确认关闭也不抛错，交由上层恢复兜底。
+
+    def _recover_to_lobby(self, time_out=30):  # 失败恢复追加动作：应援弹窗会吞掉基类的 common_home 点击，先关掉它。
+        if self._cheer_dialog_open():  # 仅弹窗开着时才处理，其它子流程失败不受影响。
+            self._close_cheer_dialog()  # 关掉后恢复协议才能点到主页按钮。
+        return super()._recover_to_lobby(time_out=time_out)  # 交给基类恢复协议。
+
+    def _cheer_dialog_open(self):  # 应援弹窗是否已弹出：弹窗内左右两个「选择」按钮任一命中即可（弹窗不注册界面）。
+        return (self.find_one("carena_cheer_detail_p1") is not None
+                or self.find_one("carena_cheer_detail_p2") is not None)  # 任一命中即已弹出。
+
+    def _cheer_target_feature(self):  # 按「应援现状」占比条决定应援哪一方：返回占比更大一方的选择按钮特征名。
+        try:  # 区域特征可能缺失。
+            ratio_box = self.get_box_by_name("box_carena_cheer_ratio")  # 获取双色占比条区域（只框条体，不含上方数值文字）。
+        except ValueError:  # 特征缺失。
+            ratio_box = None  # 置空统一处理。
+        if ratio_box is None:  # 区域无效。
+            raise WaitFailedException("缺少区域特征: box_carena_cheer_ratio")  # 抛异常由 try_step 恢复。
+        red_dominant = self._champion_bar_red_dominant(ratio_box)  # 红橙段在左对应左侧选手，蓝段在右对应右侧选手。
+        self.log_info(f"应援现状{'红橙' if red_dominant else '蓝'}段占优，应援{'左' if red_dominant else '右'}侧选手")  # 记录选择依据。
+        return "carena_cheer_detail_p1" if red_dominant else "carena_cheer_detail_p2"  # 返回占比更大一方的选择按钮。
+
     def _under_daily(self):  # 判断当前是否由日常任务编排执行（日常里统一在全部子任务完成后提醒）。
         executor = getattr(og, "executor", None)  # 读取全局执行器。
         return executor is not None and executor.current_task is not None and executor.current_task is not self  # 当前执行者是其他编排任务时返回 True。
@@ -665,3 +758,33 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
         message = self.failed_towers_message()  # 构造提醒文本。
         if message:  # 有失败记录才提醒。
             self.log_info(message, notify=True)  # 发送系统通知。
+
+    def _champion_bar_red_dominant(self, box, red_hue=None, blue_hue=None,
+                                   sat_floor=50, value_floor=40) -> bool:
+        """比较 box 内红橙段与蓝段的像素占比，返回红橙段占比是否更大。
+
+        双色条两段形状相同、亮度饱和度相近，差异只在色相，灰度/模板匹配分不开，
+        故按 HSV 色相带分别统计像素占比再比大小；box 只框条体本身（不含上方的
+        数值文字，文字会污染占比）。无帧/区域越界等无效情况保守返回 False。
+
+        Args:
+            box: 条体所在区域（coco 特征框或 Box）。
+            red_hue / blue_hue: 两段色相带（OpenCV H，0~180），缺省用模块常量。
+            sat_floor / value_floor: 饱和度与亮度下限，滤掉白色文字与暗色背景。
+        """
+        frame = self.frame  # 取当前帧用于颜色统计。
+        if frame is None:  # 无帧（如单测 mock）无法比较。
+            return False  # 保守返回蓝段占优。
+        x1, y1 = max(box.x, 0), max(box.y, 0)  # 裁剪 box 左上角到帧范围内。
+        x2, y2 = min(box.x + box.width, frame.shape[1]), min(box.y + box.height, frame.shape[0])  # 裁剪右下角。
+        if x2 <= x1 or y2 <= y1:  # 区域越界无效。
+            return False  # 保守返回蓝段占优。
+        roi = frame[y1:y2, x1:x2, :3]  # 取 box 区域子图（丢弃可能的 alpha 通道）。
+        hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)  # 转 HSV，按色相分开两段。
+        red_hue = red_hue if red_hue is not None else _CHAMPION_BAR_HUE_RED  # 缺省红橙段色相带。
+        blue_hue = blue_hue if blue_hue is not None else _CHAMPION_BAR_HUE_BLUE  # 缺省蓝段色相带。
+        red = cv2.inRange(hsv, (red_hue[0], sat_floor, value_floor), (red_hue[1], 255, 255))  # 红橙段掩码。
+        blue = cv2.inRange(hsv, (blue_hue[0], sat_floor, value_floor), (blue_hue[1], 255, 255))  # 蓝段掩码。
+        red_ratio = cv2.countNonZero(red) / red.size  # 红橙段像素占比（0~1）。
+        blue_ratio = cv2.countNonZero(blue) / blue.size  # 蓝段像素占比（0~1）。
+        return red_ratio > blue_ratio  # 红橙段占比更大即返回 True。

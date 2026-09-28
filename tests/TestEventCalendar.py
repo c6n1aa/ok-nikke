@@ -403,6 +403,29 @@ class TestEventCalendarSnapshot(unittest.TestCase):
         broken = event_calendar.CalendarSnapshot(fetched_at=1, events=(), status={'raid': 'x'})  # 手改缓存导致分类不是列表。
         self.assertIsNone(broken.status_window('SoloRaid'))
 
+    def test_status_windows_matches_type_prefix(self):
+        # 一段玩法被拆成多个连续子窗口（冠军竞技场应援按 64强→决赛 分 6 段）时按前缀一次取全。
+        snapshot = event_calendar.CalendarSnapshot(fetched_at=1, events=(), status={'arena': [
+            {'type': 'ArenaChampionSeason', 'start_time': '1', 'end_time': '2'},  # 赛季总窗口不匹配前缀。
+            {'type': 'ArenaChampionBetting64', 'start_time': '100', 'end_time': '200'},
+            {'type': 'ArenaChampionBetting32', 'start_time': '300', 'end_time': '400'},
+            {'type': 'ArenaChampionBattle32', 'start_time': '500', 'end_time': '600'}]})  # 对战段不匹配前缀。
+        self.assertEqual([(100, 200), (300, 400)], snapshot.status_windows('ArenaChampionBetting'))
+
+    def test_status_windows_skips_unusable_items(self):
+        # 时间不可用的条目跳过而非中断，不影响其余窗口；分类不是列表或条目不是 dict 时同样跳过。
+        snapshot = event_calendar.CalendarSnapshot(fetched_at=1, events=(), status={'arena': [
+            {'type': 'ArenaChampionBetting64', 'start_time': '100'},  # 缺 end_time。
+            {'type': 'ArenaChampionBetting32', 'start_time': 'x', 'end_time': '200'},  # 非数字。
+            'ArenaChampionBetting16',  # 条目不是 dict。
+            {'type': 'ArenaChampionBetting8', 'start_time': '300', 'end_time': '400'}]})
+        self.assertEqual([(300, 400)], snapshot.status_windows('ArenaChampionBetting'))
+        self.assertEqual([], snapshot.status_windows('ArenaChampionBattle'))  # 前缀不匹配任何 type。
+        self.assertEqual([], event_calendar.CalendarSnapshot(fetched_at=1, events=(), status={})
+                         .status_windows('ArenaChampionBetting'))  # 状态段为空。
+        self.assertEqual([], event_calendar.CalendarSnapshot(fetched_at=1, events=(), status={'arena': 'x'})
+                         .status_windows('ArenaChampionBetting'))  # 手改缓存导致分类不是列表。
+
     def test_load_snapshot_returns_none_when_missing_or_broken(self):
         with tempfile.TemporaryDirectory() as cache_dir:
             self.assertIsNone(event_calendar.load_snapshot(cache_dir))  # 没有缓存。
