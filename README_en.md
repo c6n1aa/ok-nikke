@@ -85,7 +85,7 @@ Notes:
 | Shop | Buy items from the ordinary / arena / scrapyard shops |
 | Recruit | Friendship-point recruit / ordinary recruit |
 | Outpost | Dispatch / advise / brief encounters |
-| Ark | Manufacturer towers / simulation room / interception / arena (incl. champion arena cheer) |
+| Ark | Manufacturer towers / simulation room / interception / arena |
 | Raid | Limited-time challenges (co-op / solo raid) |
 | Event | Generic handling of limited-time events (check-in stamp / story push (BETA) + sweep / challenge / mission rewards) |
 
