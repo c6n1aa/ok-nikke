@@ -17,6 +17,7 @@ from src.config import config
 from src.screens import _keyword
 from src.tasks.OutpostTask import (
     _ADVISE_MAX_SWITCH,
+    _ADVISE_QUICK_MAX_RETRY,
     _BF_LIST_OPEN_MAX_ATTEMPTS,
     _SINGLE_OPTION_CLICK_X,
     OutpostTask,
@@ -71,15 +72,17 @@ class TestOutpostTaskMeta(_DebugOffTestCase):
         self.assertFalse(self.task.default_config["突发剧情"])
         self.assertTrue(self.task.default_config["只咨询星标"])
         self.assertFalse(self.task.default_config["补齐咨询日志"])
+        self.assertFalse(self.task.default_config["快速咨询"])
         self.assertEqual({"bulletin_board": "day", "advise": "day", "brief_encounter": "week"},
                          OutpostTask.done_keys)
         sub = self.task.config_type["咨询"]["sub_configs"]  # 开关联动子配置显隐。
-        self.assertEqual(["只咨询星标", "补齐咨询日志"], sub[True])
+        self.assertEqual(["只咨询星标", "补齐咨询日志", "快速咨询"], sub[True])
         self.assertEqual([], sub[False])
         self.assertIn("派遣", self.task.config_description)
         self.assertIn("突发剧情", self.task.config_description)
         self.assertIn("只咨询星标", self.task.config_description)
         self.assertIn("补齐咨询日志", self.task.config_description)
+        self.assertIn("快速咨询", self.task.config_description)
 
     def test_is_completed_only_counts_enabled(self):
         _isolate_task_config(self.task, 'OutpostTask')
@@ -439,6 +442,92 @@ class TestOutpostTaskAdvise(_DebugOffTestCase):
         self.assertEqual("box_advise_feature", advise_once_mock.call_args.args[1].name)
         exit_mock.assert_called_once()  # 次数用尽直接返回大厅。
 
+    def test_flow_quick_advise_used_when_enabled(self):
+        # 快速咨询开关开启且区域可用：点快速咨询（不进入谈话界面），不再走原谈话流程。
+        self.task.config["快速咨询"] = True
+        with patch.object(self.task, "_enter_advise"), \
+                patch.object(self.task, "assert_screen"), \
+                patch.object(self.task, "get_box_by_name", side_effect=lambda name: _named_box(name)), \
+                patch.object(self.task, "is_feature_enabled",
+                             side_effect=lambda box: box.name in ("box_advise_count_feature",
+                                                                  "box_advise_quick_feature")), \
+                patch.object(self.task, "click_box"), \
+                patch.object(self.task, "find_one", return_value=None), \
+                patch.object(self.task, "_read_advise_name", return_value="拉毗"), \
+                patch.object(self.task, "_advise_quick") as quick_mock, \
+                patch.object(self.task, "_advise_once",
+                             side_effect=AssertionError("快速咨询可用时不应走谈话流程")), \
+                patch.object(self.task, "_read_advise_count", return_value=0), \
+                patch.object(self.task, "_exit_advise_to_lobby") as exit_mock, \
+                patch.object(self.task, "sleep"):
+            self.task._advise_flow()
+        self.assertEqual("box_advise_quick_feature", quick_mock.call_args.args[0].name)  # 点的是快速咨询区域。
+        exit_mock.assert_called_once()  # 次数为 0 直接返回大厅。
+
+    def test_flow_quick_falls_back_to_normal_when_unavailable(self):
+        # 快速咨询区域不可用但普通咨询可用：降级走原谈话流程。
+        self.task.config["快速咨询"] = True
+        with patch.object(self.task, "_enter_advise"), \
+                patch.object(self.task, "assert_screen"), \
+                patch.object(self.task, "get_box_by_name", side_effect=lambda name: _named_box(name)), \
+                patch.object(self.task, "is_feature_enabled",
+                             side_effect=lambda box: box.name in ("box_advise_count_feature",
+                                                                  "box_advise_feature")), \
+                patch.object(self.task, "click_box"), \
+                patch.object(self.task, "find_one", return_value=None), \
+                patch.object(self.task, "_read_advise_name", return_value="拉毗"), \
+                patch.object(self.task, "_advise_quick",
+                             side_effect=AssertionError("快速咨询不可用不应点击")), \
+                patch.object(self.task, "_advise_once") as advise_once_mock, \
+                patch.object(self.task, "_read_advise_count", return_value=0), \
+                patch.object(self.task, "_exit_advise_to_lobby"), \
+                patch.object(self.task, "sleep"):
+            self.task._advise_flow()
+        self.assertEqual("拉毗", advise_once_mock.call_args.args[0])  # 降级仍按角色名查答案库。
+        self.assertEqual("box_advise_feature", advise_once_mock.call_args.args[1].name)  # 走原咨询按钮。
+
+    def test_flow_quick_ignored_when_config_disabled(self):
+        # 开关关闭时不判快速咨询区域：即使区域可用也走原谈话流程。
+        with patch.object(self.task, "_enter_advise"), \
+                patch.object(self.task, "assert_screen"), \
+                patch.object(self.task, "get_box_by_name", side_effect=lambda name: _named_box(name)), \
+                patch.object(self.task, "is_feature_enabled", return_value=True), \
+                patch.object(self.task, "click_box"), \
+                patch.object(self.task, "find_one", return_value=None), \
+                patch.object(self.task, "_read_advise_name", return_value="拉毗"), \
+                patch.object(self.task, "_advise_quick",
+                             side_effect=AssertionError("开关关闭不应点击快速咨询")), \
+                patch.object(self.task, "_advise_once") as advise_once_mock, \
+                patch.object(self.task, "_read_advise_count", return_value=0), \
+                patch.object(self.task, "_exit_advise_to_lobby"), \
+                patch.object(self.task, "sleep"):
+            self.task._advise_flow()
+        advise_once_mock.assert_called_once()
+
+    def test_flow_quick_unavailable_switches_next_char(self):
+        # 快速咨询与普通咨询均不可用：不咨询，直接切换下一个角色。
+        self.task.config["快速咨询"] = True
+        with patch.object(self.task, "_enter_advise"), \
+                patch.object(self.task, "assert_screen"), \
+                patch.object(self.task, "wait_screen", return_value=True), \
+                patch.object(self.task, "get_box_by_name", side_effect=lambda name: _named_box(name)), \
+                patch.object(self.task, "is_feature_enabled",
+                             side_effect=lambda box: box.name == "box_advise_count_feature"), \
+                patch.object(self.task, "click_box") as click_box_mock, \
+                patch.object(self.task, "find_one", return_value=None), \
+                patch.object(self.task, "_read_advise_name", side_effect=["A", "B", "B"]), \
+                patch.object(self.task, "_advise_quick") as quick_mock, \
+                patch.object(self.task, "_advise_once") as advise_once_mock, \
+                patch.object(self.task, "_read_advise_count", side_effect=[4, 0]), \
+                patch.object(self.task, "_exit_advise_to_lobby") as exit_mock, \
+                patch.object(self.task, "sleep"):
+            self.task._advise_flow()
+        quick_mock.assert_not_called()  # 区域不可用不点快速咨询。
+        advise_once_mock.assert_not_called()  # 普通咨询也不可用。
+        self.assertEqual(["box_advise_nikke", "advise_next"],
+                         [c.args[0].name for c in click_box_mock.call_args_list])  # 打开详情→切换下一个。
+        exit_mock.assert_called_once()
+
     def test_flow_skipped_char_with_count_zero_ends(self):
         # 当前角色图鉴已完成（跳过咨询）时次数已为 0：直接结束，不再白切下一个角色。
         bond_box = _named_box("advise_bond_max")
@@ -587,6 +676,49 @@ class TestOutpostTaskAdvise(_DebugOffTestCase):
 
     def test_switch_cap_constant(self):
         self.assertEqual(30, _ADVISE_MAX_SWITCH)  # 切换上限与简报一致。
+
+
+class TestOutpostTaskAdviseQuick(_DebugOffTestCase):
+    """快速咨询点击流程：按区域是否仍可用判断该角色是否咨询完，并清理好感度升级遮罩。"""
+
+    task_class = OutpostTask
+    task: OutpostTask
+
+    config = config
+
+    def setUp(self):
+        super().setUp()
+        _isolate_task_config(self.task, 'OutpostTask')
+
+    def test_returns_when_region_becomes_unavailable(self):
+        quick_box = _named_box("box_advise_quick_feature")
+        with patch.object(self.task, "click_box") as click_mock, \
+                patch.object(self.task, "is_feature_enabled", return_value=False), \
+                patch.object(self.task, "dismiss_all_popups") as dismiss_mock:
+            self.task._advise_quick(quick_box)
+        assert_called_once_semantic(click_mock, quick_box)  # 只点一次。
+        assert_called_once_semantic(dismiss_mock, wait_for_popup=False)  # 点击后清一次遮罩。
+
+    def test_keeps_clicking_until_region_unavailable(self):
+        quick_box = _named_box("box_advise_quick_feature")
+        with patch.object(self.task, "click_box") as click_mock, \
+                patch.object(self.task, "is_feature_enabled", side_effect=[True, True, False]), \
+                patch.object(self.task, "dismiss_all_popups") as dismiss_mock:
+            self.task._advise_quick(quick_box)
+        self.assertEqual(3, click_mock.call_count)  # 区域仍可用即继续点击，直到不可用。
+        self.assertEqual(3, dismiss_mock.call_count)  # 每次点击后都清一次好感度升级遮罩。
+        for call in dismiss_mock.call_args_list:
+            self.assertFalse(call.kwargs["wait_for_popup"])  # 快速清理语义（toast 不等待）。
+
+    def test_gives_up_after_retry_cap(self):
+        quick_box = _named_box("box_advise_quick_feature")
+        with patch.object(self.task, "click_box") as click_mock, \
+                patch.object(self.task, "is_feature_enabled", return_value=True), \
+                patch.object(self.task, "dismiss_all_popups"), \
+                patch.object(self.task, "log_warning") as warn_mock:
+            self.task._advise_quick(quick_box)
+        self.assertEqual(_ADVISE_QUICK_MAX_RETRY, click_mock.call_count)  # 有限次点击后放弃。
+        warn_mock.assert_called_once()  # 记录异常，交由调用方切换下一个角色。
 
 
 class TestOutpostTaskAdviseOnce(_DebugOffTestCase):

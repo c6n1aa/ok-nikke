@@ -23,6 +23,8 @@ _SINGLE_OPTION_CONFIRM = 1.0
 _SINGLE_OPTION_CLICK_X = 10
 # 点击 advise_next 后角色名称未变更的最大重试次数：超限视为无法切换，优雅结束咨询流程。
 _ADVISE_NEXT_MAX_RETRY = 5
+# 快速咨询按钮点击后区域仍可用的最大重试次数：区域一直高亮说明点击未生效，超限交给调用方切换下一个角色。
+_ADVISE_QUICK_MAX_RETRY = 5
 # 咨询流程切换角色的上限：超过后强行结束，防止异常界面状态下无限循环。
 _ADVISE_MAX_SWITCH = 30
 # 计数读不出且当前角色咨询按钮不可用的连续轮数上限：两项独立信号同时持续说明次数确已用尽，
@@ -76,6 +78,7 @@ class OutpostTask(NikkeBaseTask):  # 前哨基地任务：执行派遣公告栏�
             "突发剧情": False,  # 清理突发剧情。
             "只咨询星标": True,  # 只对星标的妮姬进行咨询。
             "补齐咨询日志": False,  # 角色好感度满时，仍对咨询日志图鉴未满的角色进行咨询。
+            "快速咨询": False,  # 用快速咨询代替谈话咨询。
         })
         self.config_description.update({  # 每个配置项的帮助文本。
             "派遣": "每日派遣与领取",
@@ -83,11 +86,12 @@ class OutpostTask(NikkeBaseTask):  # 前哨基地任务：执行派遣公告栏�
             "突发剧情": "清理突发剧情",
             "只咨询星标": "只对星标的妮姬进行咨询",
             "补齐咨询日志": "角色好感度满时，仍对咨询日志图鉴未满的角色进行咨询",
+            "快速咨询": "使用快速咨询代替谈话咨询（不进入谈话界面）",
         })
         self.config_type.update({  # 配置类型与显隐控制：布尔开关联动子配置显隐（参考 ShopTask）。
             "咨询": {  # 布尔开关，启用时才展开咨询配置。
                 "sub_configs": {  # 开关联动子配置显隐。
-                    True: ["只咨询星标", "补齐咨询日志"],  # 启用时显示两个咨询选项。
+                    True: ["只咨询星标", "补齐咨询日志", "快速咨询"],  # 启用时显示三个咨询选项。
                     False: [],  # 关闭时收起配置。
                 },
             },
@@ -199,7 +203,7 @@ class OutpostTask(NikkeBaseTask):  # 前哨基地任务：执行派遣公告栏�
             return  # 由调用方标记完成。
         self.click_box(self._box_or_fail("box_advise_nikke"), after_sleep=1)  # 点第一个可咨询角色打开详情。
         switches = 0  # 切换角色计数，超限强行结束。
-        unreadable = 0  # 计数读不出且咨询按钮不可用的连续轮数，累计超限按次数用尽结束。
+        unreadable = 0  # 计数读不出且咨询入口不可用的连续轮数，累计超限按次数用尽结束。
         while True:  # 逐角色处理循环：OCR 名称 → 星标/好感判断 → 咨询 → 切换下一个。
             self.assert_screen("advise_nikke", time_out=10)  # 等[咨询详情]界面。
             self.sleep(1)  # 等界面稳定后再 OCR，避免动画期读错角色名。
@@ -216,19 +220,24 @@ class OutpostTask(NikkeBaseTask):  # 前哨基地任务：执行派遣公告栏�
                     progress_box = self._optional_box("box_advise_collection_progress")  # 图鉴进度区域。
                     if progress_box is not None and self.is_feature_enabled(progress_box):  # 日志图鉴已完成。
                         skip = True  # 跳过该角色，直接切换下一个。
+            quick_box = self._optional_box("box_advise_quick_feature") if self.config.get("快速咨询") else None  # 快速咨询按钮区域（开关关闭时不判）。
+            quick = quick_box is not None and self.is_feature_enabled(quick_box)  # 快速咨询可用（高亮彩色）。
             advise_box = self._optional_box("box_advise_feature")  # 咨询按钮区域（缺失视为不可用）。
             consultable = advise_box is not None and self.is_feature_enabled(advise_box)  # 按钮灰白 = 当前角色不可咨询。
-            if consultable and not skip:  # 按钮可用且无需跳过才咨询。
-                self._advise_once(name, advise_box)  # 执行一次咨询：确认弹窗→对话→答题→跳过→回详情。
+            if not skip:  # 无需跳过才处理当前角色。
+                if quick:  # 快速咨询可用：点它，不进入谈话界面。
+                    self._advise_quick(quick_box)  # 点后按区域是否仍可用判断该角色是否咨询完。
+                elif consultable:  # 快速咨询不可用而普通咨询可用：降级走原流程。
+                    self._advise_once(name, advise_box)  # 执行一次咨询：确认弹窗→对话→答题→跳过→回详情。
             count = self._read_advise_count()  # 咨询次数分子（None 表示未识别到计数文本）。
             if count == 0:  # 咨询次数已用尽（0/10）。
                 self.log_info("咨询次数已用尽，咨询流程结束")  # 记录结束原因。
                 self._exit_advise_to_lobby()  # 返回大厅。
                 return  # 由调用方标记完成。
-            if count is None and not consultable:  # 计数读不出且按钮灰白：连续多轮即视为次数已用尽。
+            if count is None and not (consultable or quick):  # 计数读不出且两种咨询入口均不可用：连续多轮即视为次数已用尽。
                 unreadable += 1  # 累计连续轮数。
                 if unreadable >= _ADVISE_COUNT_UNREADABLE_MAX:  # 超过上限。
-                    self.log_warning("咨询次数区域连续无法识别且咨询按钮不可用，按次数用尽结束咨询流程")  # 记录结束原因。
+                    self.log_warning("咨询次数区域连续无法识别且咨询入口均不可用，按次数用尽结束咨询流程")  # 记录结束原因。
                     self._exit_advise_to_lobby()  # 返回大厅。
                     return  # 由调用方标记完成。
             else:  # 任一信号恢复即重新计数。
@@ -279,6 +288,14 @@ class OutpostTask(NikkeBaseTask):  # 前哨基地任务：执行派遣公告栏�
             return None  # 无法判读。
         # 分子里的 O/o 归一为 0 后取最小值：任一分子的 0（OCR 常把 0 识成 O）都代表次数已用尽。
         return min(int(m.replace("O", "0").replace("o", "0")) for m in matches)
+
+    def _advise_quick(self, quick_box):  # 快速咨询：点击只弹 toast（不作处理），按区域是否仍可用判断该角色是否咨询完。
+        for _ in range(_ADVISE_QUICK_MAX_RETRY):  # 有限重试：区域仍可用说明点击未生效，继续点击。
+            self.click_box(quick_box, after_sleep=1)  # 点击快速咨询按钮，不进入谈话界面。
+            self.dismiss_all_popups(wait_for_popup=False, time_out=5)  # 好感度等级提升遮罩会压屏并吞掉后续点击，先清掉。
+            if not self.is_feature_enabled(quick_box):  # 区域灰白 = 该角色已咨询完。
+                return  # 交给调用方切换下一个角色。
+        self.log_warning(f"快速咨询区域连续 {_ADVISE_QUICK_MAX_RETRY} 次点击后仍可用，切换下一个角色")  # 记录异常并交给调用方切换。
 
     def _advise_once(self, name, advise_box):  # 执行一次完整咨询：确认弹窗→对话推进→答题→跳过→回详情。
         self.click_box(advise_box, after_sleep=1)  # 点击咨询按钮。
