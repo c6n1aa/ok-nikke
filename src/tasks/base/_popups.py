@@ -6,6 +6,12 @@ from ok.feature.Box import Box  # 检测框对象，用于构造关闭按钮/领
 from ok.task.exceptions import TaskDisabledException, WaitFailedException  # 任务被停止与等待失败异常。
 
 
+def _boxes_overlap(a: Box, b: Box) -> bool:
+    """两个检测框是否有交集（矩形相交判定）。"""
+    return (a.x < b.x + b.width and b.x < a.x + a.width
+            and a.y < b.y + b.height and b.y < a.y + a.height)  # 四边均不分离即相交。
+
+
 class PopupsMixin:
     """弹窗/遮罩统一清理：公告横幅、卢比限时特卖、登录奖励面板与各类领奖遮罩。
 
@@ -18,6 +24,28 @@ class PopupsMixin:
         os.path.join('assets', 'template', 'common', 'notice_bell2.png'),  # 公告弹窗铃铛模板，来自 2560x1440 截图。
     )
     _COMMON_CLOSE_TEMPLATE = os.path.join('assets', 'template', 'common', 'common_close.png')  # 通用关闭按钮模板，来自 2560x1440 截图。
+    # 铃铛模板阈值 0.9：真公告/活动横幅实测 0.96~1.00（2560 与 1966 分辨率都在该区间），非横幅画面最高约 0.73。
+    # 原先的 0.75 余量过小——2026-09-28、09-29 实测邮箱页有元素越过它，公告分支被误触发后点掉了邮箱面板自己的关闭按钮。
+    _NOTICE_BELL_THRESHOLD = 0.9
+    # 我方面板自身的关闭按钮特征（X 图标，与 _COMMON_CLOSE_TEMPLATE 同形，实测邮箱关闭按钮匹配该模板 0.88~0.95）：
+    # 命中的关闭框落在其中、且该特征在当帧确实命中（面板正开着）时，说明找到的是面板自己的关闭按钮而非公告横幅的。
+    _PANEL_CLOSE_FEATURES = (
+        "mailbox_close",  # 邮箱页。
+        "friend_close",  # 好友页。
+        "mission_page_close",  # 任务页。
+        "outpost_defense_close",  # 前哨基地防御。
+        "outpost_bf_building_close",  # 前哨基地建筑。
+        "command_center_close",  # 指挥中心。
+        "bulletin_board_windows_close",  # 公告板。
+        "simulation_close",  # 模拟室。
+        "simulation_overclock_update_close",  # 模拟室超频。
+        "stage_detail_close",  # 关卡详情。
+        "shop_buy_close",  # 商店购买。
+        "box_shop_buy_close",  # 商店购买区域。
+        "box_wipe_out_close",  # 歼灭确认。
+        "event_minigame_pause_close",  # 活动小游戏暂停。
+        "event_minigame_mission_close",  # 活动小游戏任务。
+    )
     # 模态弹窗关闭的通用约定：面板皮肤逐期变化，关闭按钮外观/位置随之漂移，模板识别需逐期追加维护；
     # 面板外区域恒被模态遮罩覆盖，点空白等价于点遮罩关闭、对皮肤免疫，统一走 close_popup_by_blank。
     _MODAL_BLANK_CLOSE_X = 0.78  # 点击空白关闭的相对坐标 x：面板右侧空白区（登录奖励/PASS 面板实测右界 <0.65，避开展示元素与右侧图标列）。
@@ -82,13 +110,38 @@ class PopupsMixin:
         self.log_info("已确认服务器选择。")  # 记录动作。
         return True  # 返回已处理。
 
+    def _matched_panel_close(self, box) -> bool:
+        """判断命中的关闭按钮是否属于当前正开着的我方面板。
+
+        公告/活动横幅的关闭按钮与各面板自身的关闭按钮是同一套 X 图标，通用模板无法区分；
+        面板自己的关闭按钮在帧上是可识别的 coco 特征，据此排除——否则会把正在操作的面板关掉
+        （邮箱流程实测：公告分支误点邮箱关闭按钮，导致子流程随后的「点关闭返回」空等超时）。
+        """
+        for name in self._PANEL_CLOSE_FEATURES:
+            try:
+                panel = self.get_box_by_name(name)  # 面板关闭按钮的标注位置（按当前分辨率解析）。
+            except ValueError:  # 特征缺失（coco 变更后旧特征被移除）。
+                continue
+            if panel is None or not _boxes_overlap(box, panel):  # 坐标不重合：命中的不是这个面板的按钮。
+                continue
+            try:
+                if self.find_one(name) is not None:  # 坐标重合且该特征在当帧命中 = 面板正开着，命中的就是它自己的按钮。
+                    return True
+            except ValueError:  # 同上：特征缺失时跳过。
+                continue
+        return False
+
     def _close_notice_popup(self):
-        """在屏幕中上部依次尝试多个公告铃铛模板，命中后向右延伸查找通用关闭按钮并点击，返回是否成功点击。"""
+        """在屏幕中上部依次尝试多个公告铃铛模板，命中后向右延伸查找通用关闭按钮并点击，返回是否成功点击。
+
+        命中的关闭按钮若属于当前正开着的我方面板（见 `_matched_panel_close`）则跳过：那是面板自己的关闭按钮，
+        点下去会把正在操作的子流程面板关掉。
+        """
         bell = None  # 初始化铃铛匹配结果。
         for template_path in self._NOTICE_BELL_TEMPLATES:  # 依次尝试每个铃铛模板。
             bell = self.find_scaled_template(  # 在屏幕中上部查找当前铃铛模板。
                 "notice_bell", template_path,  # 使用模板并命名匹配结果。
-                threshold=0.75,  # 铃铛图标在不同弹窗间样式有差异，阈值放宽到 0.75 提高命中率。
+                threshold=self._NOTICE_BELL_THRESHOLD,  # 收紧阈值：非横幅画面最高约 0.73，放宽到 0.75 会误判。
                 box=self.box_of_screen(0.258, 0.05, 0.75, 0.5),  # 限定 x 约25.8%-75%（2560x1440 下约 660-1920 像素）、y 5%-50% 的屏幕中上部区域。
             )
             if bell is not None:  # 当前模板命中铃铛。
@@ -107,6 +160,9 @@ class PopupsMixin:
         )
         if close is None:  # 找不到关闭按钮（可能不是公告弹窗）。
             return False  # 返回未命中，跳过本轮关闭。
+        if self._matched_panel_close(close):  # 命中的是我方面板自己的关闭按钮：点击会关掉正在操作的面板。
+            self.log_warning("关闭按钮与我方面板自身的关闭按钮重合，跳过公告清理。")  # 记录跳过原因，便于排查误判。
+            return False  # 不点击，交由上层继续。
         self.click_box(close, after_sleep=1)  # 点击关闭按钮并等待弹窗关闭动画完成。
         self.log_info("已关闭公告/活动弹窗。")  # 记录关闭动作。
         return True  # 返回成功，供上层继续检测大厅。

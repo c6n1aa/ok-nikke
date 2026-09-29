@@ -113,6 +113,39 @@ class TestHarvestTask(_DebugOffTestCase):
             self.task.mark_done("pass", "day")
             self.assertFalse(self.task.is_done("pass", "day"))
 
+    def _collect_mailbox_flow(self, panel_still_open):
+        """跑一遍邮箱子流程，返回 (wait_click_feature 点过的特征名, 领取按钮点击次数)。
+
+        panel_still_open 模拟收尾时邮箱面板是否还在屏上——领取后的 dismiss_all_popups
+        曾把邮箱面板一起关掉（公告分支误点面板自己的关闭按钮）。
+        """
+        claim_box = _fake_box("box_mailbox_claim_feature", 100, 200, 50, 40)
+        panel_box = _fake_box("mailbox_close", 300, 40, 25, 24) if panel_still_open else None
+        with patch.object(self.task, "wait_click_feature") as click_feature_mock, \
+                patch.object(self.task, "wait_feature"), \
+                patch.object(self.task, "get_box_by_name", return_value=claim_box), \
+                patch.object(self.task, "is_feature_enabled", return_value=True), \
+                patch.object(self.task, "click_box") as click_mock, \
+                patch.object(self.task, "dismiss_all_popups") as dismiss_mock, \
+                patch.object(self.task, "wait_until", return_value=True), \
+                patch.object(self.task, "find_one", return_value=panel_box):
+            self.task._collect_mailbox()
+        assert_called_once_semantic(dismiss_mock)  # 领取后统一清理一次弹窗。
+        features = [call.args[0] for call in click_feature_mock.call_args_list]  # 记录点过的入口/关闭按钮。
+        claim_clicks = [call for call in click_mock.call_args_list if call.args[0] is claim_box]  # 领取按钮点击次数。
+        return features, len(claim_clicks)
+
+    def test_collect_mailbox_closes_panel_when_still_open(self):
+        features, claim_clicks = self._collect_mailbox_flow(panel_still_open=True)
+        self.assertEqual(["mailbox", "mailbox_close"], features)  # 先进邮箱入口，收尾再点关闭按钮返回。
+        self.assertEqual(1, claim_clicks)  # 领取按钮点一次。
+
+    def test_collect_mailbox_succeeds_when_panel_already_closed(self):
+        # 回归：面板被弹窗清理提前关掉时，出口判据是「面板已关闭」，不再等关闭按钮、也不再误报步骤失败。
+        features, claim_clicks = self._collect_mailbox_flow(panel_still_open=False)
+        self.assertEqual(["mailbox"], features)  # 只点入口，不再等关闭按钮。
+        self.assertEqual(1, claim_clicks)
+
     def test_run_pass_skips_when_already_done(self):
         self.task.mark_done("pass", "day")
         with patch.object(self.task, "ensure_screen", side_effect=AssertionError("已完成不应就位大厅")), \

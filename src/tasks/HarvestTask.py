@@ -84,7 +84,10 @@ class HarvestTask(NikkeBaseTask):  # 定义收获子任务类：收取友情点�
             self.click_box(claim_box, after_sleep=1)  # 点击领取奖励。
             self.dismiss_all_popups(time_out=10)  # 统一清理领取奖励弹窗，返回邮箱页（默认等待弹窗出现）。
             self.wait_until(lambda: not self.is_feature_enabled(claim_box), time_out=10, raise_if_not_found=True)  # 等待领取按钮变灰禁用，即全部领完。
-        self.wait_click_feature("mailbox_close", time_out=10, raise_if_not_found=True, after_sleep=1)  # 点击关闭按钮返回。
+        if self.find_one("mailbox_close") is not None:  # 面板可能已被上面的弹窗清理顺手关掉（公告分支误点面板自己的关闭按钮），先判在不在。
+            self.wait_click_feature("mailbox_close", time_out=10, raise_if_not_found=True, after_sleep=1)  # 点击关闭按钮返回。
+        self.wait_until(lambda: self.find_one("mailbox_close") is None, time_out=10,
+                        raise_if_not_found=True)  # 出口判据是「邮箱面板已关闭」而非「点到了关闭按钮」，面板被提前关掉时不再误报失败。
 
     def _combined_step(self):  # 合并子流程：逐个处理带红点的 PASS（打开模态窗→领取→关闭），直到无红点或翻页次数用尽。
         multi = self._pass_multi()  # 多个 PASS 才需要翻页查找；单个 PASS 只处理一次。

@@ -38,7 +38,7 @@ class TestNoticePopupDetection(TaskTestCase):
         for template_path in self.task._NOTICE_BELL_TEMPLATES:  # 遍历所有铃铛模板。
             bell = self.task.find_scaled_template(  # 查找当前模板。
                 'notice_bell', template_path,  # 使用模板并命名匹配结果。
-                threshold=0.75,  # 与实现一致：阈值放宽到 0.75。
+                threshold=self.task._NOTICE_BELL_THRESHOLD,  # 与实现一致：真横幅实测 0.96~1.00。
                 box=self.task.box_of_screen(0.258, 0.05, 0.75, 0.5),  # 中上部区域。
             )
             if bell is not None:  # 命中。
@@ -100,6 +100,52 @@ class TestNoticePopupDetection(TaskTestCase):
         # 关闭按钮中心 y 应在区域垂直范围内。
         self.assertGreaterEqual(close_box.y, region.y)  # 不低于区域顶部。
         self.assertLessEqual(close_box.y + close_box.height, region.y + region.height)  # 不超出区域底部。
+
+    def test_bell_threshold_keeps_margin_over_non_notice_frames(self):
+        """铃铛阈值必须留出足够余量：非横幅画面实测最高约 0.73（大厅 0.55~0.56、领奖遮罩 0.68~0.73）。
+
+        原阈值 0.75 的余量只有 0.02，2026-09-28、09-29 实测邮箱页有元素越过它，公告分支被误触发后
+        点掉了邮箱面板自己的关闭按钮，导致邮箱子流程空等超时、步骤被判失败并重跑。
+        """
+        self.assertGreaterEqual(self.task._NOTICE_BELL_THRESHOLD, 0.9)  # 真横幅实测 0.96~1.00，收紧后仍有充足余量。
+
+    def test_lobby_screenshot_has_no_notice_popup(self):
+        """大厅截图不含公告横幅：铃铛阈值收紧后不得误判，也不得误点画面上的元素。"""
+        from ok.feature.Box import Box  # 导入 Box 用于类型注解。
+
+        self._set_image('tests/images/lobby.png')  # 固定大厅截图（实测两个铃铛模板最高约 0.55~0.59）。
+        clicked: list[Box] = []  # 收集被点击的框。
+
+        def fake_click_box(box, **_kwargs):  # 拦截点击记录坐标。
+            clicked.append(box)  # 记录点击框。
+
+        with patch.object(self.task, 'click_box', side_effect=fake_click_box):
+            self.assertFalse(self._close())  # 无横幅：返回 False。
+        self.assertEqual([], clicked)  # 一个都不点。
+
+    def test_skips_close_button_of_open_panel(self):
+        """命中的关闭按钮属于正开着的我方面板时必须跳过（邮箱关闭按钮与通用关闭模板同形，实测 0.88~0.95）。"""
+        from ok.feature.Box import Box  # 导入 Box 用于构造预置检测框。
+
+        self._set_image('tests/images/lobby.png')  # 提供一帧真实分辨率，供 box_of_screen 换算。
+        panel_close = Box(1579, 179, 32, 31, name='mailbox_close')  # 邮箱面板自身关闭按钮的标注位置。
+        bell = Box(660, 120, 33, 41, name='notice_bell')  # 预置的铃铛命中（位置只需让关闭搜索区成立）。
+        close = Box(1583, 183, 20, 21, name='common_close')  # 预置的关闭命中：正好落在面板关闭按钮上。
+
+        def fake_find_scaled(_feature_name, template_path, **_kwargs):  # 铃铛与关闭按钮都返回预置框。
+            return bell if 'bell' in template_path else close  # 按模板路径区分两次查找。
+
+        clicked: list[Box] = []  # 收集被点击的框。
+
+        def fake_click_box(box, **_kwargs):  # 拦截点击记录坐标。
+            clicked.append(box)  # 记录点击框。
+
+        with patch.object(self.task, 'find_scaled_template', side_effect=fake_find_scaled), \
+                patch.object(self.task, 'get_box_by_name', return_value=panel_close), \
+                patch.object(self.task, 'find_one', return_value=panel_close), \
+                patch.object(self.task, 'click_box', side_effect=fake_click_box):
+            self.assertFalse(self._close())  # 命中的是面板自己的关闭按钮：跳过不点。
+        self.assertEqual([], clicked)  # 点击会关掉正在操作的面板，必须一次都不点。
 
 
 if __name__ == '__main__':
