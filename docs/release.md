@@ -23,18 +23,18 @@ ok-nikke/
 
 ## 发布相关文件
 
-- `.github/workflows/build.yml`：监听 `v*` tag，按顺序执行——装 runner 依赖 → 逐文件跑测试 → 下载 python-build-standalone 到 `python/` → 下载 MinGit 到 `git/` → 往包内解释器装 `requirements.txt`（`--no-deps`）→ 写 `version.txt` 与默认 `configs/update.json` → 编入口 exe（`launcher/build.py` 优先 MinGW、vswhere/DevShell 为 MSVC 兜底，链接后校验 UAC manifest）→ 生成 Release 正文（`.github/scripts/release_notes.py`）→ 同步 CNB 镜像（断言 tag 存在，并把生成的正文写成镜像里的 `changelog/<tag>.md`）→ 打单个便携 zip → 创建 GitHub Release。不使用 NSIS 安装器。
+- `.github/workflows/build.yml`：监听 `v*` tag，按顺序执行——装 runner 依赖 → 静态检查（`ruff check .` + `pyright`）→ 逐文件跑测试（`run_tests.ps1`，该步骤 20 分钟超时）→ 下载 python-build-standalone 到 `python/` → 下载 MinGit 到 `git/` → 往包内解释器装 `requirements.txt`（`--no-deps`）→ 写 `version.txt` 与默认 `configs/update.json` → 编入口 exe（先进 VS DevShell，`vswhere.exe` 缺失即中断；`launcher/build.py` 优先 MinGW、MSVC 兜底，链接后校验 UAC manifest）→ 生成 Release 正文（`.github/scripts/release_notes.py`）→ 同步 CNB 镜像（断言 tag 存在，并把生成的正文写成镜像里的 `changelog/<tag>.md`）→ 打单个便携 zip → 创建 GitHub Release。不使用 NSIS 安装器。
 - `deploy.txt`：同步到 CNB 国内镜像仓库的文件清单（`src`、`main.py`、`update.py`、`launcher`、`assets` 等）。镜像仓库与 GitHub 同 tag，供 CN 用户应用内更新。
 - `launcher/`：入口 shim 源码（`launcher.c` / `launcher.manifest` / `launcher.rc`）与构建脚本 `build.py`（MinGW 或 MSVC 自动探测）。改图标/提权行为后需重新发版——**入口 exe 与 `python/`、`git/` 都无法通过 git 更新**。
 - `update.py`：应用内更新 bootstrap（零第三方依赖），负责 fetch tag → checkout → 必要时 pip → 写版本号 → 重启应用；另外提供 `--list-tags`（检查更新）。
 - `.github/scripts/release_notes.py`：Release 正文与更新日志生成（纯标准库）——默认输出完整 Release 正文，`--changelog-only` 只输出「更新日志」正文（`deploy` 生成 `changelog/<tag>.md` 用，见下节）。
-- `changelog/<tag>.md`：用户向更新日志，同时就是应用内「更新成功」卡片显示的更新说明——`deploy` 每次发版都在提交前生成它，随 tag 一起提交（见下节）。
+- `changelog/<tag>.md`：用户向更新日志，同时就是应用内「更新成功」卡片显示的更新说明——`deploy` 每次发版都生成它并 `--amend` 进同一次提交，随 tag 一起交付（见下节）。
 
 ## 更新日志（Release 正文）
 
 GitHub Release 的正文不再写死：CI 在创建 Release 前用 `.github/scripts/release_notes.py` 生成 `release_notes.md`，再以 `body_path` 交给 `softprops/action-gh-release`。规则：
 
-- **`changelog/<tag>.md` 优先，且由 `deploy` 每次发版自动生成**：提交前跑 `release_notes.py --tag <tag> --changelog-only --out changelog/<tag>.md`——此时 tag 还没创建，脚本按 `<上一个 tag>..HEAD` 渲染（区间终点退化为 `HEAD`）。文件随提交进 tag 后，CI 直接用它作为「更新日志」内容（文件里不要再写 `### 更新日志` 标题，分组用 `####` 子标题；对应 GitHub issue 的修复可在条目末尾写 `（#12）`，GitHub 会自动变成链接）。发版时明确要求「生成更新日志」时，由人改写这份文件为玩家向中文措辞而非直接发原始提交列表。
+- **`changelog/<tag>.md` 优先，且由 `deploy` 每次发版自动生成**：先提交代码，再跑 `release_notes.py --tag <tag> --changelog-only --out changelog/<tag>.md`，然后 `git add` + `git commit --amend` 并入同一次提交——脚本只读已提交历史（`git log <上一个 tag>..HEAD`），未提交的改动它看不到，所以必须放在提交之后；此时 tag 还没创建，区间终点退化为 `HEAD`。文件随提交进 tag 后，CI 直接用它作为「更新日志」内容（文件里不要再写 `### 更新日志` 标题，分组用 `####` 子标题，标题沿用脚本的 `新功能` / `性能优化` / `问题修复`；对应 GitHub issue 的修复可在条目末尾写 `（#12）`，GitHub 会自动变成链接）。发版时明确要求「生成更新日志」时，由人改写这份文件为玩家向中文措辞而非直接发原始提交列表。
 - **为什么必须随 tag 提交**：应用内「更新成功」卡片的正文就是**离线读这个文件**（见「更新机制」第 5 条），而 CNB 镜像没有 Release——正文只有以文件形式随 tag 交付，两个通道才都有；GitHub 的 tag 树因此也有这份文件。手工 `git tag` 发版不会生成它，此时应用内就没有更新说明。
 - **自动生成回退**：`changelog/<tag>.md` 不存在时，CI 解析 `<上一个 tag>..<tag>` 的非 merge 提交并分节——`feat` 新功能、`fix` 问题修复、`perf` 性能优化、`revert`/`refactor` 等其他改动；`docs`/`chore`/`ci`/`test`/`build`/`style` 不单列（全部被过滤时兜底进「其他改动」）；标题带 `!` 或正文含 `BREAKING CHANGE` 的条目进「不兼容变更」节。上一个 tag 按仓库内的 `v*` tag 计算，首个版本写「首个版本发布。」。
 - 两种模式都会附加：预发布说明（tag 含 `-`）、`下载说明`（便携 zip 链接）与「完整变更记录」compare 链接；区间内 `launcher/` 有改动时会提示重新下载完整包（入口 exe 无法通过应用内 git 更新交付）——自动生成模式是一条引用块，`--changelog-only` 生成的文件里则是一条条目。
@@ -76,7 +76,7 @@ GitHub Release 的正文不再写死：CI 在创建 Release 前用 `.github/scri
 
 ## 发布新版本
 
-推荐使用仓库内置的 `deploy` 技能（`.agents/skills/deploy/`）：提交、创建下一个注释 tag 并推送；提交前它一定会用 `release_notes.py --changelog-only` 生成 `changelog/<tag>.md`（= 应用内更新说明 + GitHub Release 的「更新日志」），发版时明确要求「生成更新日志」则把这份文件改写成玩家向中文措辞。也可手动创建：
+推荐使用仓库内置的 `deploy` 技能（`.agents/skills/deploy/`）：提交、创建下一个注释 tag 并推送；它一定会用 `release_notes.py --changelog-only` 生成 `changelog/<tag>.md` 并 amend 进同一次提交（= 应用内更新说明 + GitHub Release 的「更新日志」），发版时明确要求「生成更新日志」则把这份文件改写成玩家向中文措辞。也可手动创建：
 
 ```bash
 git tag v0.x.0

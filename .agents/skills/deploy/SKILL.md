@@ -9,25 +9,31 @@ Use this workflow to turn validated local changes into one commit and one annota
 
 ## Repository facts (ok-nikke)
 
-- Pushing a `v*` tag runs `.github/workflows/build.yml`: per-file tests → download python-build-standalone and MinGit → install `requirements.txt` into the package interpreter → write `version.txt` and `configs/update.json` → build the entry exe (`launcher/build.py` prefers MinGW, with vswhere/DevShell as the MSVC fallback) → generate the release notes (`.github/scripts/release_notes.py`, which prefers the committed `changelog/<tag>.md`) → sync the CNB mirror (asserts the tag exists and writes those notes into the mirror as `changelog/<tag>.md`) → zip the single portable package → create the GitHub Release. **Never build or upload release artifacts by hand.**
+- Pushing a `v*` tag runs `.github/workflows/build.yml`: install runner deps → static checks (`ruff check .` + `pyright`) → per-file tests (`run_tests.ps1`, 20-minute step timeout) → download python-build-standalone and MinGit → install `requirements.txt` into the package interpreter (`--no-deps`) → write `version.txt` and `configs/update.json` → build the entry exe → generate the release notes (`.github/scripts/release_notes.py`, which prefers the committed `changelog/<tag>.md`) → sync the CNB mirror (asserts the tag exists and writes those notes into the mirror as `changelog/<tag>.md`) → zip the single portable package → create the GitHub Release. **Never build or upload release artifacts by hand.**
+- The entry exe step enters the VS DevShell first and throws if `vswhere.exe` is missing; `launcher/build.py` itself prefers MinGW and falls back to MSVC.
 - CI pushes the CNB mirror with the `CNB_DEPLOY_TOKEN` secret; `origin` is the only remote configured locally. Never push CNB manually.
-- The release artifact is one portable zip. `python/`, `git/` and the entry exe cannot be delivered by git updates: when a release changes `launcher/` or the package layout, the release notes must tell users to re-download the package. Update notes live in `changelog/<tag>.md`, which this workflow generates on **every** release (step 5) so the file ships inside the tag: in-app updates read it offline (About → the "Update success" card), CI turns it into the GitHub Release body, and the CNB mirror gets its own copy because mirrors have no releases. See `docs/release.md`.
+- The release artifact is one portable zip. `python/`, `git/` and the entry exe cannot be delivered by git updates: when a release changes `launcher/` or the package layout, the release notes must tell users to re-download the package. Update notes live in `changelog/<tag>.md`, which this workflow generates on **every** release (step 6) so the file ships inside the tag: in-app updates read it offline (About → the "Update success" card), CI turns it into the GitHub Release body, and the CNB mirror gets its own copy because mirrors have no releases. See `docs/release.md`.
 - In-app updates track **stable tags only**. Tags containing `-` are published as GitHub prereleases and synced to CNB, but they never raise the update badge and never appear in the version dropdown (`src/update_config.py`, `is_prerelease`). The dropdown itself lists the five most recent stable tags (`selectable_versions` / `MAX_VERSION_OPTIONS`). Prereleases are manual-download only.
 - Old packages update themselves with **the `update.py` inside the installed package**, then check out the target tag. Keep `update.py` at the package root and keep its CLI (`--target` / `--list-tags` / `--wait-pid`) compatible, or old packages cannot update to this tag.
 - When the framework version changes, bump `pyproject.toml` and re-run `uv lock` + `uv export --format requirements-txt --no-hashes --no-dev -o requirements.txt` so the tag ships the new `requirements.txt`; otherwise users update the app but keep the old framework. Details in `docs/release.md`.
 
 ## Verification before tagging
 
-Run the repository's documented check - the same per-file loop CI runs (about 2.5 minutes):
+Run everything CI runs before it publishes anything - static checks first, then the per-file test loop:
 
 ```powershell
+.\.venv\Scripts\ruff.exe check .
+.\.venv\Scripts\pyright.exe
+
 Get-ChildItem -Path ".\tests\*.py" | ForEach-Object {
     .\.venv\Scripts\python.exe -m unittest $_.FullName
     if ($LASTEXITCODE -ne 0) { throw "Tests failed in $($_.FullName)" }
 }
 ```
 
-Stop before committing or tagging if it fails, unless the user explicitly accepts the failure.
+CI runs the same two static checks and `run_tests.ps1`; the test step alone has a 20-minute timeout, so budget minutes, not seconds - a single heavy file such as `tests/TestDailyTask.py` can take a couple of minutes on its own.
+
+Stop before committing or tagging if it fails, unless the user explicitly accepts the failure. If the user explicitly tells you to skip the local full run, say so in the final report and still run the test files the change touches.
 
 ## Variants
 
@@ -64,19 +70,7 @@ Use `scripts/next_tag.py` (in this skill directory: `<repo>\.agents\skills\deplo
    ```
 
    If no repository `.venv` exists, run the script with available Python. If remote tag lookup fails, stop before creating a version tag rather than guessing from stale local tags.
-5. Write `changelog/<tag>.md` **before committing**, on every release, so it ships inside the tag (the About page reads it offline after an in-app update, and CI turns it into the Release body):
-
-   ```powershell
-   git fetch --tags origin
-   .\.venv\Scripts\python.exe .github\scripts\release_notes.py --tag <calculated-tag> --changelog-only --out changelog/<calculated-tag>.md
-   ```
-
-   - The tag does not exist yet, so the script renders `<previous tag>..HEAD` (plus the uncommitted changes you are about to commit) and appends a re-download bullet when `launcher/` or the package layout changed.
-   - **Only when the user explicitly asks for release notes** ("deploy 并生成更新日志", "write the release notes"), rewrite that file instead of shipping the raw generated list: players-facing Chinese, what they can now do, what got better, what was broken and is fixed. Group bullets under `#### 新增` / `#### 优化` / `#### 修复` (that heading level nests under the generated `### 更新日志`; never add a `### 更新日志` heading yourself). Do not copy commit titles or file names, and drop internal-only work (docs, CI, tests, refactors) unless users can notice it. `git log --no-merges --format=%s <previous-tag>..HEAD` and `git diff <previous-tag>` show the scope.
-     - When a change answers a GitHub issue, end the bullet with `（#12）` - GitHub links it automatically - and mention it in the commit body (`Closes #12`) so the issue closes once the commit reaches the default branch.
-     - Call out anything users must do as its own bullet, e.g. re-download the complete portable package when `launcher/` or the package layout changed (the generated version adds this bullet for you).
-   - Optional sanity check: `.\.venv\Scripts\python.exe .github\scripts\release_notes.py --tag <tag> --out release_notes.md` renders the full release body from the file (`release_notes.md` is git-ignored).
-6. Stage only the intended files (**including `changelog/<tag>.md`**), inspect `git diff --cached`, then create the commit:
+5. Stage only the intended files, inspect `git diff --cached`, then create the commit:
 
    ```powershell
    git add -- <intended-files>
@@ -85,15 +79,31 @@ Use `scripts/next_tag.py` (in this skill directory: `<repo>\.agents\skills\deplo
    ```
 
    Pass the message as repeated `-m` arguments with plain ASCII text: PowerShell here-strings get mangled when the command is transported, and a broken message makes `git commit` fail while the rest of the chain keeps running. Do not create an empty commit unless the user explicitly requests it.
-7. Verify the commit exists, **then** create the annotated tag as a separate command:
+6. Generate `changelog/<tag>.md` from that commit and amend it into the same commit, on every release, so the file ships inside the tag (the About page reads it offline after an in-app update, and CI turns it into the Release body):
+
+   ```powershell
+   git fetch --tags origin
+   .\.venv\Scripts\python.exe .github\scripts\release_notes.py --tag <calculated-tag> --changelog-only --out changelog/<calculated-tag>.md
+   git add -- changelog/<calculated-tag>.md
+   git commit -q --amend --no-edit
+   ```
+
+   - `.github/scripts/release_notes.py` reads committed history only (`git log <previous tag>..HEAD`); uncommitted work is invisible to it. That is why the changelog is generated **after** the commit above and amended into it - do not generate it before committing. Amending keeps the release at one commit, and it is safe because nothing has been pushed yet.
+   - The tag does not exist yet, so the script renders `<previous tag>..HEAD` and appends a re-download bullet when `launcher/` or the package layout changed.
+   - **Only when the user explicitly asks for release notes** ("deploy 并生成更新日志", "write the release notes"), rewrite that file instead of shipping the raw generated list: players-facing Chinese, what they can now do, what got better, what was broken and is fixed. Group bullets under the headings the script generates - `#### 新功能` / `#### 性能优化` / `#### 问题修复` (`SECTION_TITLES` in `release_notes.py`) - so hand-written and auto-generated releases read alike; that level nests under the generated `### 更新日志`, and never add a `### 更新日志` heading yourself. Do not copy commit titles or file names, and drop internal-only work (docs, CI, tests, refactors) unless users can notice it. `git log --no-merges --format=%s <previous-tag>..HEAD` and `git diff <previous-tag>` show the scope.
+     - When a change answers a GitHub issue, end the bullet with `（#12）` - GitHub links it automatically - and mention it in the commit body (`Closes #12`) so the issue closes once the commit reaches the default branch.
+     - Call out anything users must do as its own bullet, e.g. re-download the complete portable package when `launcher/` or the package layout changed (the generated version adds this bullet for you).
+   - Optional sanity check: `.\.venv\Scripts\python.exe .github\scripts\release_notes.py --tag <tag> --out release_notes.md` renders the full release body from the file (`release_notes.md` is git-ignored).
+7. Verify the commit exists and carries the changelog, **then** create the annotated tag as a separate command:
 
    ```powershell
    git log --oneline -1
+   git show --stat --oneline HEAD
    git tag -a "<calculated-tag>" -m "<calculated-tag>"
    git show --no-patch --decorate HEAD
    ```
 
-   Never tag a previous commit because the commit step failed silently.
+   Never tag a previous commit because the commit step failed silently. `git show --stat HEAD` must list `changelog/<tag>.md`: an `--amend` with nothing staged rewrites the commit without adding the file.
 8. Push the commit and annotated tag to `origin`, unless the user explicitly requested local-only operation:
 
    ```powershell
@@ -107,6 +117,7 @@ Use `scripts/next_tag.py` (in this skill directory: `<repo>\.agents\skills\deplo
 
 - Never rewrite, move, or delete a published tag. `git tag -f` also erases the previous target, so record the old commit first (`git rev-parse <tag>^{commit}`) if a tag must ever be replaced.
 - Never create a tag or push when the commit step did not succeed - verify `git log --oneline -1` first.
+- Keep the step 6 amend before the tag and the push: never amend a commit that has already been pushed.
 - Re-pushing the same tag starts a second workflow run for that tag; both runs publish to the same Release, and the later one wins. After a corrected push, wait for **all** runs to finish and confirm which one landed (release notes text or asset timestamps) instead of assuming.
 - Never include merge commits when choosing the commit-message language.
 - Never infer a successful release from a local tag alone; report push success separately from CI publishing.
