@@ -37,7 +37,7 @@ GitHub Release 的正文不再写死：CI 在创建 Release 前用 `.github/scri
 - **`changelog/<tag>.md` 优先，且由 `deploy` 每次发版自动生成**：先提交代码，再跑 `release_notes.py --tag <tag> --changelog-only --out changelog/<tag>.md`，然后 `git add` + `git commit --amend` 并入同一次提交——脚本只读已提交历史（`git log <上一个 tag>..HEAD`），未提交的改动它看不到，所以必须放在提交之后；此时 tag 还没创建，区间终点退化为 `HEAD`。文件随提交进 tag 后，CI 直接用它作为「更新日志」内容（文件里不要再写 `### 更新日志` 标题，分组用 `####` 子标题，标题沿用脚本的 `新功能` / `性能优化` / `问题修复`；对应 GitHub issue 的修复可在条目末尾写 `（#12）`，GitHub 会自动变成链接）。发版时明确要求「生成更新日志」时，由人改写这份文件为玩家向中文措辞而非直接发原始提交列表。
 - **为什么必须随 tag 提交**：应用内「更新成功」卡片的正文就是**离线读这个文件**（见「更新机制」第 5 条），而 CNB 镜像没有 Release——正文只有以文件形式随 tag 交付，两个通道才都有；GitHub 的 tag 树因此也有这份文件。手工 `git tag` 发版不会生成它，此时应用内就没有更新说明。
 - **自动生成回退**：`changelog/<tag>.md` 不存在时，CI 解析 `<上一个 tag>..<tag>` 的非 merge 提交并分节——`feat` 新功能、`fix` 问题修复、`perf` 性能优化、`revert`/`refactor` 等其他改动；`docs`/`chore`/`ci`/`test`/`build`/`style` 不单列（全部被过滤时兜底进「其他改动」）；标题带 `!` 或正文含 `BREAKING CHANGE` 的条目进「不兼容变更」节。上一个 tag 按仓库内的 `v*` tag 计算，首个版本写「首个版本发布。」。
-- 两种模式都会附加：预发布说明（tag 含 `-`）、`下载说明`（便携 zip 链接）与「完整变更记录」compare 链接；区间内 `launcher/` 有改动时会提示重新下载完整包（入口 exe 无法通过应用内 git 更新交付）——自动生成模式是一条引用块，`--changelog-only` 生成的文件里则是一条条目。
+- 两种模式都会附加：预发布说明（tag 含 `-`）、`下载说明`（便携 zip 链接）与「完整变更记录」compare 链接；区间内 `launcher/` 有改动时会提示重新下载完整包（入口 exe 无法通过应用内 git 更新交付；**包结构变化没有自动检测**，需人工加条目）——自动生成模式是一条引用块，`--changelog-only` 生成的文件里则是一条条目。
 - 本地预览（不发版、不改远端；`release_notes.md` 已 gitignore，可放心写到仓库根）：
 
   ```powershell
