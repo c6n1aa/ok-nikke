@@ -84,7 +84,7 @@ class TestArkTask(_DebugOffTestCase):
         self.assertTrue(self.task.default_config["异常拦截战"])  # 异常拦截战子流程默认开启。
         self.assertTrue(self.task.default_config["只进行快速战斗"])  # 只进行快速战斗默认开启。
         self.assertEqual("克拉肯", self.task.default_config["BOSS选择"])  # BOSS选择默认克拉肯。
-        self.assertTrue(self.task.default_config["异常拦截队伍配置"])  # 异常拦截队伍配置默认开启。
+        self.assertFalse(self.task.default_config["异常拦截队伍配置"])  # 异常拦截队伍配置默认关闭。
         self.assertIn("拦截战", self.task.config_description)  # 拦截战配置有中文帮助文本。
         anomaly_sub = self.task.config_type["异常拦截战"]["sub_configs"]  # 开关联动子配置显隐。
         self.assertEqual(["只进行快速战斗", "BOSS选择", "异常拦截队伍配置"], anomaly_sub[True])  # 启用时展开三项。

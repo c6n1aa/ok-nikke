@@ -73,7 +73,7 @@ class OutpostTask(NikkeBaseTask):  # 前哨基地任务：执行派遣公告栏�
         self.default_config.update({  # 子任务专属设置，独立持久化到 configs/。
             "派遣": True,  # 每日派遣与领取。
             "咨询": True,  # 执行每日咨询。
-            "突发剧情": True,  # 清理突发剧情。
+            "突发剧情": False,  # 清理突发剧情。
             "只咨询星标": True,  # 只对星标的妮姬进行咨询。
             "补齐咨询日志": False,  # 角色好感度满时，仍对咨询日志图鉴未满的角色进行咨询。
         })

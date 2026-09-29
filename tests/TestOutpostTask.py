@@ -68,7 +68,7 @@ class TestOutpostTaskMeta(_DebugOffTestCase):
         self.assertEqual("执行派遣/咨询/突发剧情任务", self.task.description)
         self.assertTrue(self.task.default_config["派遣"])
         self.assertTrue(self.task.default_config["咨询"])
-        self.assertTrue(self.task.default_config["突发剧情"])
+        self.assertFalse(self.task.default_config["突发剧情"])
         self.assertTrue(self.task.default_config["只咨询星标"])
         self.assertFalse(self.task.default_config["补齐咨询日志"])
         self.assertEqual({"bulletin_board": "day", "advise": "day", "brief_encounter": "week"},
