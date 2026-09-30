@@ -73,7 +73,7 @@ self.transition("coop_page", box=coop_box, after_sleep=1)  # 已预查出的框�
 
 - 战斗结算确认等专用边（`wait_battle_finish` 后的确认/返回）；
 - 循环头部「重确认仍在本页」断言（保留 `assert_screen`）；
-- 「入口在画面但已关闭」的休赛期入口（如竞技场赛季结束）：点击后目标界面不会出现，`transition` 会误判失败触发恢复。改为点击后用 `wait_until` 赛跑「目标界面 vs 关闭态信号」，命中关闭信号 = 本周期无可执行内容，按「视为已完成」收尾。参考 `ArkTask._click_entry_race_closed` / `_hit_season_end_banner`：关闭态用 `re.Pattern` 部分匹配（框架对普通字符串走全等，OCR 文本常带尾随标点），区域限中部横幅横带；瞬态信号（横幅约 0.3~0.5 秒，快于框架默认 1 秒 settle 窗口）的赛跑必须传 `settle_time=0`，否则「每帧命中却不返回」直至超时、把失败误判成成功。瞬态 toast 检测（如 `ShopTask._buy_cell` 的资金不足提示）同理。
+- 「入口在画面但已关闭」的休赛期入口（如竞技场赛季结束）：点击后目标界面不会出现，`transition` 会误判失败触发恢复。改为点击后用 `wait_until` 赛跑「目标界面 vs 关闭态信号」，命中关闭信号 = 本周期无可执行内容，按「视为已完成」收尾。参考 `ArkTask._click_entry_race_closed` / `_hit_season_end_banner`：关闭态用 `re.Pattern` 部分匹配（框架对普通字符串走全等，OCR 文本常带尾随标点），OCR 区域按实机帧实测的横幅文字块收窄（越小越快、轮询越密）；横幅点击后立即出现、约 2 秒内淡出，赛跑必须传 `settle_time=0`，且**点击后不得先睡固定时长**（首帧落在窗口外，补点会带着睡眠落在第二次窗口外）。同时还要容忍「进入动画没走完就判目标界面」（下游按未渲染按钮判「没有次数」直接退出）时，用**非阻塞的最早接受时刻闸门**（`screen_ready`）只挡界面判定，不要用一个固定睡眠兼顾两件事。瞬态 toast 检测（如 `ShopTask._buy_cell` 的资金不足提示）同理。瞬态 toast 检测（如 `ShopTask._buy_cell` 的资金不足提示）同理。
 
 ### 逐级返回：`_back_through_screens()`
 

@@ -32,6 +32,18 @@ _CHAMPION_BAR_HUE_BLUE = (95, 135)  # 蓝段色相带（蓝到靛蓝）。
 # 冠军竞技场应援段的 type 前缀：应援按 64强→决赛 分 6 段（ArenaChampionBetting64/32/16/8/4/2）。
 _CARENA_CHEER_TYPE_PREFIX = "ArenaChampionBetting"
 
+# 冠军竞技场应援界面入口卡片：(界面名, 入口区域特征)，顺序即段号顺序。
+_CARENA_CHEER_ENTRIES = (
+    ("carena_promotion", "box_carena_promotion_enter"),  # 晋级赛卡片：64/32/16 强应援段。
+    ("carena_champion", "box_carena_champion_enter"),  # 冠军争霸赛卡片：8/4/2 强应援段。
+)
+
+# 走冠军争霸赛卡片的应援段号（type 去掉前缀后的部分，如 ArenaChampionBetting8 → "8"）。
+_CARENA_CHEER_CHAMPION_ROUNDS = ("8", "4", "2")
+
+# 应援按钮文字搜索区域（相对坐标，页面底部中央）：只框住按钮与上方倒计时，只有当前应援段的界面才有它。
+_CARENA_CHEER_BUTTON_TEXT_BOX = (0.42, 0.84, 0.58, 0.94)
+
 # 异常个体拦截战可选 BOSS 列表：即「BOSS选择」下拉选项，也是队伍配置的子配置键。
 _ANOMALY_BOSSES = ["克拉肯", "镜像容器", "茵迪维利亚", "过激派", "死神"]
 
@@ -48,6 +60,10 @@ _ANOMALY_TEAM_MAX_ACTIVATE = 5
 # 竞技场「赛季已结束」横幅匹配模式：OCR 结果常带句号等尾随标点（如「赛季已结束。」），
 # 框架对 re.Pattern 走 re.search 部分匹配、对普通字符串走全等比较，必须用编译模式而非关键词列表。
 _SEASON_END_PATTERN = re.compile(r"赛季已结束", re.IGNORECASE)
+
+# 横幅文字区域（相对坐标，实测 1966x1104 实机帧）：文字块 x 0.444~0.549 / y 0.459~0.537，四周留约 0.03 余量。
+# 只框文字块：区域越小单次 OCR 越快，逐帧赛跑时越不容易漏掉只可见约 2 秒的横幅。
+_SEASON_END_BANNER_BOX = (0.36, 0.43, 0.64, 0.57)
 
 # 新人竞技场（战力标注区域， 免费挑战区域）对，自上而下对应 1-3 号对手。
 _ROOKIE_CP_ENCOUNTER_PAIRS = (
@@ -567,47 +583,53 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
         self.click_box(confirm_box, after_sleep=3)  # 点击结算确认/失败返回按钮回到新人竞技场界面。
         self.assert_screen("rookie_arena", time_out=15)  # 确认回到新人竞技场界面，供下一轮循环判定。
 
-    def _hit_season_end_banner(self):  # 检测竞技场「赛季已结束」横幅：点击入口后弹出的全宽横带、文字居中，实测约 0.3~0.5 秒后淡出。
-        return bool(self.ocr(x=0.3, y=0.40, to_x=0.7, to_y=0.60, match=_SEASON_END_PATTERN))  # OCR 只取中部横带，部分匹配命中即休赛期。
+    def _hit_season_end_banner(self):  # 检测竞技场「赛季已结束」横幅：全宽横带、文字居中，点击后立即出现、约 2 秒内淡出。
+        x, y, to_x, to_y = _SEASON_END_BANNER_BOX  # 实测横幅文字区域（相对坐标）。
+        return bool(self.ocr(x=x, y=y, to_x=to_x, to_y=to_y, match=_SEASON_END_PATTERN))  # OCR 只取文字块，部分匹配命中即休赛期。
 
-    def _click_entry_race_closed(self, entry_feature, to_screen, after_sleep=2, time_out=10, reclick_at=5):
+    def _click_entry_race_closed(self, entry_feature, to_screen, time_out=12, reclick_at=5, screen_ready=2):
         """点击入口并赛跑确认：目标界面或「赛季已结束」横幅任一首帧命中即短路。
 
-        竞技场系休赛期入口边：入口在画面但已关闭时，点击只弹出赛季结束横幅——
-        实测约 0.3~0.5 秒即淡出的瞬态信号，只能在点击后的确认窗口内逐帧赛跑
-        捕捉（settle_time=0 首帧命中即返回），不能等确认失败后再查。命中横幅是
-        本周期无可执行内容的常规状态，由调用方按「视为已完成」收尾，不走失败恢复协议。
+        竞技场系休赛期入口边：入口在画面但已关闭时，点击只弹出赛季结束横幅——实测点击后立即
+        出现、约 2 秒内淡出（实机帧：点击后 1.08 秒仍可见、2.01 秒已消失），故点击后必须立刻
+        逐帧赛跑（settle_time=0 首帧命中即返回），不能先睡固定时长：首帧落在窗口外后，补点同样
+        会带着睡眠落在第二次窗口外，整轮只能空等到超时。
+        「已进入目标界面」不能跟着首帧返回：进入动画未走完时下游会按未渲染的按钮判成「没有
+        次数」直接退出，故该判定额外挂 screen_ready 秒的非阻塞闸门（等待期间横幅照常逐帧赛跑，
+        不睡）。命中横幅是休赛期的常规状态，由调用方按「视为已完成」收尾。
 
         Args:
             entry_feature: 入口 coco 特征名（走 wait_click_feature）。
             to_screen: 目标界面名（须已注册，is_screen 判定）。
-            after_sleep: 每次点击后的固定等待（秒）。
-            time_out: 赛跑总预算（秒）。
+            time_out: 赛跑总预算（秒），等于原「睡 2 秒 + 赛跑 10 秒」，目标界面的轮询窗口不变。
             reclick_at: 该秒数后仍无信号则原地补点一次（对应 transition 的吞点击容错）。
+            screen_ready: 点击后至少等这么久才接受「已进入目标界面」（秒），容忍进入动画。
 
         Returns:
             True: 已进入目标界面。
             "closed": 命中赛季结束横幅（休赛期，入口在但无法进入）。
             None: time_out 内两者皆未命中（真实导航异常，调用方抛 WaitFailedException）。
         """
-        self.wait_click_feature(entry_feature, raise_if_not_found=True, after_sleep=after_sleep)  # 点击入口。
+        self.wait_click_feature(entry_feature, raise_if_not_found=True, after_sleep=0)  # 点击入口后立即进入赛跑，不睡过横幅可见窗口。
         start = time.time()  # 赛跑计时起点。
         re_clicked = [False]  # 补点标记（闭包写入，只补一次）。
+        ready_at = [start + screen_ready]  # 目标界面最早可被接受的时刻（进入动画容忍）。
 
         def _race():  # 每轮判定：横幅优先（瞬态信号），其次目标界面。
             if self._hit_season_end_banner():  # 赛季结束横幅出现（休赛期）。
                 return "closed"  # 休赛期收尾信号。
-            if self.is_screen(to_screen):  # 已进入目标界面。
+            if time.time() >= ready_at[0] and self.is_screen(to_screen):  # 动画窗口过后才接受目标界面。
                 return True  # 正常进入信号。
             return None  # 均未命中，继续轮询。
 
         def _reclick_if_stalled():  # 前半段无任何信号则原地补点一次。
             if not re_clicked[0] and time.time() - start > reclick_at:  # 超过阈值仍无信号。
-                self.wait_click_feature(entry_feature, raise_if_not_found=True, after_sleep=after_sleep)  # 补点一次。
+                self.wait_click_feature(entry_feature, raise_if_not_found=True, after_sleep=0)  # 补点一次并立即恢复轮询。
+                ready_at[0] = time.time() + screen_ready  # 补点后重新计动画容忍，与首点同等待遇。
                 re_clicked[0] = True  # 只补一次，避免连点横幅期间误操作。
 
-        # 横幅实测仅可见约 0.3~0.5 秒；框架默认 settle 要求结果持续 1 秒以上才返回，
-        # 亚秒级瞬态信号永远无法满足，必须 settle_time=0 首帧命中即短路。
+        # 横幅实测只可见约 2 秒；框架默认 settle 要求结果持续 1 秒以上才返回，
+        # 瞬态信号可能直到淡出都不满足，必须 settle_time=0 首帧命中即短路。
         return self.wait_until(_race, time_out=time_out, pre_action=_reclick_if_stalled, settle_time=0)
 
     def _do_ranking_reward(self):  # 排名奖励子流程：方舟→排名→领取排名奖励→返回方舟。
@@ -694,13 +716,13 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
         self.log_info("冠军竞技场应援：活动日历显示不在应援期，跳过。")  # 记录跳过原因。
         return True  # 不在任何应援窗口。
 
-    def _do_champion_arena_cheer_flow(self):  # 应援整体流程：方舟→竞技场→冠军竞技场主界面→晋级赛→应援弹窗→应援→逐级返回方舟。
+    def _do_champion_arena_cheer_flow(self):  # 应援整体流程：方舟→竞技场→冠军竞技场主界面→对应应援界面→应援弹窗→应援→逐级返回方舟。
         if self._arena_cheer_closed_by_calendar():  # 活动日历显示不在应援期。
             return  # 跳过（由调用方统一标记完成）。
         self._nav_to_arena()  # 确保处于竞技场界面（正常已就位；失败恢复回大厅后由此重新进入）。
         self.transition("carena_home", click_feature="champion_arena", wait_confirm=10, after_sleep=1)  # 点冠军竞技场入口并确认进入主界面。
-        self.transition("carena_promotion", box="box_carena_promotion_enter", wait_confirm=10, after_sleep=1)  # 点晋级赛卡片入口并确认进入对阵图界面。
-        self.dismiss_all_popups(wait_for_popup=False, time_out=10)  # 上一轮应援的奖励遮罩会盖在晋级赛界面上，先清掉再点应援按钮。
+        self._enter_carena_cheer_page()  # 按当前应援段进入对应应援界面（晋级赛 / 冠军争霸赛）。
+        self.dismiss_all_popups(wait_for_popup=False, time_out=10)  # 上一轮应援的奖励遮罩会盖在应援界面上，先清掉再点应援按钮。
         self.click_box("box_carena_cheer_button", raise_if_not_found=True, after_sleep=1)  # 点底部应援按钮打开弹窗（box_ 前缀为纯坐标区域，按坐标点击）。
         if not self.wait_until(self._cheer_dialog_open, time_out=10):  # 弹窗不注册界面，用弹窗内选择按钮确认已弹出。
             raise WaitFailedException("点击应援按钮后未出现应援弹窗")  # 抛异常由 try_step 恢复重试。
@@ -711,7 +733,31 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
             return  # 由调用方标记本周期已完成。
         self.wait_click_feature(self._cheer_target_feature(), raise_if_not_found=True, after_sleep=1)  # 点占比更大一方的选择按钮。
         self.click_box("box_carena_cheer_detail_confirm", raise_if_not_found=True, after_sleep=2)  # 点应援确认按钮提交，弹窗随后自动关闭。
-        self._back_through_screens("carena_home", "arena", "ark")  # 晋级赛→冠军竞技场主界面→竞技场→方舟逐级返回。
+        self._back_through_screens("carena_home", "arena", "ark")  # 应援界面→冠军竞技场主界面→竞技场→方舟逐级返回。
+
+    def _enter_carena_cheer_page(self):  # 进入应援界面：按当前应援段选入口卡片，界面没有应援按钮则退回主界面换另一个入口。
+        for screen, box in self._carena_cheer_entry_order():  # 依次尝试两个入口卡片。
+            self.transition(screen, box=box, wait_confirm=10, after_sleep=1)  # 点卡片入口并确认进入对应界面。
+            if self._cheer_button_present():  # 界面底部有应援按钮，说明这就是当前应援段所在的界面。
+                return  # 入口正确。
+            self.log_info(f"{screen} 界面没有应援按钮，返回冠军竞技场主界面换下一个入口")  # 记录入口与当前段不符。
+            self._back_through_screens("carena_home")  # 退回主界面，下一轮从主界面重新点另一个卡片。
+        raise WaitFailedException("冠军竞技场两个入口界面都没有应援按钮")  # 抛异常由 try_step 恢复重试。
+
+    def _carena_cheer_entry_order(self):  # 入口尝试顺序：当前应援段所在的卡片优先；段号未知时晋级赛优先。
+        entries = list(_CARENA_CHEER_ENTRIES)  # 默认晋级赛→冠军争霸赛。
+        if self._carena_cheer_round() in _CARENA_CHEER_CHAMPION_ROUNDS:  # 8/4/2 强在冠军争霸赛卡片应援。
+            entries.reverse()  # 冠军争霸赛优先。
+        return entries  # 返回按优先级排列的入口。
+
+    def _carena_cheer_round(self):  # 活动日历里当前应援段的段号（ArenaChampionBetting32 → "32"）；缓存不可用或不在窗口内返回 None。
+        snapshot = event_calendar.load_snapshot()  # 只读 cache/event_banner/calendar.json。
+        if snapshot is None or not snapshot.is_fresh():  # 无缓存，或已过新鲜期（30 分钟 / 官方时区 05:00 刷新）。
+            return None  # 段号未知，入口按默认顺序试。
+        event_type = snapshot.status_window_type(_CARENA_CHEER_TYPE_PREFIX)  # 当前时刻所在应援段的 type。
+        if not event_type:  # 不在任何应援窗口（正常到不了这里，闸门已拦）。
+            return None  # 段号未知。
+        return event_type[len(_CARENA_CHEER_TYPE_PREFIX):]  # 去掉前缀即段号。
 
     def _cheer_side_selected(self):  # 弹窗内是否已有一侧处于「已选择」：已应援侧按钮换样式，模板不再命中。
         return (self.find_one("carena_cheer_detail_p1") is None
@@ -728,6 +774,10 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
     def _cheer_dialog_open(self):  # 应援弹窗是否已弹出：弹窗内左右两个「选择」按钮任一命中即可（弹窗不注册界面）。
         return (self.find_one("carena_cheer_detail_p1") is not None
                 or self.find_one("carena_cheer_detail_p2") is not None)  # 任一命中即已弹出。
+
+    def _cheer_button_present(self, time_out=5):  # 当前应援界面上是否有应援按钮：等页面底部按钮上的「应援」文字出现（容忍过场动画）。
+        return bool(self.wait_until(lambda: self.ocr(box=self.box_of_screen(*_CARENA_CHEER_BUTTON_TEXT_BOX), match="应援"),
+                                    time_out=time_out))  # 命中即视为按钮在，只有当前应援段的界面才有。
 
     def _cheer_target_feature(self):  # 按「应援现状」占比条决定应援哪一方：返回占比更大一方的选择按钮特征名。
         try:  # 区域特征可能缺失。

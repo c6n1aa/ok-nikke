@@ -7,6 +7,7 @@ from contextlib import ExitStack
 from types import SimpleNamespace
 from unittest.mock import PropertyMock, call, patch
 
+import cv2
 import numpy as np
 from ok import og
 from ok.feature.Box import Box
@@ -1300,13 +1301,15 @@ class TestArkTaskSpecialArena(_DebugOffTestCase):
 
     def test_hit_season_end_banner_matches_keyword(self):
         """横幅检测：OCR 命中赛季结束关键词返回 True、未命中返回 False，并锁定关键词与 OCR 区域。"""
-        from src.tasks.ArkTask import _SEASON_END_PATTERN  # 引用匹配模式防止改名漂移。
+        from src.tasks.ArkTask import _SEASON_END_BANNER_BOX, _SEASON_END_PATTERN  # 引用模式与区域，防止改名漂移。
         self.assertEqual("赛季已结束", _SEASON_END_PATTERN.pattern)  # 当前中文文案。
+        self.assertEqual((0.36, 0.43, 0.64, 0.57), _SEASON_END_BANNER_BOX)  # 区域锁定为实机帧实测值。
+        x, y, to_x, to_y = _SEASON_END_BANNER_BOX
         with patch.object(self.task, "ocr", return_value=[object()]) as ocr_mock:
             self.assertTrue(self.task._hit_season_end_banner())  # OCR 有命中即休赛期。
-        self.assertEqual(_SEASON_END_PATTERN, ocr_mock.call_args_list[0].kwargs["match"])  # 匹配模式（部分匹配）。
-        self.assertEqual(0.3, ocr_mock.call_args_list[0].kwargs["x"])  # OCR 区域左边界。
-        self.assertEqual(0.7, ocr_mock.call_args_list[0].kwargs["to_x"])  # OCR 区域右边界。
+        call = ocr_mock.call_args_list[0].kwargs
+        self.assertEqual(_SEASON_END_PATTERN, call["match"])  # 编译模式（部分匹配）。
+        self.assertEqual((x, y, to_x, to_y), (call["x"], call["y"], call["to_x"], call["to_y"]))  # OCR 区域四边。
         with patch.object(self.task, "ocr", return_value=[]):
             self.assertFalse(self.task._hit_season_end_banner())  # OCR 无命中返回 False。
 
@@ -1321,6 +1324,7 @@ class TestArkTaskSpecialArena(_DebugOffTestCase):
 
     def test_race_primitive_clicks_entry_then_races(self):
         """赛跑原语：先点入口；横幅命中优先于目标界面（真实判定循环驱动，验证瞬态信号优先）。"""
+        clock = [0.0]  # 可控时钟：用例显式推进，避免依赖真实时间。
         with patch.object(self.task, "wait_click_feature") as click_mock, \
                 patch.object(self.task, "_hit_season_end_banner", side_effect=[False, True]), \
                 patch.object(self.task, "is_screen", side_effect=[False]) as screen_mock:
@@ -1328,23 +1332,50 @@ class TestArkTaskSpecialArena(_DebugOffTestCase):
 
             def fake_wait_until(condition, time_out=0, pre_action=None, **kwargs):  # 手动驱动判定循环最多两轮。
                 captured["pre_action"] = pre_action  # 捕获补点钩子。
-                captured["settle_time"] = kwargs.get("settle_time")  # 横幅亚秒级瞬态，必须禁用 settle。
+                captured["settle_time"] = kwargs.get("settle_time")  # 瞬态信号必须禁用 settle。
+                clock[0] = 6.0  # 推进到动画闸门（2 秒）之后，本轮才可能判目标界面。
                 for _ in range(2):
                     result = condition()
                     if result is not None:
                         return result
                 return None
 
-            with patch.object(self.task, "wait_until", side_effect=fake_wait_until):
+            with patch.object(self.task, "wait_until", side_effect=fake_wait_until), \
+                    patch("src.tasks.ArkTask.time.time", side_effect=lambda: clock[0]):
                 result = self.task._click_entry_race_closed("special_arena", "special_arena")
         self.assertEqual(1, click_mock.call_count)  # 仅首次点击入口。
         self.assertEqual("special_arena", click_mock.call_args_list[0].args[0])  # 点击的是入口特征。
+        self.assertEqual(0, click_mock.call_args_list[0].kwargs["after_sleep"])  # 点击后立即赛跑，不睡过横幅可见窗口。
         self.assertEqual("closed", result)  # 第二轮横幅命中胜出。
         self.assertEqual(0, captured["settle_time"])  # 首帧命中即短路，防止 settle 窗口内横幅淡出导致漏判。
         self.assertEqual(1, screen_mock.call_count)  # 横幅未命中时才判目标界面。
 
+    def test_race_primitive_waits_animation_before_screen_verdict(self):
+        """赛跑原语：进入动画窗口内不接受「已进入目标界面」（否则下游按未渲染按钮误判没次数直接退出）。"""
+        clock = [0.0]  # 可控时钟：用例显式推进。
+        with patch.object(self.task, "wait_click_feature"), \
+                patch.object(self.task, "_hit_season_end_banner", return_value=False), \
+                patch.object(self.task, "is_screen", return_value=True) as screen_mock:
+            captured = {}
+
+            def fake_wait_until(condition, time_out=0, pre_action=None, **kwargs):
+                captured["condition"] = condition  # 判定循环由本用例手动驱动。
+                captured["pre_action"] = pre_action
+                return
+
+            with patch.object(self.task, "wait_until", side_effect=fake_wait_until), \
+                    patch("src.tasks.ArkTask.time.time", side_effect=lambda: clock[0]):
+                self.task._click_entry_race_closed("special_arena", "special_arena")
+                race = captured["condition"]
+                clock[0] = 1.0  # 点击后 1 秒：动画闸门（2 秒）未到。
+                self.assertIsNone(race())  # 不判目标界面，继续轮询。
+                self.assertEqual(0, screen_mock.call_count)  # 动画窗口内不碰界面判定。
+                clock[0] = 3.0  # 点击后 3 秒：闸门已过。
+                self.assertTrue(race())  # 此时才接受「已进入目标界面」。
+        self.assertEqual(1, screen_mock.call_count)  # 闸门过后只判一次。
+
     def test_race_primitive_reclicks_once_when_stalled(self):
-        """赛跑原语：超过 reclick_at 秒无信号时补点入口一次，且只补一次。"""
+        """赛跑原语：超过 reclick_at 秒无信号时补点入口一次，且只补一次、补点后同样不睡。"""
         time_calls = []  # 记录每次 time.time() 调用序号，映射到模拟时刻。
 
         def fake_time():
@@ -1367,6 +1398,25 @@ class TestArkTaskSpecialArena(_DebugOffTestCase):
             pre()  # 再次调用：已补点，不再重复。
         self.assertEqual(2, click_mock.call_count)  # 首次点击 + 一次补点。
         self.assertEqual("special_arena", click_mock.call_args_list[1].args[0])  # 补点仍是入口特征。
+        self.assertEqual(0, click_mock.call_args_list[1].kwargs["after_sleep"])  # 补点后立即恢复轮询，覆盖第二次横幅。
+
+
+class TestArkTaskSeasonEndBannerRealFrame(_DebugOffTestCase):
+    """实机帧回归：休赛期横幅文字区域必须在真实帧上被 OCR 命中（区域标定漂移即失败）。"""
+
+    task_class = ArkTask
+    task: ArkTask
+
+    config = config
+
+    FRAME = 'tests/images/arena_season_end.png'  # 1966x1104 实机帧：休赛期竞技场主页，白色横幅在画面中部。
+
+    def test_banner_hit_on_real_frame(self):
+        """真实 OCR（非 mock）：在实机帧上跑标定区域，命中「赛季已结束。」才算区域正确。"""
+        frame = cv2.imread(self.FRAME)
+        self.assertIsNotNone(frame)  # 帧必须存在，否则后面的 OCR 断言失去意义。
+        with patch.object(type(self.task.executor), "frame", new_callable=PropertyMock, return_value=frame):
+            self.assertTrue(self.task._hit_season_end_banner())  # 标定区域必须命中横幅首行关键词。
 
 
 class TestArkTaskRankingReward(_DebugOffTestCase):
@@ -1831,6 +1881,8 @@ class TestArkTaskChampionArena(_DebugOffTestCase):
         stack.enter_context(patch.object(self.task, "_cheer_side_selected", return_value=False))  # 默认未应援过（两侧按钮都未选择）。
         stack.enter_context(patch.object(self.task, "_arena_cheer_closed_by_calendar", return_value=False))
         stack.enter_context(patch.object(self.task, "_nav_to_arena"))
+        stack.enter_context(patch.object(self.task, "_cheer_button_present", return_value=True))  # 默认入口界面有应援按钮。
+        stack.enter_context(patch.object(event_calendar, "load_snapshot", return_value=None))  # 段号未知，入口按默认顺序。
         return stack, mocks
 
     def test_flow_cheers_red_dominant_side(self):
@@ -1854,6 +1906,86 @@ class TestArkTaskChampionArena(_DebugOffTestCase):
         with stack:
             self.task._do_champion_arena_cheer_flow()
         assert_any_call_semantic(mocks['wait_click_feature'], "carena_cheer_detail_p2", raise_if_not_found=True)  # 选蓝段对应的右侧选手。
+
+    def test_cheer_round_from_calendar(self):
+        """段号取自活动日历当前应援段；缓存不可用或不在任何窗口内返回 None（入口按默认顺序试）。"""
+        now = int(time.time())
+        active = event_calendar.CalendarSnapshot(fetched_at=now, events=(), status={'arena': [
+            {'type': 'ArenaChampionBetting64', 'start_time': str(now - 200), 'end_time': str(now - 100)},
+            {'type': 'ArenaChampionBetting8', 'start_time': str(now - 10), 'end_time': str(now + 100)}]})
+        with patch.object(event_calendar, "load_snapshot", return_value=active):
+            self.assertEqual("8", self.task._carena_cheer_round())  # 当前落在 8 强应援段。
+        stale = event_calendar.CalendarSnapshot(fetched_at=0, events=(), status=active.status)  # 已过新鲜期。
+        with patch.object(event_calendar, "load_snapshot", return_value=stale):
+            self.assertIsNone(self.task._carena_cheer_round())  # 缓存不可用：段号未知。
+        gap = event_calendar.CalendarSnapshot(fetched_at=now, events=(), status={'arena': [
+            {'type': 'ArenaChampionBetting8', 'start_time': str(now - 200), 'end_time': str(now - 100)}]})
+        with patch.object(event_calendar, "load_snapshot", return_value=gap):
+            self.assertIsNone(self.task._carena_cheer_round())  # 两段之间的对战间隙。
+        with patch.object(event_calendar, "load_snapshot", return_value=None):
+            self.assertIsNone(self.task._carena_cheer_round())  # 无缓存。
+
+    def test_carena_cheer_entry_order_follows_round(self):
+        """入口顺序：8/4/2 强冠军争霸赛卡片优先，其余段号与段号未知时晋级赛卡片优先。"""
+        for round_ in ("8", "4", "2"):
+            with patch.object(self.task, "_carena_cheer_round", return_value=round_):
+                self.assertEqual(["carena_champion", "carena_promotion"],
+                                 [screen for screen, _ in self.task._carena_cheer_entry_order()])
+        for round_ in ("64", "32", "16", None):
+            with patch.object(self.task, "_carena_cheer_round", return_value=round_):
+                self.assertEqual(["carena_promotion", "carena_champion"],
+                                 [screen for screen, _ in self.task._carena_cheer_entry_order()])
+
+    def test_flow_enters_champion_card_on_final_rounds(self):
+        """8/4/2 强应援段：点冠军争霸赛卡片进入应援界面，不再试晋级赛卡片。"""
+        stack, mocks = self._cheer_flow_mocks(red_dominant=True)
+        with stack:
+            stack.enter_context(patch.object(self.task, "_carena_cheer_round", return_value="2"))
+            self.task._do_champion_arena_cheer_flow()
+        assert_any_call_semantic(mocks['transition'], "carena_champion", box="box_carena_champion_enter")  # 走冠军争霸赛卡片。
+        self.assertNotIn("carena_promotion", [c.args[0] for c in mocks['transition'].call_args_list])  # 不试晋级赛卡片。
+        self.assertEqual(["box_carena_cheer_button", "box_carena_cheer_detail_confirm"],
+                         [c.args[0] for c in mocks['click_box'].call_args_list])  # 应援按钮与确认按钮位置一致。
+        self.assertEqual(["carena_home", "arena", "ark"],
+                         [c.args[0] for c in mocks['assert_screen'].call_args_list])  # 收尾仍按三层逐级返回方舟。
+
+    def test_flow_switches_entry_when_no_cheer_button(self):
+        """入口界面没有应援按钮：退回主界面换另一个入口，进入有按钮的界面后照常应援。"""
+        stack, mocks = self._cheer_flow_mocks(red_dominant=True)
+        with stack:
+            stack.enter_context(patch.object(self.task, "_cheer_button_present", side_effect=[False, True]))
+            self.task._do_champion_arena_cheer_flow()
+        self.assertEqual(["carena_promotion", "carena_champion"],
+                         [c.args[0] for c in mocks['transition'].call_args_list if c.args[0] != "carena_home"])  # 先晋级赛后冠军争霸赛。
+        self.assertEqual("carena_home", mocks['assert_screen'].call_args_list[0].args[0])  # 无按钮时先退回主界面。
+        self.assertEqual(["box_carena_cheer_button", "box_carena_cheer_detail_confirm"],
+                         [c.args[0] for c in mocks['click_box'].call_args_list])  # 换到有按钮的界面后照常应援。
+
+    def test_flow_raises_when_no_entry_has_cheer_button(self):
+        """两个入口界面都没有应援按钮：抛 WaitFailedException 交 try_step 恢复，不点应援按钮。"""
+        stack, mocks = self._cheer_flow_mocks(red_dominant=True)
+        with stack:
+            stack.enter_context(patch.object(self.task, "_cheer_button_present", return_value=False))
+            with self.assertRaises(WaitFailedException):
+                self.task._do_champion_arena_cheer_flow()
+        mocks['click_box'].assert_not_called()  # 未点应援按钮。
+        self.assertEqual(["carena_home", "carena_home"],
+                         [c.args[0] for c in mocks['assert_screen'].call_args_list])  # 两次尝试后各退回主界面。
+
+    def test_cheer_button_present_uses_ocr_in_button_area(self):
+        """应援按钮判据：在页面底部区域 OCR「应援」文字，命中即有按钮。"""
+        box = Box(1200, 1250, 200, 80, confidence=1, name="cheer_text")
+        with patch.object(self.task, "box_of_screen", return_value=box) as box_mock, \
+                patch.object(self.task, "wait_until", side_effect=lambda condition, **kwargs: condition()) as wait_mock, \
+                patch.object(self.task, "ocr", return_value=[box]) as ocr_mock:
+            self.assertTrue(self.task._cheer_button_present())  # 命中「应援」文字。
+        self.assertEqual([((0.42, 0.84, 0.58, 0.94),)], box_mock.call_args_list)  # 区域固定在页面底部中央。
+        ocr_mock.assert_called_once_with(box=box, match="应援")  # 只搜按钮文字。
+        self.assertEqual(5, wait_mock.call_args.kwargs['time_out'])  # 等过场动画的容忍时间。
+        with patch.object(self.task, "box_of_screen", return_value=box), \
+                patch.object(self.task, "wait_until", side_effect=lambda condition, **kwargs: condition()), \
+                patch.object(self.task, "ocr", return_value=[]):
+            self.assertFalse(self.task._cheer_button_present())  # 没有该文字即视为没有按钮。
 
     def test_flow_raises_when_dialog_missing(self):
         """异常分支：点击应援按钮后弹窗未出现 → 抛 WaitFailedException 交由 try_step 恢复，不提交应援。"""
@@ -1942,6 +2074,9 @@ class TestArkTaskChampionArena(_DebugOffTestCase):
         self.assertIn("carena_promotion", self.task.screens)  # 晋级赛界面已注册。
         self.assertEqual("box_sub_pages_title", self.task.screens["carena_promotion"]["ocr_box"])
         self.assertTrue(any(p.search("晋级赛") for p in self.task.screens["carena_promotion"]["keywords"]))  # 关键词匹配晋级赛标题。
+        self.assertIn("carena_champion", self.task.screens)  # 冠军争霸赛界面已注册。
+        self.assertEqual("box_sub_pages_title", self.task.screens["carena_champion"]["ocr_box"])
+        self.assertTrue(any(p.search("冠军争霸赛") for p in self.task.screens["carena_champion"]["keywords"]))  # 关键词匹配冠军争霸赛标题。
 
 
 if __name__ == '__main__':

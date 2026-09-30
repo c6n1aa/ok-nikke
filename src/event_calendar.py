@@ -130,6 +130,25 @@ class CalendarSnapshot:
                     continue
         return windows
 
+    def status_window_type(self, event_type_prefix, now=None):
+        """状态段里 type 以 event_type_prefix 开头、且当前时刻落在其窗口内的 type；无命中返回 None。
+
+        冠军竞技场应援按 64强→决赛 分 6 段（type 形如 ArenaChampionBetting32），段号决定进哪个
+        应援界面，故除窗口时间外还要取回 type 本身。now 参数供测试注入当前时间（unix 秒）。
+        """
+        now = time.time() if now is None else now
+        for items in self.status.values():
+            for item in items or []:
+                if not isinstance(item, dict) or not str(item.get("type") or "").startswith(event_type_prefix):
+                    continue
+                try:
+                    start, end = int(item["start_time"]), int(item["end_time"])
+                except (KeyError, TypeError, ValueError):  # 字段缺失或非数字。
+                    continue
+                if start <= now <= end:
+                    return str(item["type"])
+        return None
+
     def pick_events(self, count=1, now=None):
         """按开始时间倒序取前 count 个未过期活动（最新在前；时间缺失记 0 的排最后，同时间保持接口顺序）。
 

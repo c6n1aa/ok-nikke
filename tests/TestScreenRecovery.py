@@ -52,6 +52,7 @@ class TestScreenRecovery(TaskTestCase):
             "special_arena": {"features": ["special_arena_page"]},
             "carena_home": {"keywords": [_keyword("冠军竞技场")], "ocr_box": "box_sub_pages_title"},
             "carena_promotion": {"keywords": [_keyword("晋级赛")], "ocr_box": "box_sub_pages_title"},
+            "carena_champion": {"keywords": [_keyword("冠军争霸赛")], "ocr_box": "box_sub_pages_title"},
             "ark_ranking": {"features": ["ark_ranking_page"]},
             "interception_page": {"features": ["common_interception_active"],
                                   "keywords": [_keyword("拦截战")], "ocr_box": "box_sub_pages_title"},

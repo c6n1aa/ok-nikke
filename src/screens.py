@@ -61,10 +61,11 @@ SCREENS = {
     "arena": {"features": ["arena_page"]},
     "rookie_arena": {"features": ["rookie_arena_page"]},
     "special_arena": {"features": ["special_arena_page"]},
-    # 冠军竞技场：主界面（三卡片）与晋级赛对阵图两页左上角标题同落在通用标题区
+    # 冠军竞技场：主界面（三卡片）与晋级赛/冠军争霸赛两个对阵图页左上角标题同落在通用标题区
     # box_sub_pages_title，故统一用该区域 OCR 关键词识别；应援弹窗不注册（不参与界面切换）。
     "carena_home": {"keywords": [_keyword("冠军竞技场")], "ocr_box": "box_sub_pages_title"},
     "carena_promotion": {"keywords": [_keyword("晋级赛")], "ocr_box": "box_sub_pages_title"},
+    "carena_champion": {"keywords": [_keyword("冠军争霸赛")], "ocr_box": "box_sub_pages_title"},
     # 方舟相关子页面：方舟→排名。
     "ark_ranking": {"features": ["ark_ranking_page"]},
     # 拦截战入口双标签页：从方舟点 ark_interception 后停在通用或异常个体标签页，

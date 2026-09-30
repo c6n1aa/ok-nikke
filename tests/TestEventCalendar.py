@@ -426,6 +426,29 @@ class TestEventCalendarSnapshot(unittest.TestCase):
         self.assertEqual([], event_calendar.CalendarSnapshot(fetched_at=1, events=(), status={'arena': 'x'})
                          .status_windows('ArenaChampionBetting'))  # 手改缓存导致分类不是列表。
 
+    def test_status_window_type_returns_type_containing_now(self):
+        # 段号决定进哪个应援界面，故除窗口时间外还要取回当前时刻所在窗口的 type。
+        snapshot = event_calendar.CalendarSnapshot(fetched_at=1, events=(), status={'arena': [
+            {'type': 'ArenaChampionBetting64', 'start_time': '100', 'end_time': '200'},
+            {'type': 'ArenaChampionBetting32', 'start_time': '300', 'end_time': '400'}]})
+        self.assertEqual('ArenaChampionBetting64', snapshot.status_window_type('ArenaChampionBetting', now=150))
+        self.assertEqual('ArenaChampionBetting32', snapshot.status_window_type('ArenaChampionBetting', now=400))  # 边界含端点。
+        self.assertIsNone(snapshot.status_window_type('ArenaChampionBetting', now=250))  # 两段之间的对战间隙。
+        self.assertIsNone(snapshot.status_window_type('ArenaChampionBattle', now=150))  # 前缀不匹配任何 type。
+
+    def test_status_window_type_skips_unusable_items(self):
+        # 时间不可用的条目跳过；分类不是列表或条目不是 dict 时同样跳过。
+        snapshot = event_calendar.CalendarSnapshot(fetched_at=1, events=(), status={'arena': [
+            {'type': 'ArenaChampionBetting64', 'start_time': '100'},  # 缺 end_time。
+            {'type': 'ArenaChampionBetting32', 'start_time': 'x', 'end_time': '400'},  # 非数字。
+            'ArenaChampionBetting16',  # 条目不是 dict。
+            {'type': 'ArenaChampionBetting8', 'start_time': '300', 'end_time': '400'}]})
+        self.assertEqual('ArenaChampionBetting8', snapshot.status_window_type('ArenaChampionBetting', now=350))
+        self.assertIsNone(event_calendar.CalendarSnapshot(fetched_at=1, events=(), status={})
+                          .status_window_type('ArenaChampionBetting', now=350))  # 状态段为空。
+        self.assertIsNone(event_calendar.CalendarSnapshot(fetched_at=1, events=(), status={'arena': 'x'})
+                          .status_window_type('ArenaChampionBetting', now=350))  # 手改缓存导致分类不是列表。
+
     def test_load_snapshot_returns_none_when_missing_or_broken(self):
         with tempfile.TemporaryDirectory() as cache_dir:
             self.assertIsNone(event_calendar.load_snapshot(cache_dir))  # 没有缓存。
