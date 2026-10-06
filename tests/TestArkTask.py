@@ -612,29 +612,33 @@ class TestArkTaskSimulation(_DebugOffTestCase):
         self.assertEqual(["tower", "simulation"], order)
 
     def test_flow_no_red_dot_closes(self):
-        def find_one_only_update(name, *args, **kwargs):
-            self.assertEqual("simulation_overclock_update", name,
-                             "无红点时除更新弹窗外不应继续识别其他特征")  # 守卫：不得进入红点后的流程识别。
-            return  # 未弹出超频更新弹窗。
+        seen = []  # 记录流程识别过的特征名。
+
+        def find_one_only_entry_and_popup(name, *args, **kwargs):
+            seen.append(name)  # 记录识别请求。
+            return  # 入口与弹窗都未命中。
 
         with patch.object(self.task, "_nav_to_ark"), \
                 patch.object(self.task, "wait_click_feature") as click_mock, \
                 patch.object(self.task, "wait_screen", return_value=True), \
                 patch.object(self.task, "find_red_dot", return_value=None), \
-                patch.object(self.task, "find_one", side_effect=find_one_only_update), \
+                patch.object(self.task, "find_one", side_effect=find_one_only_entry_and_popup), \
                 patch.object(self.task, "click_box", side_effect=AssertionError("无红点时不应点击")):
             self.task._do_simulation_flow()
+        self.assertEqual(["ark_simulation_room", "simulation_overclock_update_close"], seen,
+                         "除入口与超频更新弹窗外不应继续识别其他特征")
         clicked = [c.args[0] for c in click_mock.call_args_list]
-        self.assertEqual(["ark_simulation_room", "common_back"], clicked)
+        self.assertEqual(["common_back"], clicked)  # 入口未命中不点击，直接返回方舟。
 
     def test_flow_dismisses_overclock_update_then_continues(self):
         red_dot = Box(1387, 804, 36, 45, confidence=1, name="red_dot")  # 徽标红点。
         level5 = Box(1511, 406, 74, 84, confidence=1, name="simulation_level5")  # 已选中 Lv.5。
         switch_box = Box(1192, 1115, 79, 41, confidence=1, name="box_simulation_quick_complete")  # 开关纯坐标区域（已激活）。
         quick = Box(1380, 1208, 49, 47, confidence=1, name="simulation_quick_battle")  # 快速战斗按钮。
-        update_popup = Box(700, 300, 1160, 800, confidence=1, name="simulation_overclock_update")  # 超频更新弹窗存在。
-        find_map = {"simulation_overclock_update": update_popup, "simulation_level5": level5,
-                    "simulation_quick_battle": quick}  # 按特征名返回识别结果。
+        entry = Box(705, 434, 153, 144, confidence=1, name="ark_simulation_room")  # 方舟上的模拟室入口。
+        update_close = Box(1563, 548, 30, 29, confidence=1, name="simulation_overclock_update_close")  # 超频更新弹窗关闭按钮命中。
+        find_map = {"ark_simulation_room": entry, "simulation_overclock_update_close": update_close,
+                    "simulation_level5": level5, "simulation_quick_battle": quick}  # 按特征名返回识别结果。
         with patch.object(self.task, "_nav_to_ark"), \
                 patch.object(self.task, "wait_click_feature") as click_mock, \
                 patch.object(self.task, "wait_screen", return_value=True), \
@@ -642,12 +646,68 @@ class TestArkTaskSimulation(_DebugOffTestCase):
                 patch.object(self.task, "find_one", side_effect=lambda name, *a, **k: find_map.get(name)), \
                 patch.object(self.task, "get_box_by_name", return_value=switch_box), \
                 patch.object(self.task, "is_feature_enabled", return_value=True), \
-                patch.object(self.task, "click_box"), \
+                patch.object(self.task, "click_box") as click_box_mock, \
                 patch.object(self.task, "dismiss_all_popups"):
             self.task._do_simulation_flow()
+        clicked_box = [c.args[0] for c in click_box_mock.call_args_list]
+        self.assertEqual([entry, update_close], clicked_box[:2])  # 先点入口、再关更新弹窗，最后才点红点。
         clicked = [c.args[0] for c in click_mock.call_args_list]
-        self.assertEqual(["ark_simulation_room", "simulation_overclock_update_close",
-                          "simulation_quick_battle_finishi", "common_back"], clicked)  # 先关更新弹窗再走正常快速模拟流程。
+        self.assertEqual(["simulation_quick_battle_finishi", "common_back"], clicked)  # 关闭弹窗后走正常快速模拟流程。
+
+    def test_flow_entry_budget_allows_retry_round(self):
+        """transition 总预算须大于 wait_confirm：等于默认 10 秒时首轮就吃满预算，补点轮永不执行。"""
+        with patch.object(self.task, "_nav_to_ark"), \
+                patch.object(self.task, "transition") as transition_mock, \
+                patch.object(self.task, "find_red_dot", return_value=None), \
+                patch.object(self.task, "_exit_simulation_to_ark"):
+            self.task._do_simulation_flow()
+        kwargs = transition_mock.call_args.kwargs
+        self.assertEqual(self.task._enter_simulation_room, kwargs["click"])  # 入口动作即弹窗清理所在。
+        self.assertGreater(kwargs["time_out"], kwargs["wait_confirm"])  # 预算须留出补点轮（入口动作约 3 秒）。
+
+    def test_enter_simulation_room_closes_popup_before_confirm(self):
+        """入口动作顺序：点入口 → 关掉遮挡室徽的超频更新公告（弹窗清理必须早于界面确认）。"""
+        order = []  # 记录动作顺序。
+        entry = Box(705, 434, 153, 144, confidence=1, name="ark_simulation_room")  # 模拟室入口命中框。
+        with patch.object(self.task, "find_one", return_value=entry), \
+                patch.object(self.task, "click_box", side_effect=lambda *a, **k: order.append("click")), \
+                patch.object(self.task, "_close_simulation_overclock_popup",
+                             side_effect=lambda: order.append("close") or True):
+            self.task._enter_simulation_room()
+        self.assertEqual(["click", "close"], order)  # 先点入口再关弹窗；随后由 transition 确认界面。
+
+    def test_enter_simulation_room_skips_click_when_entry_absent(self):
+        """补点轮入口已不可见：不再点击，但仍补关一次弹窗（容忍弹窗弹出动画未渲染完）。"""
+        with patch.object(self.task, "find_one", return_value=None), \
+                patch.object(self.task, "click_box", side_effect=AssertionError("入口不可见不应点击")), \
+                patch.object(self.task, "_close_simulation_overclock_popup") as close_mock:
+            self.task._enter_simulation_room()
+        close_mock.assert_called_once()  # 弹窗照常补关。
+
+    def test_close_simulation_overclock_popup_clicks_close_button(self):
+        """弹窗命中时点击右上角关闭按钮并返回 True。"""
+        close = Box(1563, 548, 30, 29, confidence=1, name="simulation_overclock_update_close")  # 关闭按钮命中框。
+        with patch.object(self.task, "find_one", return_value=close), \
+                patch.object(self.task, "click_box") as click_mock:
+            self.assertTrue(self.task._close_simulation_overclock_popup())  # 应返回已处理。
+        self.assertEqual([close], [c.args[0] for c in click_mock.call_args_list])  # 恰好点击一次关闭按钮。
+
+    def test_close_simulation_overclock_popup_noop_without_popup(self):
+        """当前帧无该弹窗时返回 False 且不点击。"""
+        with patch.object(self.task, "find_one", return_value=None), \
+                patch.object(self.task, "click_box", side_effect=AssertionError("无弹窗不应点击")):
+            self.assertFalse(self.task._close_simulation_overclock_popup())  # 应返回未处理。
+
+    def test_recover_to_lobby_closes_simulation_popup_first(self):
+        """失败恢复：模拟室超频更新弹窗是模态框，会吞掉主页点击，恢复前先关掉。"""
+        order = []  # 记录动作顺序。
+        with patch.object(self.task, "_cheer_dialog_open", return_value=False), \
+                patch.object(self.task, "_close_simulation_overclock_popup",
+                             side_effect=lambda: order.append("close")), \
+                patch.object(NavigationMixin, "_recover_to_lobby",
+                             side_effect=lambda **kwargs: order.append("base") or True):
+            self.assertTrue(self.task._recover_to_lobby())
+        self.assertEqual(["close", "base"], order)  # 先关弹窗，再走基类恢复协议。
 
     def test_flow_full_success_skips_level_and_toggle(self):
         red_dot = Box(1387, 804, 36, 45, confidence=1, name="red_dot")  # 徽标红点。
@@ -667,7 +727,7 @@ class TestArkTaskSimulation(_DebugOffTestCase):
                 patch.object(self.task, "dismiss_all_popups") as dismiss_mock:
             self.task._do_simulation_flow()
         clicked = [c.args[0] for c in click_mock.call_args_list]
-        self.assertEqual(["ark_simulation_room", "simulation_quick_battle_finishi", "common_back"], clicked)
+        self.assertEqual(["simulation_quick_battle_finishi", "common_back"], clicked)
         self.assertEqual([red_dot, "box_simulation_region_selector", quick],
                          [c.args[0] for c in click_box_mock.call_args_list])
         dismiss_mock.assert_called_once()
@@ -689,7 +749,7 @@ class TestArkTaskSimulation(_DebugOffTestCase):
                 patch.object(self.task, "dismiss_all_popups"):
             self.task._do_simulation_flow()
         clicked = [c.args[0] for c in click_mock.call_args_list]
-        self.assertEqual(["ark_simulation_room", "simulation_level5", "simulation_quick_battle_finishi",
+        self.assertEqual(["simulation_level5", "simulation_quick_battle_finishi",
                           "common_back"], clicked)
         self.assertEqual([red_dot, "box_simulation_region_selector", switch_box, quick],
                          [c.args[0] for c in click_box_mock.call_args_list])
@@ -711,7 +771,7 @@ class TestArkTaskSimulation(_DebugOffTestCase):
                 patch.object(self.task, "dismiss_all_popups") as dismiss_mock:
             self.task._do_simulation_flow()
         clicked = [c.args[0] for c in click_mock.call_args_list]
-        self.assertEqual(["ark_simulation_room", "common_back"], clicked)
+        self.assertEqual(["common_back"], clicked)
         self.assertEqual([red_dot, "box_simulation_region_selector"],
                          [c.args[0] for c in click_box_mock.call_args_list])
         dismiss_mock.assert_not_called()
@@ -759,20 +819,11 @@ class TestArkTaskSimulation(_DebugOffTestCase):
 
     def test_simulation_screen_registered(self):
         self.assertIn("simulation_room", self.task.screens)  # 模拟室界面已注册。
-        self.assertEqual(["simulation_mark", "simulation_overclock_update"],
-                         self.task.screens["simulation_room"]["any_features"])  # 室徽或超频更新弹窗任一命中即判定。
-
-    def test_simulation_screen_matched_by_overclock_update_popup(self):
-        """回归：超频更新弹窗遮挡室徽时仍判定为模拟室（否则 transition 判未进入、整段跳过）。"""
-        def find_feature(name, *args, **kwargs):
-            return Box(1186, 547, 187, 29, confidence=1,
-                       name=name) if name == "simulation_overclock_update" else None  # 仅弹窗命中，室徽被遮挡。
-
-        with patch.object(self.task, "_find_feature_cached", side_effect=find_feature):
-            self.assertTrue(self.task.is_screen("simulation_room"))  # 弹窗只在模拟室出现，命中即视为已进入。
+        self.assertEqual(["simulation_mark"], self.task.screens["simulation_room"]["features"],
+                         "判据只有室徽：超频更新弹窗由入口流程在判定前关掉")
 
     def test_simulation_screen_matched_by_mark(self):
-        """无弹窗的正常帧：室徽命中即判定为模拟室。"""
+        """正常帧：室徽命中即判定为模拟室。"""
         def find_feature(name, *args, **kwargs):
             return Box(1172, 680, 96, 93, confidence=1,
                        name=name) if name == "simulation_mark" else None  # 仅室徽命中。
@@ -781,7 +832,7 @@ class TestArkTaskSimulation(_DebugOffTestCase):
             self.assertTrue(self.task.is_screen("simulation_room"))
 
     def test_simulation_screen_not_matched_without_evidence(self):
-        """两者均未命中（如仍在方舟界面）时不得判定为模拟室。"""
+        """室徽未命中（如仍在方舟界面、或弹窗还没关掉）时不得判定为模拟室。"""
         with patch.object(self.task, "_find_feature_cached", return_value=None):
             self.assertFalse(self.task.is_screen("simulation_room"))
 
@@ -2035,12 +2086,14 @@ class TestArkTaskChampionArena(_DebugOffTestCase):
         """失败恢复：应援弹窗开着时先关弹窗（否则模态框吞掉主页点击，重试直接放弃）。"""
         with patch.object(self.task, "_cheer_dialog_open", return_value=True), \
                 patch.object(self.task, "_close_cheer_dialog") as close_mock, \
+                patch.object(self.task, "_close_simulation_overclock_popup", return_value=False), \
                 patch.object(NavigationMixin, "_recover_to_lobby", return_value=True) as base_mock:
             self.assertTrue(self.task._recover_to_lobby())
         close_mock.assert_called_once()  # 先关弹窗。
         base_mock.assert_called_once()  # 再走基类恢复协议。
         with patch.object(self.task, "_cheer_dialog_open", return_value=False), \
                 patch.object(self.task, "_close_cheer_dialog") as close_mock, \
+                patch.object(self.task, "_close_simulation_overclock_popup", return_value=False), \
                 patch.object(NavigationMixin, "_recover_to_lobby", return_value=True):
             self.task._recover_to_lobby()
         close_mock.assert_not_called()  # 弹窗没开时不额外点击。

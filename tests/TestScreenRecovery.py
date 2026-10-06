@@ -36,7 +36,7 @@ class TestScreenRecovery(TaskTestCase):
             "login_page": {"keywords": [LOGIN_PAGE_PATTERN], "ocr_box": "box_enter_game"},
             "ark": {"features": ["ark_tribe_tower", "ark_simulation_room"]},
             "tribe_tower": {"features": ["tribe_tower_mark"]},
-            "simulation_room": {"any_features": ["simulation_mark", "simulation_overclock_update"]},
+            "simulation_room": {"features": ["simulation_mark"]},
             "shop": {"keywords": [_keyword("百货商店")], "ocr_box": "box_sub_pages_title"},
             "cash_shop_limited_time_page": {"features": ["cash_shop_limited_time_package"]},
             "cash_shop_ordinary_page": {"features": ["cash_shop_ordinary_package"],

@@ -43,8 +43,8 @@ SCREENS = {
     "login_page": {"keywords": [LOGIN_PAGE_PATTERN], "ocr_box": "box_enter_game"},
     "ark": {"features": ["ark_tribe_tower", "ark_simulation_room"]},
     "tribe_tower": {"features": ["tribe_tower_mark"]},
-    # 模拟室：超频更新弹窗会遮住室徽 simulation_mark，故把该弹窗也列为判据（命中即已进入）。
-    "simulation_room": {"any_features": ["simulation_mark", "simulation_overclock_update"]},
+    # 模拟室：超频更新公告弹出时会完全盖住室徽，故入口流程在判定界面前先关掉它（见 ArkTask._enter_simulation_room）。
+    "simulation_room": {"features": ["simulation_mark"]},
     "shop": {"keywords": [_keyword("百货商店")], "ocr_box": "box_sub_pages_title"},
     # 付费商店内的两个礼包子页面：页面标题特征互相误命中（普通页标记在限时页上实测 0.862 > 阈值），
     # 故用 absent 消歧；置于 cash_shop 之前，使 current_screen() 优先报出更细的子页面。
