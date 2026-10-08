@@ -10,13 +10,14 @@ from src.tasks.DailyTask import DailyTask  # 导入待测任务类（继承 Nikk
 
 
 class TestDailyLoginRewardPopup(TaskTestCase):
-    """登录奖励（DAILY LOGIN）弹窗清理：领奖/关闭分支与在 _try_close_one_popup 中的顺序。
+    """登录奖励（DAILY LOGIN）界面清理：领奖/关闭分支与在 _try_close_one_popup 中的顺序。
 
     全部用 mock 驱动，不依赖 dev_tools 下的实机截图（该目录不入仓）。
 
-    判据选取受一条实机约束驱动：七天制小型登录奖励每期面板皮肤不同、领完就不再弹，
-    故存在判据只认「全部领取」文字（OCR）；关闭动作不识别面板右上角 X（模板随皮肤失效、
-    需持续追加），走基类通用 close_popup_by_blank（点面板外空白 + 判据消失确认）。
+    判据选取受一条实机约束驱动：七天制小型登录奖励每期界面皮肤不同、领完就不再弹，
+    故存在判据只认「全部领取」文字（OCR）；关闭动作不识别界面右上角 X（模板随皮肤失效、
+    需持续追加），按界面形态二选一——整页奖励界面（同活动签到奖励页）面板外没有可点的
+    空白遮罩，走基类 _find_back_button + 点返回键；模态面板形态才走 close_popup_by_blank。
     """
 
     task_class = DailyTask
@@ -46,11 +47,19 @@ class TestDailyLoginRewardPopup(TaskTestCase):
         from ok.feature.Box import Box  # 导入 Box 构造检测框。
         return Box(x, y, w, h, name=name)  # 返回构造的框。
 
-    def _run_close(self, claim_text=None, enabled=True, blank_close=True):
-        """以预设的 OCR 命中、底色可用性与点空白结果执行一次 _close_daily_login_popup。
+    def _run_close(self, claim_text=None, enabled=True, blank_close=True, back=None, back_close=True):
+        """以预设的 OCR 命中、底色可用性、返回键与关闭确认结果执行一次 _close_daily_login_popup。
+
+        Args:
+            claim_text: 「全部领取」OCR 命中框（None = 当前帧无登录奖励界面）。
+            enabled: 按钮底色是否彩色（有可领奖励）。
+            blank_close: close_popup_by_blank（点空白关闭）的返回值。
+            back: _find_back_button 的命中框（非 None = 整页形态奖励界面）。
+            back_close: 点返回键后 verify 的确认结果（False = 补点后仍未确认关闭）。
 
         Returns:
-            (返回值, 被点击的框列表, close_popup_by_blank 的 mock, 记录 {ocr_box, expanded})。
+            (返回值, 被点击的框列表, close_popup_by_blank 的 mock,
+             记录 {ocr_box, expanded, verify, verify_now, back_mock})。
         """
         info = {}  # 收集调用参数用于断言。
         clicked = []  # 收集被点击的框。
@@ -63,15 +72,23 @@ class TestDailyLoginRewardPopup(TaskTestCase):
             info['expanded'] = box  # 记录被判色的框（应已是外扩后的）。
             return enabled
 
+        def fake_wait(condition, **_kwargs):  # 模拟关闭确认等待：记录判据并按预设结果返回。
+            info['verify'] = condition  # 记录关闭判据（供断言判据语义）。
+            info['verify_now'] = condition()  # 在 mock 生效期间求值判据（离开 with 后 OCR 已还原为真实实现）。
+            return back_close
+
         with patch.object(self.task, 'find_one', return_value=None), \
                 patch.object(self.task, 'ocr', side_effect=fake_ocr), \
                 patch.object(self.task, 'is_feature_enabled', side_effect=fake_enabled), \
                 patch.object(self.task, 'click_box', side_effect=lambda box, **_k: clicked.append(box)), \
                 patch.object(self.task, 'close_popup_by_blank',
                              return_value=blank_close) as blank_mock, \
+                patch.object(self.task, '_find_back_button', return_value=back) as back_mock, \
+                patch.object(self.task, 'wait_until', side_effect=fake_wait), \
                 patch.object(self.task, 'close_overlay'), \
                 patch.object(self.task, 'sleep'):  # 屏蔽 after_sleep 等待。
             result = self.task._close_daily_login_popup()
+        info['back_mock'] = back_mock  # 返回键定位 mock，供断言是否被咨询。
         return result, clicked, blank_mock, info
 
     def test_claim_all_clicked_when_button_colorful(self):
@@ -83,7 +100,7 @@ class TestDailyLoginRewardPopup(TaskTestCase):
         blank_mock.assert_not_called()  # 可领时不点空白。
 
     def test_blank_close_when_button_gray_out(self):
-        """按钮底色灰白（已领完/无可领）时跳过领取，走通用点空白关闭。"""
+        """按钮底色灰白（已领完/无可领）且未命中返回键（模态面板形态）时跳过领取，走通用点空白关闭。"""
         text = self._box(name='全部领取')  # 模拟 OCR 文字框仍命中。
         result, clicked, blank_mock, _ = self._run_close(claim_text=text, enabled=False)
         self.assertTrue(result)  # 返回已处理。
@@ -99,6 +116,32 @@ class TestDailyLoginRewardPopup(TaskTestCase):
         result, clicked, _, _ = self._run_close(claim_text=text, enabled=False, blank_close=False)
         self.assertFalse(result)  # 返回未处理。
         self.assertEqual([], clicked)  # 不点领取按钮。
+
+    def test_back_button_closes_full_page_reward(self):
+        """整页形态的奖励界面（同活动签到奖励页）面板外没有可点的空白：命中返回键时点返回键关闭，不点空白。"""
+        text = self._box(name='全部领取')  # 模拟 OCR 文字框仍命中（按钮已灰白）。
+        back = self._box(name='common_back')  # 模拟返回键命中框。
+        result, clicked, blank_mock, info = self._run_close(claim_text=text, enabled=False, back=back)
+        self.assertTrue(result)  # 返回已处理。
+        self.assertEqual([back], clicked)  # 只点返回键，不点领取按钮。
+        blank_mock.assert_not_called()  # 整页形态不走点空白。
+        self.assertFalse(info['verify_now'])  # 关闭判据仍是「全部领取」文字消失：文字仍在 = 未关闭。
+
+    def test_back_button_failure_returns_false(self):
+        """点返回键后未能确认关闭时返回 False（交由外层继续轮转），不退化去点空白。"""
+        text = self._box(name='全部领取')  # 模拟 OCR 文字框仍命中。
+        back = self._box(name='common_back')  # 模拟返回键命中框。
+        result, clicked, blank_mock, _ = self._run_close(
+            claim_text=text, enabled=False, back=back, back_close=False)
+        self.assertFalse(result)  # 返回未处理。
+        self.assertEqual([back] * self.task._MODAL_BLANK_CLOSE_ATTEMPTS, clicked)  # 按补点次数点满返回键。
+        blank_mock.assert_not_called()  # 返回键在时不退回点空白。
+
+    def test_back_button_not_consulted_without_claim_text(self):
+        """「全部领取」文字未命中 = 当前帧无登录奖励界面，不查返回键（避免在正常界面上误点返回）。"""
+        result, _, _, info = self._run_close(claim_text=None)
+        self.assertFalse(result)  # 返回未处理。
+        info['back_mock'].assert_not_called()  # 界面判据未命中时不定位返回键。
 
     def test_no_action_when_claim_text_missing(self):
         """「全部领取」文字未命中 = 当前帧无登录奖励弹窗，不产生任何点击。"""

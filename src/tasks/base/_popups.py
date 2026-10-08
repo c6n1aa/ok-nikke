@@ -13,7 +13,7 @@ def _boxes_overlap(a: Box, b: Box) -> bool:
 
 
 class PopupsMixin:
-    """弹窗/遮罩统一清理：公告横幅、卢比限时特卖、登录奖励面板与各类领奖遮罩。
+    """弹窗/遮罩统一清理：公告横幅、卢比限时特卖、登录奖励界面与各类领奖遮罩。
 
     统一入口 `dismiss_all_popups` 循环调用 `_try_close_one_popup`；新增弹窗只挂
     后者（`_close_xxx_popup` 每次只走一步，多段由外层逐轮推进）。
@@ -63,6 +63,27 @@ class PopupsMixin:
     _MASK_ANYWHERE_PATTERN = re.compile("点击任意处", re.IGNORECASE)  # 点击任意处关闭遮罩提示。
     _CLICK_TO_PROCEED_PATTERN = re.compile("点击进行", re.IGNORECASE)  # 「点击进行下一步」好感度提升等遮罩提示。
 
+    def _close_modal_by_click(self, click, verify, attempts=None, time_out=3):
+        """重复执行 click 并用 verify 判据确认关闭，未确认则补点。
+
+        模态弹窗（点面板外空白）与整页奖励界面（点返回键）关闭动作不同，但补点与确认语义一致：
+        首次点击可能被领奖遮罩吞掉，故按 attempts 补点，每轮都用 verify 确认。
+
+        Args:
+            click: 无参可调用，执行一次关闭动作。
+            verify: 无参可调用，返回 True 表示弹窗已关闭（判据已消失）。
+            attempts: 最大点击次数（含首次），缺省用 _MODAL_BLANK_CLOSE_ATTEMPTS。
+            time_out: 每次点击后等待 verify 成立的最长秒数。
+        Returns:
+            True 已确认关闭；False 点击耗尽仍未确认关闭。
+        """
+        attempts = self._MODAL_BLANK_CLOSE_ATTEMPTS if attempts is None else attempts  # 缺省补点次数。
+        for _ in range(attempts):  # 逐次点击并验证。
+            click()  # 执行一次关闭动作。
+            if self.wait_until(verify, time_out=time_out, raise_if_not_found=False):  # 弹窗关闭判据成立 = 关闭完成。
+                return True  # 返回关闭成功。
+        return False  # 返回关闭失败。
+
     def close_popup_by_blank(self, verify, x=None, y=None, attempts=None, time_out=3, raise_on_fail=False):
         """点击面板外空白关闭模态弹窗，按 verify 判据确认关闭，未关闭则补点。
 
@@ -82,14 +103,11 @@ class PopupsMixin:
         """
         x = self._MODAL_BLANK_CLOSE_X if x is None else x  # 缺省点击坐标 x。
         y = self._MODAL_BLANK_CLOSE_Y if y is None else y  # 缺省点击坐标 y。
-        attempts = self._MODAL_BLANK_CLOSE_ATTEMPTS if attempts is None else attempts  # 缺省补点次数。
-        for _ in range(attempts):  # 逐次点击并验证。
-            self.click_relative(x, y, after_sleep=1)  # 点击面板外空白遮罩区。
-            if self.wait_until(verify, time_out=time_out, raise_if_not_found=False):  # 弹窗关闭判据成立 = 关闭完成。
-                return True  # 返回关闭成功。
-        if raise_on_fail:  # 调用方要求关闭失败必须抛错。
+        closed = self._close_modal_by_click(  # 点击面板外空白遮罩区并确认关闭，未关闭则补点。
+            lambda: self.click_relative(x, y, after_sleep=1), verify, attempts, time_out)
+        if not closed and raise_on_fail:  # 调用方要求关闭失败必须抛错。
             raise WaitFailedException("点击空白未能关闭模态弹窗")  # 抛异常交由 try_step 恢复。
-        return False  # 返回关闭失败。
+        return closed  # 返回关闭结果。
 
     def _confirm_server_select(self):
         """服务器选择界面：OCR 识别 box_server_select 区域内的「选择」文字，命中则点击 server_select_confirm 确认，返回是否已处理。
@@ -219,36 +237,51 @@ class PopupsMixin:
         return False
 
     def _close_daily_login_popup(self):
-        """处理登录奖励（DAILY LOGIN）弹窗：有可领奖励先点「全部领取」，无可领则点击面板外空白关闭。
+        """处理登录奖励（DAILY LOGIN）界面：有可领奖励先点「全部领取」，无可领则关闭界面。
 
-        「全部领取」一次性领取多档登录奖励，点击后会弹出奖励遮罩盖住面板；本方法在
+        「全部领取」一次性领取多档登录奖励，点击后会弹出奖励遮罩盖住界面；本方法在
         点击领取后立即等待并关闭该遮罩，再交由 dismiss_all_popups 的下一轮判定按钮
-        是否变灰、进而点击空白关闭面板。遮罩的关闭提示与其它领奖遮罩共用（点击领取奖励/
+        是否变灰、进而关闭界面。遮罩的关闭提示与其它领奖遮罩共用（点击领取奖励/
         点击任意处/点击进行下一步），故复用 close_overlay 统一清理。
 
-        弹窗存在判据只有「全部领取」文字：面板皮肤每期不同，文字是唯一跨皮肤不变的元素，
-        模板类判据（如关闭 X）会随皮肤失效；文字未命中即视为无面板（文字被奖励遮罩盖住的
-        情况由 _try_close_one_popup 的遮罩分支先处理）。
+        存在判据只有「全部领取」文字：界面美术每期不同，文字是唯一跨皮肤不变的元素，
+        模板类判据（如关闭 X）会随皮肤失效；文字未命中即视为无该界面（文字被奖励遮罩
+        盖住的情况由 _try_close_one_popup 的遮罩分支先处理）。
+
+        关闭动作按界面形态二选一：整页奖励界面（同活动签到奖励页）面板外没有可点的
+        空白遮罩，只能点返回键退出，故返回键在即用返回键；模态面板形态才点面板外空白。
         """
-        # 任务弹窗（mission）底部也有「全部领取」按钮，文字与登录奖励弹窗相同、且都在屏幕下半区，
-        # 单看 OCR 无法区分：用任务弹窗标题特征消歧，任务弹窗在前时这里是任务页按钮，不是登录奖励弹窗，跳过以免误点。
-        if self.find_one("mission_page") is not None:  # 命中任务弹窗标题 = 当前在任务页而非登录奖励弹窗。
+        # 任务弹窗（mission）底部也有「全部领取」按钮，文字与登录奖励界面相同、且都在屏幕下半区，
+        # 单看 OCR 无法区分：用任务弹窗标题特征消歧，任务弹窗在前时这里是任务页按钮，不是登录奖励界面，跳过以免误点。
+        if self.find_one("mission_page") is not None:  # 命中任务弹窗标题 = 当前在任务页而非登录奖励界面。
             return False  # 跳过，避免误点任务页的「全部领取」。
         claim = self._find_daily_login_claim_all()  # 查找「全部领取」文字。
-        if claim is None:  # 无文字 = 当前帧无登录奖励弹窗。
+        if claim is None:  # 无文字 = 当前帧无登录奖励界面。
             return False  # 返回未处理。
         if self._other_claim_all_panel_present():  # 文字属于其它也带该按钮的面板（活动任务弹窗等）：先判出面板归属再决定点不点。
-            return False  # 跳过，避免把别的面板当登录奖励弹窗点击。
+            return False  # 跳过，避免把别的面板当登录奖励界面点击。
         if self.is_feature_enabled(self._daily_login_button_box(claim)):  # 底色彩色 = 仍有可领奖励。
             self.click_box(claim, after_sleep=1)  # 点击领取。
             self.log_info("已点击登录奖励全部领取。")  # 记录动作。
-            # 领取后弹出奖励遮罩（盖住面板）：等待并关闭，避免遮罩残留或下一轮误点面板的关闭按钮。
+            # 领取后弹出奖励遮罩（盖住界面）：等待并关闭，避免遮罩残留或下一轮误点界面的关闭按钮。
             self.close_overlay(
                 keywords=(self._MASK_CLAIM_PATTERN, self._MASK_ANYWHERE_PATTERN, self._CLICK_TO_PROCEED_PATTERN),
                 time_out=5  # 遮罩并非必现（可能无奖励动画），超时未出现不报错。
             )
             return True  # 返回已处理。
-        if not self.close_popup_by_blank(lambda: self._find_daily_login_claim_all() is None):  # 无可领（按钮灰白）：点空白关闭，按「全部领取」文字消失确认关闭。
+
+        def verify():  # 关闭判据：「全部领取」文字消失（两种形态共用同一判据）。
+            return self._find_daily_login_claim_all() is None
+
+        # 整页形态的奖励界面（同活动签到奖励页）面板外没有可点的空白遮罩，只能点返回键退出。
+        back = self._find_back_button()  # 三层兜底定位返回键（模板精确 → 左下角区域 → OCR「返回」）。
+        if back is not None:  # 返回键在 = 整页形态。
+            if self._close_modal_by_click(lambda: self.click_box(back, after_sleep=1), verify):  # 点返回键退出整页界面。
+                self.log_info("已点击返回键关闭登录奖励界面。")  # 记录动作。
+                return True  # 返回已处理。
+            self.log_warning("点击返回键未能关闭登录奖励界面。")  # 记录失败（返回键可能被吞或界面自行关闭）。
+            return False  # 返回未处理。
+        if not self.close_popup_by_blank(verify):  # 无可领（按钮灰白）且非整页形态：点面板外空白关闭。
             self.log_warning("点击空白未能关闭登录奖励弹窗。")  # 记录失败（面板可能已自行关闭或点击被吞）。
             return False  # 返回未处理。
         self.log_info("已关闭登录奖励弹窗。")  # 记录动作。
