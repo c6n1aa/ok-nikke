@@ -11,7 +11,7 @@ class HarvestTask(NikkeBaseTask):  # 定义收获子任务类：收取友情点�
 
     _RED_DOT_TEMPLATE = 'assets/template/common/badge.png'  # 通知红点模板：与任务弹窗共用，模板匹配优先命中角标红点。
     _PASS_ENTRY_FEATURES = ("pass_switch", "pass_selector")  # 大厅 PASS 入口的两种形态：任一存在即代表多个 PASS 可切换。
-    _PASS_DOT_TO_CENTER = 48  # PASS 红点中心到横幅中心的 y 偏移（实测两种活动横幅行数布局为 47.5 / 47）。
+    _PASS_DOT_TO_CENTER = 48  # PASS 红点中心到横幅中心的 y 偏移（2560x1440 标定，实测两种活动横幅行数布局为 47.5 / 47），运行时按分辨率缩放。
     _PASS_SWIPE_LIMIT = 8  # 多个 PASS 翻页查找红点的总次数上限，超过也标记完成。
     _PASS_FLICK_STEPS = 20  # 加速度翻页的插值步数（每步停顿 10ms，总拖拽约 0.2 秒）。
     _PASS_FLICK_STEP_SLEEP = 0.01  # 每步插值停顿秒数。
@@ -119,9 +119,13 @@ class HarvestTask(NikkeBaseTask):  # 定义收获子任务类：收取友情点�
     def _pass_multi(self):  # 是否多个 PASS：大厅存在 pass_switch/pass_selector 任一即说明 PASS 可切换。
         return self._find_pass_icon() is not None  # 任一入口特征存在即多个 PASS。
 
+    def _pass_click_offset(self):  # 红点中心到横幅中心的 y 偏移（像素）：标定值按当前分辨率缩放，无帧（测试环境）时用标定值。
+        scale = self._ref_scale()  # 当前分辨率相对 2560x1440 标定截图的缩放比（无帧返回 0）。
+        return round(self._PASS_DOT_TO_CENTER * (scale if scale > 0 else 1.0))  # 红点框尺寸已随分辨率缩放，偏移必须同步缩放。
+
     def _pass_click_point(self, red_dot):  # PASS 横幅上的点击点：x 取 box_pass_area 中心（与横幅行数无关），y 由红点中心下推。
         area = self.get_box_by_name("box_pass_area")  # box_pass_area 是纵向条带，运行时只取它的 x 与宽度。
-        return area.x + area.width // 2, red_dot.y + red_dot.height // 2 + self._PASS_DOT_TO_CENTER  # 红点在横幅右上角，偏移固定。
+        return area.x + area.width // 2, red_dot.y + red_dot.height // 2 + self._pass_click_offset()  # 红点在横幅右上角，偏移已按分辨率缩放。
 
     def _open_pass_modal(self, swipes, multi):  # 从大厅打开 PASS 模态框：翻页找红点，命中后点击徽章并确认模态框打开。返回 (是否已打开, 累计翻页次数)。
         red_dot = self.find_red_dot("box_pass_badge", template_path=self._RED_DOT_TEMPLATE, use_color_fallback=False)  # 在 PASS 徽章区域检测通知红点（模板匹配优先）。

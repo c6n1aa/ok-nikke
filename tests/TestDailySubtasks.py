@@ -264,11 +264,20 @@ class TestHarvestTask(_DebugOffTestCase):
         self.assertEqual(0, swipes)  # 单个 PASS 不翻页，累计翻页次数不变。
         dot_mock.assert_called_once_with("box_pass_badge", template_path=self.task._RED_DOT_TEMPLATE,
                                           use_color_fallback=False)
-        assert_called_once_semantic(click_mock, 225, 54)  # x 取 box_pass_area 中心(200+25)，y = 红点中心(1+5) + 横幅偏移。
+        assert_called_once_semantic(click_mock, 225, 54)  # x 取 box_pass_area 中心(200+25)，y = 红点中心(1+5) + 标定偏移 48（测试环境无帧，缩放比按标定值 1.0）。
         kwargs = ocr_wait_mock.call_args.kwargs  # 打开判据走页签文字 OCR，不用随皮肤变的徽章模板。
         self.assertEqual(list(self.task._PASS_TAB_PATTERNS), kwargs["match"])
         self.assertFalse(kwargs["raise_if_not_found"])  # 未命中由本方法抛带原因的异常。
         self.assertEqual("pass_tab_area", kwargs["box"].name)
+
+    def test_pass_click_point_scales_offset_by_resolution(self):
+        """点击点的 y 偏移随分辨率等比缩放：1080p 下 2560x1440 标定的 48 应为 36，否则点击点偏低 12px。"""
+        area = _fake_box("box_pass_area", 200, 300, 50, 60)  # 纵向条带：只取 x/宽度。
+        dot = _fake_box("dot")  # 红点框 (1,1,10,10)：中心 y = 1+5 = 6。
+        with patch.object(HarvestTask, "width", new_callable=PropertyMock, return_value=1920), \
+                patch.object(HarvestTask, "height", new_callable=PropertyMock, return_value=1080), \
+                patch.object(self.task, "get_box_by_name", return_value=area):
+            self.assertEqual((225, 42), self.task._pass_click_point(dot))  # x = 200+25；y = 6 + round(48*0.75) = 42。
 
     def test_open_pass_modal_raises_when_tab_text_missing(self):
         from ok.task.exceptions import WaitFailedException
@@ -314,7 +323,7 @@ class TestHarvestTask(_DebugOffTestCase):
         self.assertEqual(2, swipes)  # 前两页各翻一次，第三页命中。
         self.assertEqual(2 * self.task._PASS_FLICK_STEPS, move_mock.call_count)  # 前两页各翻页 20 步加速插值，第三页命中。
         self.assertEqual(3, dot_mock.call_count)  # 每次翻页后重新检测红点。
-        assert_called_once_semantic(click_mock, 110, 54)  # x 取 box_pass_area 中心(100+10)，y = 红点中心(1+5) + 横幅偏移。
+        assert_called_once_semantic(click_mock, 110, 54)  # x 取 box_pass_area 中心(100+10)，y = 红点中心(1+5) + 标定偏移 48（测试环境无帧，缩放比按标定值 1.0）。
 
     def test_open_pass_modal_multi_caps_at_limit(self):
         icon = _fake_box("pass_switch", 30, 100, 30, 24)

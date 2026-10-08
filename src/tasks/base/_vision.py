@@ -31,6 +31,14 @@ class VisionMixin:
         """在大厅右列区域内搜索入口特征，命中返回 Box，未命中返回 None。"""
         return self.find_one(name, box=self._lobby_right_panel(), use_gray_scale=use_gray_scale)  # 区域内模板匹配。
 
+    def _ref_scale(self, ref_width=event_calendar.REF_WIDTH, ref_height=event_calendar.REF_HEIGHT):
+        """当前分辨率相对标定截图的等比缩放比（取 min，与框架 adjust_coordinates 同口径）；无帧（测试环境）返回 0。
+
+        以 2560x1440 标定截图实测出的像素常量（模板尺寸、坐标偏移、行距等）在运行时都要按它缩放，
+        由调用方决定缩放比无效（返回 0）时用标定值还是视为未命中。
+        """
+        return event_calendar.screen_scale(self.width, self.height, ref_width, ref_height)  # 单一实现，勿在别处重写该公式。
+
     def find_scaled_template(self, feature_name: str, template_path: str, ref_width: int = 2560,
                              ref_height: int = 1440, **kwargs):
         """读取 assets/template 下的小图模板，按当前游戏分辨率等比缩放后匹配（模板源自 ref_width x ref_height 截图裁剪）。
@@ -44,7 +52,7 @@ class VisionMixin:
         Returns:
             Box | None。
         """
-        scale = min(self.width / ref_width, self.height / ref_height)  # 等比例缩放，取小者避免超出
+        scale = self._ref_scale(ref_width, ref_height)  # 当前分辨率相对模板标定分辨率的等比缩放比。
         if scale <= 0:  # 分辨率无效（如测试环境无窗口/无帧）时无法缩放，视为未命中。
             return None
         cache_key = (os.path.abspath(template_path), round(scale, 6))
