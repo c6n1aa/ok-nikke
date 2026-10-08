@@ -11,6 +11,7 @@ class HarvestTask(NikkeBaseTask):  # 定义收获子任务类：收取友情点�
 
     _RED_DOT_TEMPLATE = 'assets/template/common/badge.png'  # 通知红点模板：与任务弹窗共用，模板匹配优先命中角标红点。
     _PASS_ENTRY_FEATURES = ("pass_switch", "pass_selector")  # 大厅 PASS 入口的两种形态：任一存在即代表多个 PASS 可切换。
+    _PASS_DOT_TO_CENTER = 48  # PASS 红点中心到横幅中心的 y 偏移（实测两种活动横幅行数布局为 47.5 / 47）。
     _PASS_SWIPE_LIMIT = 8  # 多个 PASS 翻页查找红点的总次数上限，超过也标记完成。
     _PASS_FLICK_STEPS = 20  # 加速度翻页的插值步数（每步停顿 10ms，总拖拽约 0.2 秒）。
     _PASS_FLICK_STEP_SLEEP = 0.01  # 每步插值停顿秒数。
@@ -67,7 +68,9 @@ class HarvestTask(NikkeBaseTask):  # 定义收获子任务类：收取友情点�
         self.log_info("PASS收取完成。")  # 记录任务完成。
 
     def _collect_friend(self):  # 收取友情点子流程。
-        self.wait_click_feature("friend", time_out=10, raise_if_not_found=True, after_sleep=1)  # 点击好友入口进入好友页。
+        # 好友入口的 y 随大厅活动横幅行数漂移，按右列区域搜索而不是按标注锚点匹配。
+        self.wait_click_feature("friend", box=self._lobby_right_panel(), time_out=10, raise_if_not_found=True,
+                                after_sleep=1)  # 点击好友入口进入好友页。
         self.wait_feature("friend_close", time_out=10, raise_if_not_found=True)  # 确认好友页已打开（面板内独有的关闭按钮）。
         gift_box = self.get_box_by_name("box_friend_gift_feature")  # 获取送礼按钮区域（box_ 前缀特征为纯坐标区域，已按当前分辨率缩放）。
         if self.wait_until(lambda: self.is_feature_enabled(gift_box), time_out=5, raise_if_not_found=False):  # 等待送礼按钮变为可用（高亮彩色）；超时说明今日已送完或页面异常。
@@ -106,8 +109,19 @@ class HarvestTask(NikkeBaseTask):  # 定义收获子任务类：收取友情点�
             self._swipe_pass_page()  # 当前 PASS 已领完，翻页继续找下一个带红点的 PASS。
             swipes += 1  # 翻页次数加一。
 
+    def _find_pass_icon(self):  # 在右列区域内搜索 PASS 切换图标（横幅左端，x 固定、y 随活动横幅行数漂移），未命中返回 None。
+        for name in self._PASS_ENTRY_FEATURES:  # 两种形态互斥：命中任一即说明 PASS 可切换。
+            icon = self._find_lobby_right_entry(name)  # 区域内模板匹配。
+            if icon is not None:  # 命中该形态。
+                return icon  # 返回图标框。
+        return None  # 两种形态都没命中。
+
     def _pass_multi(self):  # 是否多个 PASS：大厅存在 pass_switch/pass_selector 任一即说明 PASS 可切换。
-        return any(self.find_one(f) is not None for f in self._PASS_ENTRY_FEATURES)  # 任一入口特征存在即多个 PASS。
+        return self._find_pass_icon() is not None  # 任一入口特征存在即多个 PASS。
+
+    def _pass_click_point(self, red_dot):  # PASS 横幅上的点击点：x 取 box_pass_area 中心（与横幅行数无关），y 由红点中心下推。
+        area = self.get_box_by_name("box_pass_area")  # box_pass_area 是纵向条带，运行时只取它的 x 与宽度。
+        return area.x + area.width // 2, red_dot.y + red_dot.height // 2 + self._PASS_DOT_TO_CENTER  # 红点在横幅右上角，偏移固定。
 
     def _open_pass_modal(self, swipes, multi):  # 从大厅打开 PASS 模态框：翻页找红点，命中后点击徽章并确认模态框打开。返回 (是否已打开, 累计翻页次数)。
         red_dot = self.find_red_dot("box_pass_badge", template_path=self._RED_DOT_TEMPLATE, use_color_fallback=False)  # 在 PASS 徽章区域检测通知红点（模板匹配优先）。
@@ -121,7 +135,7 @@ class HarvestTask(NikkeBaseTask):  # 定义收获子任务类：收取友情点�
             else:  # 单 PASS 无红点或翻页后确实没有红点。
                 self.log_warning("PASS 无可领取奖励，跳过。")  # 记录跳过原因。
             return False, swipes  # 不打开模态窗，由上层收尾标记完成。
-        self.click_box("box_pass_area", after_sleep=1)  # 点击 PASS 徽章区域打开模态框（box_pass_badge 仅用于查找红点）。
+        self.click(*self._pass_click_point(red_dot), after_sleep=1)  # 点击横幅打开模态框（y 由红点推，活动横幅行数变化不影响）。
         if self.wait_ocr(box=self._pass_tab_box(), match=list(self._PASS_TAB_PATTERNS), time_out=5,
                          raise_if_not_found=False) is None:  # 页签行 OCR 到文字才算模态框已打开。
             raise WaitFailedException("PASS 模态框未打开")  # 抛异常交由 try_step 恢复回大厅重试。
@@ -134,9 +148,12 @@ class HarvestTask(NikkeBaseTask):  # 定义收获子任务类：收取友情点�
         return bool(self.ocr(box=self._pass_tab_box(), match=list(self._PASS_TAB_PATTERNS)))
 
     def _swipe_pass_page(self):  # 点击 PASS 徽章先按住 0.5 秒，再沿 x 轴加速向左滑动（flick 手感），切换当前显示的 PASS。
-        badge = self.get_box_by_name("box_pass_area")  # 获取 PASS 徽章拖拽区域（已按当前分辨率缩放）。
-        x1 = badge.x + badge.width // 2  # 滑动起点：徽章区域水平中心。
-        y = badge.y + badge.height // 2  # 滑动垂直位置：徽章区域垂直中心。
+        icon = self._find_pass_icon()  # 切换图标与横幅同高中心：用它取拖拽的垂直位置。
+        if icon is None:  # 图标缺失说明当前不是多 PASS 布局，翻页无意义。
+            raise WaitFailedException("未找到 PASS 切换图标，无法翻页")  # 抛异常交由 try_step 恢复回大厅重试。
+        area = self.get_box_by_name("box_pass_area")  # 拖拽起点的水平位置仍取 box_pass_area 中心（实测该落点能触发翻页）。
+        x1 = area.x + area.width // 2  # 滑动起点：横幅点击区水平中心。
+        y = icon.y + icon.height // 2  # 滑动垂直位置：切换图标中心（即横幅中心）。
         x2 = int(self.width * 0.5)  # 滑动终点：向左滑动约半个屏宽完成翻页。
         self.mouse_down(x1, y)  # 在徽章处按下鼠标不松开。
         for i in range(1, self._PASS_FLICK_STEPS + 1):  # 平方加速曲线插值拖动：起始慢、越滑越快，模拟真实翻页 flick 手感（框架 swipe 为匀速线性插值，无法模拟）。

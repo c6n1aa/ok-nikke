@@ -2,6 +2,7 @@ import os  # 操作系统路径模块，处理 assets/template/ 下模板文件�
 
 import cv2  # OpenCV，模板缩放匹配使用 cv2.resize / cv2.imread。
 from ok.feature.Box import Box  # 检测框对象，用于构造搜索区域与红点返回框。
+from ok.task.exceptions import WaitFailedException  # 区域特征缺失时抛出的等待失败异常。
 from ok.util.color import calculate_colorfulness  # 框架颜色工具：计算区域色彩丰富度。
 
 from src import event_calendar  # 活动图模板几何标定与缩放（纯图像/网络工具，不依赖框架）。
@@ -9,6 +10,26 @@ from src import event_calendar  # 活动图模板几何标定与缩放（纯图�
 
 class VisionMixin:
     """图像工具：缩放模板匹配、活动列表行匹配、通知红点检测、UI 元素色彩判态。"""
+
+    _LOBBY_RIGHT_PANEL = "box_lobby_right_side_panel"  # 大厅右列区域：顶部图标行以下、含活动横幅/PASS 入口/好友等活动入口。
+
+    def _lobby_right_panel(self):
+        """大厅右列区域框（已按当前分辨率缩放），供右列入口做区域搜索；缺标注时抛 WaitFailedException。
+
+        右列入口（好友、活动、PASS 切换图标）的 y 随活动横幅行数整体漂移（多一行横幅下移约 67px），
+        各自的标注锚点只在标注时的布局成立，故一律在该区域内搜索而不是按锚点匹配。
+        """
+        try:  # 特征缺失时 get_box_by_name 抛 ValueError。
+            box = self.get_box_by_name(self._LOBBY_RIGHT_PANEL)  # 获取右列区域（已按当前分辨率缩放）。
+        except ValueError:  # 标注缺失。
+            box = None  # 置空由下方统一判断。
+        if box is None:  # 区域不可用。
+            raise WaitFailedException(f"缺少区域特征: {self._LOBBY_RIGHT_PANEL}")  # 抛异常由 try_step 捕获恢复。
+        return box  # 返回区域框。
+
+    def _find_lobby_right_entry(self, name, use_gray_scale=False):
+        """在大厅右列区域内搜索入口特征，命中返回 Box，未命中返回 None。"""
+        return self.find_one(name, box=self._lobby_right_panel(), use_gray_scale=use_gray_scale)  # 区域内模板匹配。
 
     def find_scaled_template(self, feature_name: str, template_path: str, ref_width: int = 2560,
                              ref_height: int = 1440, **kwargs):

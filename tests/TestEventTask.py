@@ -1747,6 +1747,33 @@ class TestEventTask(_DebugOffTestCase):
         with patch.object(self.task, 'get_box_by_name', side_effect=ValueError('missing')):
             self.assertIsNone(self.task._list_area_box())
 
+    # ---- 大厅活动入口：右列区域搜索（横幅行数会改变入口的 y） ----
+
+    def test_enter_event_list_resolves_entry_in_right_panel(self):
+        entry = Box(2461, 608, 40, 53, confidence=1, name='event_icon')
+        with patch.object(self.task, 'is_screen', return_value=False), \
+                patch.object(self.task, '_find_lobby_right_entry', return_value=entry) as find_mock, \
+                patch.object(self.task, 'wait_until', side_effect=lambda cond, **kw: cond()), \
+                patch.object(self.task, 'transition') as transition_mock:
+            self.task._enter_event_list()
+        assert_called_once_semantic(find_mock, 'event_icon')  # 入口在右列区域内解析，不按标注锚点匹配。
+        self.assertIs(entry, transition_mock.call_args.kwargs['box'])  # 用解析到的入口框点击进列表页。
+
+    def test_enter_event_list_raises_when_entry_missing(self):
+        with patch.object(self.task, 'is_screen', return_value=False), \
+                patch.object(self.task, '_find_lobby_right_entry', return_value=None), \
+                patch.object(self.task, 'wait_until', side_effect=lambda cond, **kw: cond()), \
+                patch.object(self.task, 'transition', side_effect=AssertionError('入口缺失不应点击')):
+            with self.assertRaises(WaitFailedException):
+                self.task._enter_event_list()
+
+    def test_enter_event_list_skips_when_already_on_list_page(self):
+        with patch.object(self.task, 'is_screen', return_value=True), \
+                patch.object(self.task, '_find_lobby_right_entry',
+                             side_effect=AssertionError('已在列表页不应再找入口')), \
+                patch.object(self.task, 'transition', side_effect=AssertionError('已在列表页不应再点入口')):
+            self.task._enter_event_list()  # 幂等：直接返回。
+
     # ---- 剧情关卡页：OCR 接线与行锚点切片（方案 §5/§11 ③） ----
 
     def test_ocr_region_maps_framework_boxes(self):

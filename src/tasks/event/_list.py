@@ -70,7 +70,12 @@ class EventListMixin:
     def _enter_event_list(self):  # 大厅 -> 活动列表页（大厅右侧「活动」图标入口）。
         if self.is_screen("event_list_page"):  # 已在列表页（跨屏扫描连调 _reposition_list 时）则跳过：event_icon 是大厅图标，列表页上不存在，再点必超时。
             return  # 幂等：不重复点入口。
-        self.transition("event_list_page", click_feature=_EVENT_ICON, wait_confirm=10, after_sleep=5)  # 点击入口并确认进入列表页。
+        # 活动入口的 y 随大厅活动横幅行数漂移（多一行横幅下移约 67px），按右列区域搜索定位后再点，不按标注锚点匹配。
+        entry = self.wait_until(lambda: self._find_lobby_right_entry(_EVENT_ICON), time_out=10,
+                                raise_if_not_found=False)  # 等入口在右列区域内出现（过场动画/旧帧容忍）。
+        if entry is None:  # 入口始终没出现（大厅未就位或被弹窗遮挡）。
+            raise WaitFailedException("未找到大厅活动入口")  # 抛异常交由 try_step 恢复回大厅重试。
+        self.transition("event_list_page", box=entry, wait_confirm=10, after_sleep=5)  # 点击入口并确认进入列表页。
 
     def _pending_events(self, refresh=True):  # 待处理剧情活动快照：本地读快照；快照缺失/过期时按 refresh 决定是否联网刷新。
         snapshot = event_calendar.load_snapshot()  # 应用启动已在后台静默刷新，纯本地读。
