@@ -96,7 +96,7 @@ SCREENS = {
     "event_main": {"keywords": [_keyword("剧情活动"), _keyword("活动地区")], "ocr_box": "box_sub_pages_title"},
     # 活动关卡页：剧情入口后的关卡列表（左上标题「活动关卡」）；关卡行解析见 src/event_stage.py，
     # 列表区与难度区分别是 box_event_stage_list / box_event_stage_mode。
-    "event_stage_page": {"keywords": [_keyword("活动关卡")], "ocr_box": "box_sub_pages_title"},
+    "event_stage_page": {"keywords": [_keyword("活动关")], "ocr_box": "box_sub_pages_title"},
     # 活动挑战页：大小活动为同一套 UI（已确认），左上标题「挑战关卡」。
     # 仅用关键词「挑战」判定（不依赖 coco 特征）。
     "event_challenge_page": {"keywords": [_keyword("挑战")], "ocr_box": "box_sub_pages_title"},

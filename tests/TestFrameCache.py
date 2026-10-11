@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import patch
+from unittest.mock import PropertyMock, patch
 
 from ok.feature.Box import Box
 from ok.test.TaskTestCase import TaskTestCase
@@ -85,6 +85,28 @@ class TestFrameCache(TaskTestCase):
         self.assertEqual(2, ocr_mock.call_count)
         for call in ocr_mock.call_args_list:  # 两次都是无区域的全屏 OCR。
             self.assertNotIn("box", call.kwargs)
+
+    def test_region_ocr_upscales_and_maps_back_below_reference_resolution(self):
+        # 低分辨率下 Box 区域先按 ocr_scale.upscale 补像素再送引擎（标题小字直读会丢笔画），
+        # 引擎结果框再映射回整图坐标——框架的 get_box 不认调用方的预放大。
+        region = Box(100, 200, 50, 50, confidence=1, name="box_sub_pages_title")
+        found = Box(20, 40, 10, 20, confidence=0.9, name="命中词")  # 预放大后的裁剪图坐标。
+        with patch.object(type(self.task), "width", new_callable=PropertyMock, return_value=1600), \
+                patch.object(type(self.task), "height", new_callable=PropertyMock, return_value=900), \
+                patch.object(self.task, "ocr", return_value=[found]) as ocr_mock:
+            boxes = self.task._region_ocr_cached(("box", 100, 200, 50, 50), region)
+        self.assertEqual((100, 100, 3), ocr_mock.call_args.kwargs["frame"].shape)  # 50x50 区域 × 2 倍。
+        self.assertEqual((110, 220, 5, 10, "命中词"),
+                         (boxes[0].x, boxes[0].y, boxes[0].width, boxes[0].height, boxes[0].name))
+
+    def test_region_ocr_keeps_native_size_at_reference_resolution(self):
+        # 标定分辨率（2560x1440）及以上不放大：与旧口径一致（插值放大会糊笔画、多认噪声）。
+        region = Box(100, 200, 50, 50, confidence=1, name="box_sub_pages_title")
+        with patch.object(type(self.task), "width", new_callable=PropertyMock, return_value=2560), \
+                patch.object(type(self.task), "height", new_callable=PropertyMock, return_value=1440), \
+                patch.object(self.task, "ocr", return_value=[]) as ocr_mock:
+            self.assertEqual([], self.task._region_ocr_cached(("box", 100, 200, 50, 50), region))
+        self.assertEqual((50, 50, 3), ocr_mock.call_args.kwargs["frame"].shape)  # 原尺寸送引擎。
 
     def test_relative_coordinate_list_region(self):
         # 相对坐标列表形式的 ocr_box 走位置参数调用且参与缓存。

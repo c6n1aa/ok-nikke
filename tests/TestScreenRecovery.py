@@ -68,7 +68,7 @@ class TestScreenRecovery(TaskTestCase):
                              "feature_box": "box_conversation_icon"},
             "event_list_page": {"keywords": [_keyword("活动页面")], "ocr_box": "box_sub_pages_title"},
             "event_main": {"keywords": [_keyword("剧情活动"), _keyword("活动地区")], "ocr_box": "box_sub_pages_title"},
-            "event_stage_page": {"keywords": [_keyword("活动关卡")], "ocr_box": "box_sub_pages_title"},
+            "event_stage_page": {"keywords": [_keyword("活动关")], "ocr_box": "box_sub_pages_title"},
             "event_challenge_page": {"keywords": [_keyword("挑战")], "ocr_box": "box_sub_pages_title"},
             "event_minigame_pause_dialog": {"features": ["event_minigame_pause_close"]},
             "event_minigame_play": {"features": ["event_minigame_pause"]},
@@ -110,19 +110,27 @@ class TestScreenRecovery(TaskTestCase):
         with self.assertRaises(ValueError):
             self.task.wait_screen("未注册", time_out=1)
 
+    def test_event_stage_page_keyword_tolerates_low_resolution_misreads(self):
+        # 1980x1114（缩放比 0.773）实测标题「活动关卡」被 OCR 读成「活动关十」/「活动关」，
+        # 整词判据会逐帧抖动（wait_screen 的稳定窗口凑不满）；同时不能与挑战页标题互串。
+        keywords = SCREENS["event_stage_page"]["keywords"]
+        for text in ("活动关卡", "活动关十", "活动关"):
+            self.assertTrue(any(pattern.search(text) for pattern in keywords), text)
+        self.assertFalse(any(pattern.search("挑战关卡") for pattern in keywords))
+
     def test_screen_ocr_keywords_with_region(self):
         self.task.register_screen("大厅ocr", keywords=["方舟"], ocr_box=[0.5, 0.5, 1, 1])
         self.assertTrue(self.task.is_screen("大厅ocr"))
 
     def test_screen_ocr_keywords_with_named_box(self):
-        # ocr_box 传 coco 区域特征名时，按当前分辨率解析后以 box= 传入 ocr；
-        # 缓存路径下 ocr 不再带 match（区域结果同帧共享），关键词由判定层等价过滤。
+        # ocr_box 传 coco 区域特征名时，按当前分辨率解析后走区域 OCR（低分辨率下先预放大，故传裁剪图）；
+        # 缓存路径下 ocr 不带 match（区域结果同帧共享），关键词由判定层等价过滤。
         fake_box = Box(100, 100, 50, 50, confidence=1, name="cash_shop_title")
         with patch.object(self.task, "get_box_by_name", return_value=fake_box), \
                 patch.object(self.task, "ocr", return_value=[Box(100, 100, 50, 50, confidence=1, name="付费商店")]) as ocr_mock:
             self.task.register_screen("cash_shop", keywords=["付费商店"], ocr_box="cash_shop_title")
             self.assertTrue(self.task.is_screen("cash_shop"))
-        ocr_mock.assert_called_once_with(box=fake_box)
+        self.assertEqual((100, 100, 3), ocr_mock.call_args.kwargs["frame"].shape)  # 50x50 区域 × 2 倍预放大。
 
     def test_screen_ocr_keywords_with_missing_named_box_falls_back_fullscreen(self):
         # 区域特征缺失时退化为全屏 OCR，不抛异常。
@@ -140,7 +148,7 @@ class TestScreenRecovery(TaskTestCase):
                 patch.object(self.task, "ocr", return_value=[Box(100, 100, 50, 50, confidence=1, name="方舟")]) as ocr_mock:
             self.task.register_screen("方舟", features=["ark_ranking"], keywords=["方舟"], ocr_box="box_sub_pages_title")
             self.assertTrue(self.task.is_screen("方舟"))
-        ocr_mock.assert_called_once_with(box=fake_box)
+        self.assertEqual((100, 100, 3), ocr_mock.call_args.kwargs["frame"].shape)  # 区域 OCR 的裁剪图（含预放大）。
 
     def test_screen_match_features_and_keywords_fails_when_keyword_missing(self):
         # 特征命中但关键词未命中时判定不在该界面。

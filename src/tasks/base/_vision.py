@@ -1,12 +1,14 @@
 import os  # 操作系统路径模块，处理 assets/template/ 下模板文件的绝对路径。
 
-import cv2  # OpenCV，模板缩放匹配使用 cv2.resize / cv2.imread。
+import cv2  # OpenCV，模板缩放匹配与 OCR 区域预放大使用 cv2.resize / cv2.imread。
 from ok.feature.Box import Box  # 检测框对象，用于构造搜索区域与红点返回框。
+from ok.feature.FeatureSet import scale_box  # 框架的框缩放工具：x/y/宽/高 各除以 factor，故能还原预放大倍数。
 from ok.task.exceptions import WaitFailedException  # 区域特征缺失时抛出的等待失败异常。
 from ok.util.color import calculate_colorfulness  # 框架颜色工具：计算区域色彩丰富度。
 
 from src import (
     event_banner,  # 活动图 -> 列表行模板的几何（纯 cv2，不碰帧/不联网）。
+    ocr_scale,  # 只借 upscale（区域 OCR 预放大倍数的单一实现，见 _ocr_region_upscaled）。
     resolution,  # 分辨率基准与缩放比（2560x1440 单一实现）。
 )
 
@@ -41,6 +43,34 @@ class VisionMixin:
         由调用方决定缩放比无效（返回 0）时用标定值还是视为未命中。
         """
         return resolution.screen_scale(self.width, self.height, ref_width, ref_height)  # 单一实现，勿在别处重写该公式。
+
+    def _ocr_region_upscaled(self, box):
+        """区域 OCR：裁剪 → 按当前分辨率补像素 → 引擎 OCR → 结果框映射回整图坐标。
+
+        检测器只压缩超限的最长边、不放大输入（det_limit_side_len=960），低于标定分辨率时标题这类小字
+        直读会丢笔画（实机 1980x1114 把「活动关卡」读成「活动关十」，`wait_screen` 的稳定窗口因此凑不满），
+        故按 `ocr_scale.upscale`（预放大倍数的单一实现，与活动关卡列表共用）补像素再送引擎；
+        标定分辨率（2560x1440）及以上不放大，行为与旧口径一致。
+
+        框架的 `get_box` 只按 `resize_image` 的 scale_factor 还原坐标、不认调用方的预放大，
+        故放大过的区域必须自己用 `scale_box` 除回倍数再加上裁剪区左上角。
+        """
+        frame = self.frame  # 当前帧（无帧时引擎也没得读）。
+        if frame is None:
+            return []
+        upscale = ocr_scale.upscale(box, self._ref_scale())  # 1.0 = 不放大（按原生尺寸送）。
+        x, y = int(box.x), int(box.y)  # 裁剪区左上角（映射回整图用）。
+        crop = frame[y:y + int(box.height), x:x + int(box.width)]
+        if upscale > 1.0:  # 检测器不会替我们放大，只能自己放大后再送。
+            crop = cv2.resize(crop, None, fx=upscale, fy=upscale, interpolation=cv2.INTER_CUBIC)
+        found = []  # 整图坐标的结果框。
+        for item in self.ocr(frame=crop):  # 引擎返回的是放大后裁剪图坐标。
+            mapped = Box(item.x, item.y, item.width, item.height, confidence=item.confidence, name=item.name)
+            scale_box(mapped, upscale)  # 除以预放大倍数，回到裁剪图坐标。
+            mapped.x += x  # 再加裁剪区左上角。
+            mapped.y += y
+            found.append(mapped)
+        return found
 
     def find_scaled_template(self, feature_name: str, template_path: str, ref_width: int = 2560,
                              ref_height: int = 1440, **kwargs):

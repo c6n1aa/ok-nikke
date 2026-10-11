@@ -32,6 +32,8 @@ spec fields (defaults = current behavior; do not implement semantics that differ
 | `wait_screen(name, time_out=10, raise_if_not_found=False)` | Waits until the screen is reached; `min_frames` consecutive-hit semantics apply here |
 | `assert_screen(name, time_out=10)` | Asserts the screen, raising `WaitFailedException` on timeout (pairs with `try_step`) |
 
+Region OCR (when `ocr_box` is a coco region name or a Box) always goes through `_ocr_region_upscaled` (`VisionMixin`): below 2560x1440, small regions are upscaled via `ocr_scale.upscale` (the single implementation of the upscale factor, shared with the event stage list) to the detector limit (at most 2x) before being handed to the engine, and the resulting boxes are mapped back to full-frame coordinates with `scale_box` — at low resolution, small title text loses strokes when read as-is (a real 1980x1114 frame read 「活动关卡」 as 「活动关十」, so the `wait_screen` settle window never completed and `transition` kept re-clicking). At or above the calibration resolution nothing is upscaled; full-screen and relative-coordinate forms have no resolved region size and are sent as-is. So `keywords` should use a prefix that reads reliably (e.g. 「活动关」, 「加成」) rather than the full phrase.
+
 ## Navigation
 
 ### Entry gate: `ensure_screen()`

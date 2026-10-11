@@ -1,3 +1,5 @@
+from typing import Any  # 帧级缓存按 key 约定存放异构值（特征命中 / 区域 OCR 结果），取用侧各自解释。
+
 from ok.feature.Box import (  # 检测框对象与按名过滤工具（find_boxes_by_name 用于复刻 ocr(match=...) 的过滤语义）。
     Box,
     find_boxes_by_name,
@@ -25,7 +27,7 @@ class ScreenMixin:
         self._screen_cache.clear()  # 新帧已就位，旧帧判定结果全部失效。
         return frame
 
-    def _cache_get(self, key):
+    def _cache_get(self, key) -> Any:
         entry = self._screen_cache.get(key)  # 条目结构 (帧对象, 结果)。
         if entry is not None and entry[0] is self.frame:  # 帧对象同一性成立才视为命中。
             return entry[1]
@@ -50,8 +52,12 @@ class ScreenMixin:
             return ("box", round(box.x, 3), round(box.y, 3), round(box.width, 3), round(box.height, 3))
         return ("box", tuple(round(v, 3) for v in box))  # 相对坐标列表 [x, y, to_x, to_y]。
 
-    def _region_ocr_cached(self, box_key, box):
-        """带帧级缓存的区域 OCR（不做关键词过滤），同帧同区域只真正 OCR 一次。"""
+    def _region_ocr_cached(self, box_key, box) -> list[Box]:
+        """带帧级缓存的区域 OCR（不做关键词过滤），同帧同区域只真正 OCR 一次。
+
+        Box 区域走 `_ocr_region_upscaled`（低分辨率下标题这类小字先补像素，结果框映射回整图坐标）；
+        全屏与相对坐标形式没有已解析的区域尺寸，按原尺寸送引擎。
+        """
         key = ("ocr", box_key)
         cached = self._cache_get(key)
         if cached is not _CACHE_MISS:
@@ -61,7 +67,7 @@ class ScreenMixin:
         elif isinstance(box, (list, tuple)):  # 相对坐标列表形式。
             result = self.ocr(*box)
         else:  # 已解析的区域框。
-            result = self.ocr(box=box)
+            result = self._ocr_region_upscaled(box)
         self._cache_put(key, result)
         return result
 

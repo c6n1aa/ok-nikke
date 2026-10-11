@@ -32,6 +32,8 @@ spec 字段（缺省即现状行为；不要实现与表格不符的语义）：
 | `wait_screen(name, time_out=10, raise_if_not_found=False)` | 等待进入指定界面；`min_frames` 连续命中语义在此生效 |
 | `assert_screen(name, time_out=10)` | 断言处于指定界面，超时抛 `WaitFailedException`（配合 `try_step`） |
 
+区域 OCR（`ocr_box` 为 coco 区域名或 Box 时）统一走 `_ocr_region_upscaled`（`VisionMixin`）：低于 2560x1440 时按 `ocr_scale.upscale`（预放大倍数的单一实现，活动关卡列表同款）把小区域补到检测器上限（至多 2 倍）再送引擎，结果框用 `scale_box` 映射回整图坐标——低分辨率下标题这类小字直读会丢笔画（实机 1980x1114 把「活动关卡」读成「活动关十」，`wait_screen` 的稳定窗口因此凑不满、`transition` 反复补点）。标定分辨率及以上不放大；全屏与相对坐标形式没有已解析的区域尺寸，按原尺寸送。故 `keywords` 取「能稳定读到的前缀」（如「活动关」「加成」），不写整词。
+
 ## 导航
 
 ### 入口闸门：`ensure_screen()`
