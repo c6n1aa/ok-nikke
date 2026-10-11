@@ -1,10 +1,6 @@
-"""官方活动日历 + 活动图缓存，以及活动列表的行匹配模板（纯 stdlib + cv2，不依赖 ok 框架）。
+"""官方活动日历 + 活动图缓存（纯 stdlib，不依赖 ok 框架）。
 
-几何标定（2560x1440 实测，回归见 tests/TestEventCalendar.py）：
-- 游戏内把官方活动图等比渲染成列表一行：行宽 749（屏宽 29.26%）、行高 250、长宽比 3:1；
-- 模板取 SUBJECT = banner 的 x[0.60,0.95] × y[0,0.70]：避开左下日期浮层与最右行边框，
-  列表最后一行只有 175/250 = 70% 可见，模板更高即装不下（y=0.92 时该行掉到 0.29）；
-- 匹配限定在 SEARCH_BOX 内：三行 0.89~0.96，其它行 ≤0.61，阈值 0.8。
+活动列表行匹配的模板几何（行宽 / SUBJECT / SEARCH_BOX 等）见 src/event_banner.py。
 
 取图顺序：cache/event_banner/ -> assets/event_banner/（随包保底图，由 scripts/build_event_assets.py 生成）
 -> 联网下载。匹配路径不联网，联网只在 refresh()。
@@ -26,19 +22,9 @@ import urllib.error  # 捕获 HTTPError 以区分 4xx/5xx。
 import urllib.request  # 拉取日历与活动图（纯标准库，不新增依赖）。
 from dataclasses import asdict, dataclass  # 活动条目/快照结构与其 JSON 化。
 
-import cv2  # 图像裁剪与缩放。
-
 from src.game_time import day_reset_time  # 官方时区（UTC+9）的每日刷新时刻：快照新鲜期的跨天判定。
 
 logger = logging.getLogger(__name__)  # 不引入 ok 框架，日志走 stdlib。
-
-# ---- 几何标定（2560x1440 实测） ----
-REF_WIDTH = 2560  # 标定截图宽度。
-REF_HEIGHT = 1440  # 标定截图高度。
-ROW_WIDTH_AT_REF = 749  # 列表单行宽度（像素）；行高 250。
-SUBJECT = (0.60, 0.00, 0.95, 0.70)  # 模板在 banner 内的子区域（左、上、右、下，相对比例）。
-SEARCH_BOX = 'box_event_banner_area'  # 列表面板的 coco 框特征名（1440p 下 881,286,799x1038）。
-FALLBACK_SCALES = (0.97, 0.98, 0.99, 1.01, 1.02, 1.03)  # 基准尺度未命中时的备选档位。
 
 # ---- 官方活动日历接口（免登录） ----
 CALENDAR_URL = "https://api.blablalink.com/api/ugc/direct/standalonesite/Dynamics/GetCalendarDetail"
@@ -160,41 +146,6 @@ class CalendarSnapshot:
         cutoff = time.time() if now is None else now  # 过期判定用当前时间。
         ordered = [event for event in ordered if not event.end_time or event.end_time > cutoff]
         return ordered if count is None else ordered[:max(0, count)]
-
-
-def screen_scale(screen_width, screen_height, ref_width=REF_WIDTH, ref_height=REF_HEIGHT):
-    """当前分辨率相对标定分辨率的缩放比（取 min，与框架 find_scaled_template 一致）。"""
-    if not screen_width or not screen_height:  # 无帧（测试环境）。
-        return 0.0
-    return min(screen_width / ref_width, screen_height / ref_height)
-
-
-def row_width(screen_width, screen_height, ref_width=REF_WIDTH, ref_height=REF_HEIGHT):
-    """当前分辨率下列表单行的宽度（像素）。"""
-    return ROW_WIDTH_AT_REF * screen_scale(screen_width, screen_height, ref_width, ref_height)
-
-
-def build_row_template(banner, row_width_px, scale=1.0):
-    """活动图 -> 行匹配模板：等比缩放到 row_width_px，再裁出 SUBJECT。
-
-    Args:
-        banner: 活动图 BGR ndarray。
-        row_width_px: 目标行宽（由 row_width() 算得）。
-        scale: 额外缩放系数（FALLBACK_SCALES 档位）。
-
-    Returns:
-        裁剪后的 BGR ndarray。
-    """
-    if banner is None or getattr(banner, 'size', 0) == 0 or banner.ndim != 3:  # 空图或非 BGR。
-        raise ValueError('event banner image is empty or not a BGR image')
-    height, width = banner.shape[:2]
-    target_w = max(8, int(round(row_width_px * scale)))
-    target_h = max(8, int(round(target_w * height / width)))
-    factor = target_w / width
-    interpolation = cv2.INTER_AREA if factor < 1 else cv2.INTER_LINEAR  # 缩小用 AREA，放大用 LINEAR。
-    resized = cv2.resize(banner, (target_w, target_h), interpolation=interpolation)
-    x1, y1, x2, y2 = SUBJECT
-    return resized[int(target_h * y1):int(target_h * y2), int(target_w * x1):int(target_w * x2)]
 
 
 def _djb2_signed(text, seed):

@@ -9,8 +9,9 @@ from ok.feature.Box import Box  # 解析层行框（x1,y1,x2,y2 四元组）转�
 from ok.task.exceptions import WaitFailedException  # 战斗等待超时等流程断言抛出的等待失败异常。
 
 from src import (
-    event_calendar,  # 分辨率缩放比（OCR 预放大与兜底行距按它算）。
     event_stage,  # 关卡页读取策略（切片 / 预放大 / 行解析；OCR 以回调注入）。
+    ocr_scale,  # 区域 OCR 预放大倍数的单一实现。
+    resolution,  # 分辨率缩放比（OCR 预放大与兜底行距按它算）。
 )
 from src.tasks.event._const import (
     _STAGE_ENTER_TIMEOUT,
@@ -45,12 +46,12 @@ class EventStageMixin:
         return event_stage.list_strip(box, self.height)  # 横向沿用标注范围、纵向整屏；无有效屏高时保守用标注框。
 
     def _ocr_region(self, box):  # 唯一的 OCR 缝：裁剪 → 按需预放大 → 引擎 OCR → 坐标映射回整图。
-        """检测器只压缩超限的最长边、不放大输入，低分辨率下小字就没了：这里按 ocr_upscale 补像素
+        """检测器只压缩超限的最长边、不放大输入，低分辨率下小字就没了：这里按 ocr_scale.upscale 补像素
         （整屏竖条几乎不放大，按行距切的行块放大到上限），再把结果框映射回整图坐标。"""
         frame = self.frame  # 当前帧（无帧时引擎也没得读）。
         if frame is None:
             return []
-        upscale = event_stage.ocr_upscale(box, self._stage_scale())  # 1.0 = 不放大（按原生尺寸送）。
+        upscale = ocr_scale.upscale(box, self._stage_scale())  # 1.0 = 不放大（按原生尺寸送）。
         x, y = int(box.x), int(box.y)  # 裁剪区左上角（映射回整图用）。
         crop = frame[y:y + int(box.height), x:x + int(box.width)]
         if upscale > 1.0:  # 检测器不会替我们放大，只能自己放大后再送。
@@ -59,7 +60,7 @@ class EventStageMixin:
                 for item in self.ocr(frame=crop) if item.name]  # 空文本块丢弃。
 
     def _stage_scale(self):  # 当前分辨率相对 2560x1440 标定截图的缩放比（0 = 无有效分辨率，兜底按标定值）。
-        return event_calendar.screen_scale(self.width, self.height)
+        return resolution.screen_scale(self.width, self.height)
 
     def _stage_rows(self, list_box=None):  # 关卡页列表区 -> 可选关卡行（编号 + 行框）；区域缺失返回空列表。
         box = list_box if list_box is not None else self._stage_list_box()  # 列表区。

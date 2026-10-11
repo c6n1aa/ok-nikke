@@ -5,7 +5,10 @@ from ok.feature.Box import Box  # 检测框对象，用于构造搜索区域与�
 from ok.task.exceptions import WaitFailedException  # 区域特征缺失时抛出的等待失败异常。
 from ok.util.color import calculate_colorfulness  # 框架颜色工具：计算区域色彩丰富度。
 
-from src import event_calendar  # 活动图模板几何标定与缩放（纯图像/网络工具，不依赖框架）。
+from src import (
+    event_banner,  # 活动图 -> 列表行模板的几何（纯 cv2，不碰帧/不联网）。
+    resolution,  # 分辨率基准与缩放比（2560x1440 单一实现）。
+)
 
 
 class VisionMixin:
@@ -31,13 +34,13 @@ class VisionMixin:
         """在大厅右列区域内搜索入口特征，命中返回 Box，未命中返回 None。"""
         return self.find_one(name, box=self._lobby_right_panel(), use_gray_scale=use_gray_scale)  # 区域内模板匹配。
 
-    def _ref_scale(self, ref_width=event_calendar.REF_WIDTH, ref_height=event_calendar.REF_HEIGHT):
+    def _ref_scale(self, ref_width=resolution.REF_WIDTH, ref_height=resolution.REF_HEIGHT):
         """当前分辨率相对标定截图的等比缩放比（取 min，与框架 adjust_coordinates 同口径）；无帧（测试环境）返回 0。
 
         以 2560x1440 标定截图实测出的像素常量（模板尺寸、坐标偏移、行距等）在运行时都要按它缩放，
         由调用方决定缩放比无效（返回 0）时用标定值还是视为未命中。
         """
-        return event_calendar.screen_scale(self.width, self.height, ref_width, ref_height)  # 单一实现，勿在别处重写该公式。
+        return resolution.screen_scale(self.width, self.height, ref_width, ref_height)  # 单一实现，勿在别处重写该公式。
 
     def find_scaled_template(self, feature_name: str, template_path: str, ref_width: int = 2560,
                              ref_height: int = 1440, **kwargs):
@@ -73,12 +76,12 @@ class VisionMixin:
 
         模板由官方活动图现场生成（裁剪 + 按当前分辨率缩放到行尺寸），活动更新不需要人工换模板。
         与 find_scaled_template 的差别：模板不是磁盘上的固定裁剪图，而是按行宽比例现算的，
-        且只取活动图中不含游戏内浮层的子区域（为什么不能整图直接用，见 src/event_calendar 的模块注释）。
+        且只取活动图中不含游戏内浮层的子区域（为什么不能整图直接用，见 src/event_banner 的模块注释）。
 
         Args:
             feature_name: 匹配名，仅用于日志/调试框命名（建议传活动名）。
-            banner: 官方活动图路径（str）或已读入的 BGR ndarray（可用 event_calendar.ensure_cached 取路径）。
-            box: 搜索区域，缺省固定在活动列表面板框（coco 特征 event_calendar.SEARCH_BOX）；
+            banner: 官方活动图路径（str）或已读入的 BGR ndarray（路径由调用方自行取用，如活动图缓存）。
+            box: 搜索区域，缺省固定在活动列表面板框（coco 特征 event_banner.SEARCH_BOX）；
                 仅在确有别的区域时才传，可传 coco 框名或 Box。
             threshold: 匹配阈值。默认 0.8：实测命中行 0.89~0.96、其它行 ≤0.61。
             limit: 透传给 find_one（1 = 只取最优命中）。
@@ -86,7 +89,7 @@ class VisionMixin:
         Returns:
             Box | None：命中行为模板区域（行内 logo 区），未命中 None。
         """
-        if event_calendar.screen_scale(self.width, self.height) <= 0:  # 无有效分辨率（测试环境无帧等）。
+        if resolution.screen_scale(self.width, self.height) <= 0:  # 无有效分辨率（测试环境无帧等）。
             return None  # 无法按分辨率生成模板，直接视为未命中。
         image = cv2.imread(banner) if isinstance(banner, str) else banner  # 支持路径与 ndarray 两种入参。
         if image is None:  # 模板图读不到（路径错/缓存损坏）：显式报错，不静默当成"活动不存在"。
@@ -94,10 +97,10 @@ class VisionMixin:
         if isinstance(box, str):  # 允许传 coco 框名，与 find_red_dot 的用法保持一致。
             box = self.get_box_by_name(box)
         elif box is None:  # 缺省：固定在活动列表面板框内匹配（不在面板外乱匹配）。
-            box = self.get_box_by_name(event_calendar.SEARCH_BOX)
-        row_width = event_calendar.row_width(self.width, self.height)  # 当前分辨率下的行宽（像素）。
-        for scale in (1.0,) + event_calendar.FALLBACK_SCALES:  # 先基准尺度；命中即返回，不会白跑兜底档位。
-            template = event_calendar.build_row_template(image, row_width, scale)
+            box = self.get_box_by_name(event_banner.SEARCH_BOX)
+        row_width = event_banner.row_width(self.width, self.height)  # 当前分辨率下的行宽（像素）。
+        for scale in (1.0,) + event_banner.FALLBACK_SCALES:  # 先基准尺度；命中即返回，不会白跑兜底档位。
+            template = event_banner.build_row_template(image, row_width, scale)
             found = self.find_one(feature_name, template=template, box=box, threshold=threshold, limit=limit)
             if found is not None:  # 命中该活动所在行。
                 return found

@@ -22,6 +22,7 @@ from unittest.mock import patch
 from ok.feature.Box import Box
 
 from src import event_stage as es
+from src import ocr_scale
 
 FIXTURES = os.path.join('tests', 'fixtures', 'event_stage')
 
@@ -385,7 +386,7 @@ class TestEventStagePipeline(unittest.TestCase):
         self.assertEqual((950, 0, 729, 1440), (calls[0].x, calls[0].y, calls[0].width, calls[0].height))
         for box in calls[1:]:  # 分块必须落在区域里、不高于目标块高（避免检测器压缩）。
             self.assertLessEqual(box.height, tile)
-            self.assertLessEqual(max(box.width, box.height), es.OCR_TILE_LIMIT)
+            self.assertLessEqual(max(box.width, box.height), ocr_scale.TILE_LIMIT)
             self.assertGreaterEqual(box.y, self.STRIP.y)
             self.assertLessEqual(box.y + box.height, self.STRIP.y + self.STRIP.height)
         self.assertEqual([0, tile - 120, 2 * (tile - 120)], [box.y for box in calls[1:]])  # 步长 = 块高 - 一个行距。
@@ -400,11 +401,11 @@ class TestEventStagePipeline(unittest.TestCase):
 
     def test_ocr_upscale_fills_detector_limit_below_reference_resolution(self):
         # 标定分辨率及以上按原生尺寸送（放大只会糊掉笔画）；低于它才补像素：倍数 = 上限 / 最长边，封顶。
-        self.assertEqual(1.0, es.ocr_upscale(Box(0, 0, 729, 1440), 1.0))  # 标定分辨率：不放大。
-        self.assertEqual(1.0, es.ocr_upscale(Box(0, 0, 456, 450), 1.25))  # 高于标定分辨率：不放大。
-        self.assertEqual(es.OCR_UPSCALE_MAX, es.ocr_upscale(Box(0, 0, 456, 450), 0.625))  # 900p 的 6 行块：顶到上限。
-        self.assertAlmostEqual(es.OCR_TILE_LIMIT / 729, es.ocr_upscale(Box(0, 0, 729, 720), 0.75), delta=1e-6)
-        self.assertEqual(es.OCR_UPSCALE_MAX, es.ocr_upscale(Box(0, 0, 1, 1), 0.625))  # 极小区域也不超过上限。
+        self.assertEqual(1.0, ocr_scale.upscale(Box(0, 0, 729, 1440), 1.0))  # 标定分辨率：不放大。
+        self.assertEqual(1.0, ocr_scale.upscale(Box(0, 0, 456, 450), 1.25))  # 高于标定分辨率：不放大。
+        self.assertEqual(ocr_scale.UPSCALE_MAX, ocr_scale.upscale(Box(0, 0, 456, 450), 0.625))  # 900p 的 6 行块：顶到上限。
+        self.assertAlmostEqual(ocr_scale.TILE_LIMIT / 729, ocr_scale.upscale(Box(0, 0, 729, 720), 0.75), delta=1e-6)
+        self.assertEqual(ocr_scale.UPSCALE_MAX, ocr_scale.upscale(Box(0, 0, 1, 1), 0.625))  # 极小区域也不超过上限。
 
     def test_to_block_maps_upscaled_crop_back_to_full_frame(self):
         item = Box(20, 40, 10, 20, confidence=0.9, name='1-06')  # 预放大后的裁剪图坐标。
@@ -574,7 +575,7 @@ class TestEventStagePipeline(unittest.TestCase):
         for x, _y, width, height in rects:  # 只关心 x/宽高：y 由下面的重叠断言单独校验。
             self.assertEqual(950, x)  # 宽度在限内：不横切。
             self.assertEqual(729, width)
-            self.assertLessEqual(max(width, height), es.OCR_TILE_LIMIT)
+            self.assertLessEqual(max(width, height), ocr_scale.TILE_LIMIT)
         self.assertLess(rects[1][1], rects[0][1] + rects[0][3])  # 相邻块重叠：行文字不会被切在块边界。
         self.assertEqual(1440, rects[-1][1] + rects[-1][3])  # 末块收在区域末尾。
 
@@ -583,7 +584,7 @@ class TestEventStagePipeline(unittest.TestCase):
         rects = es.ocr_tiles(0, 0, 2000, 1440, es.ocr_tile_overlap(1.0), 1.0)
         self.assertEqual(9, len(rects))  # 横 3 块 × 纵 3 块。
         for x, y, width, height in rects:
-            self.assertLessEqual(max(width, height), es.OCR_TILE_LIMIT)
+            self.assertLessEqual(max(width, height), ocr_scale.TILE_LIMIT)
             self.assertLessEqual(x + width, 2000)
             self.assertLessEqual(y + height, 1440)
         self.assertIn((1680, 1200, 320, 240), rects)  # 末块贴着区域右下角收尾。

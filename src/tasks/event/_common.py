@@ -5,7 +5,7 @@
 
 import cv2  # OpenCV：滑动前后截取列表区做像素差，判画面有没有变化（到底 / 到顶）。
 
-from src import event_calendar  # 活动列表区标注特征名（缺省滚动区）。
+from src import event_banner  # 活动列表区标注特征名（缺省滚动区）。
 from src.tasks.event._const import (
     _SCROLL_AFTER_SLEEP,
     _SCROLL_SWIPE_DURATION,
@@ -31,7 +31,7 @@ class EventCommonMixin:
             return None  # 视为不可用。
 
     def _list_area_box(self):  # 活动列表滚动/扫描区（box_event_banner_area），缺失返回 None。
-        return self._optional_box(event_calendar.SEARCH_BOX)  # 区域缺失视为不可滚动。
+        return self._optional_box(event_banner.SEARCH_BOX)  # 区域缺失视为不可滚动。
 
     def _list_area_frame(self, box):  # 截取列表区当前帧（无帧/越界返回 None），供滚动前后像素对比。
         frame = self.frame  # 取当前帧；无帧（单测 mock）返回 None。

@@ -38,6 +38,8 @@ from dataclasses import dataclass  # 行条目与文本块的不可变结构。
 
 from ok.feature.Box import Box  # 几何策略的矩形类型（纯数据类，无 IO）。
 
+from src import ocr_scale  # 区域 OCR 预放大策略（与界面判定的区域 OCR 共用同一实现）。
+
 logger = logging.getLogger(__name__)  # 日志走 stdlib。
 
 # 受限候选表：编号只可能是这些值，误读一律收敛到最近合法值（方案 §7）。
@@ -54,11 +56,9 @@ STAGE_ANCHOR_KEYWORDS = ("event",)
 STAGE_MAX_KEYWORD_DISTANCE = 2  # 锚点关键词模糊匹配的最大编辑距离（美术字 OCR 抖动）。
 # OCR 区域切块：onnxocr 检测器的 det_limit_side_len 默认 960（limit_type=max），超过就按最长边等比压缩
 # 再送模型——整屏竖条 729x1440 会被压到 480x960，关卡编号这种小字直接读不出（实机 08.png 整条只读到
-# 1-06 一个编号）。故调用方把超限区域切成 ≤ 上限的小块（见 ocr_tiles）。
-OCR_TILE_LIMIT = 960  # 单块最长边（像素），与检测器上限同值。
+# 1-06 一个编号）。故调用方把超限区域切成 ≤ 上限的小块（见 ocr_tiles）；预放大策略与常量见 src/ocr_scale.py。
 OCR_TILE_OVERLAP_RATIO = 1.0  # 相邻块重叠量 = 该比例 × 兜底行距（行文字不会被切在块边界上）。
 OCR_TILE_ROWS = 6  # 分块高度 = 行距 × 该行数：块要够矮，预放大才作用在小字上（见 ocr_tiles）。
-OCR_UPSCALE_MAX = 2.0  # 喂给引擎前的预放大上限（检测器不放大，低分辨率下靠它补像素，见 ocr_upscale）。
 
 # 行窄带切片（见 list_strip / band_box / anchor_bands / uniform_bands）。
 # 无行锚点时的兜底切片条数上限：必须 ≥ 支持分辨率下按兜底行距切出的行数（1440/120 = 900/75 = 12），
@@ -242,24 +242,7 @@ def ocr_tile_overlap(scale=1.0):
     return int(row_pitch_fallback(scale) * OCR_TILE_OVERLAP_RATIO)
 
 
-def ocr_upscale(box, scale=1.0):
-    """把该区域喂给 OCR 引擎前的预放大倍数（1.0 = 不放大）。
-
-    检测器只压缩超限的最长边、**不放大**小于上限的图（onnxocr det_limit_side_len=960 / limit_type=max），
-    所以低于标定分辨率时得调用方自己补像素：按「把最长边填到 `OCR_TILE_LIMIT` 所需的比例」放大，上限
-    `OCR_UPSCALE_MAX` 兜住成本（整屏竖条最长边是屏高，几乎放不动；按行距切的行块最长边是竖条宽，能放到
-    上限——小字的等效像素数因此在各分辨率下接近）。
-
-    标定分辨率（`scale ≥ 1`，2560x1440）下**不放大**：那时小字本来就够大，插值放大只会糊掉笔画、让
-    检测器多认出噪声（实机 03.png 在 1.32 倍下多出 `1-04`/`1-05` 两个假行）。
-    """
-    if scale >= 1.0:  # 标定分辨率及以上：按原生尺寸送，与标定口径一致。
-        return 1.0
-    longest = max(int(box.width), int(box.height), 1)  # 最长边（决定检测器的缩放比例）。
-    return min(OCR_UPSCALE_MAX, max(1.0, OCR_TILE_LIMIT / longest))  # 填满检测器上限，但不超上限。
-
-
-def ocr_tiles(x, y, width, height, overlap, scale=1.0, rows=OCR_TILE_ROWS, limit=OCR_TILE_LIMIT):
+def ocr_tiles(x, y, width, height, overlap, scale=1.0, rows=OCR_TILE_ROWS, limit=ocr_scale.TILE_LIMIT):
     """OCR 区域 -> 子区域矩形列表 [(x, y, w, h)]：每块按行距取 rows 行高（封顶 limit），相邻块重叠 overlap。
 
     **分块不是为了绕开检测器上限**（整条也塞得进），而是为了让预放大起作用：检测器不放大输入，块的最长边

@@ -20,7 +20,7 @@ import numpy as np
 from ok.test.TaskTestCase import TaskTestCase
 
 from scripts import build_event_assets
-from src import event_calendar, game_time
+from src import event_banner, event_calendar, game_time, resolution
 from src import globals as app_globals
 from src.config import config
 from src.tasks.HarvestTask import HarvestTask
@@ -44,33 +44,33 @@ class TestEventCalendarPureFunctions(unittest.TestCase):
         return image
 
     def test_row_width_scales_with_resolution(self):
-        self.assertAlmostEqual(749.0, event_calendar.row_width(2560, 1440), places=3)  # 1440p 实测。
-        self.assertAlmostEqual(374.5, event_calendar.row_width(1280, 720), places=3)  # 720p 减半。
+        self.assertAlmostEqual(749.0, event_banner.row_width(2560, 1440), places=3)  # 1440p 实测。
+        self.assertAlmostEqual(374.5, event_banner.row_width(1280, 720), places=3)  # 720p 减半。
 
     def test_row_width_is_zero_without_resolution(self):
-        self.assertEqual(0, event_calendar.screen_scale(0, 0))  # 无帧环境由调用方判定为不可用。
-        self.assertEqual(0, event_calendar.screen_scale(None, None))
+        self.assertEqual(0, resolution.screen_scale(0, 0))  # 无帧环境由调用方判定为不可用。
+        self.assertEqual(0, resolution.screen_scale(None, None))
 
     def test_build_row_template_size_and_linear_scaling(self):
         banner = self._banner()
-        template = event_calendar.build_row_template(banner, 749)
+        template = event_banner.build_row_template(banner, 749)
         self.assertEqual((175, 262), template.shape[:2])  # (高, 宽)：行高的 70% x 行宽的 35%。
-        doubled = event_calendar.build_row_template(banner, 1498)
+        doubled = event_banner.build_row_template(banner, 1498)
         self.assertEqual((349, 525), doubled.shape[:2])  # 行宽翻倍 -> 模板尺寸翻倍（等比缩放正确）。
 
     def test_subject_height_fits_last_row_visible_part(self):
         # 列表最后一行只有 70% 可见（面板底边裁切）：SUBJECT 下界必须不超过 0.70，否则该行永远匹配不到。
-        self.assertLessEqual(event_calendar.SUBJECT[3], 0.70)
+        self.assertLessEqual(event_banner.SUBJECT[3], 0.70)
 
     def test_build_row_template_keeps_bgr_channels(self):
-        self.assertEqual(3, event_calendar.build_row_template(self._banner(), 749).shape[2])
+        self.assertEqual(3, event_banner.build_row_template(self._banner(), 749).shape[2])
 
     def test_build_row_template_rejects_invalid_input(self):
         # 空模板会让匹配静默失败，这里要求显式报错。
         with self.assertRaises(ValueError):
-            event_calendar.build_row_template(None, 749)
+            event_banner.build_row_template(None, 749)
         with self.assertRaises(ValueError):
-            event_calendar.build_row_template(np.zeros((10, 10), dtype=np.uint8), 749)
+            event_banner.build_row_template(np.zeros((10, 10), dtype=np.uint8), 749)
 
     def test_parse_events_keeps_only_big_version_events(self):
         calendar = {'data': {
@@ -986,9 +986,9 @@ class TestEventRowMatch(TaskTestCase):
     def test_default_search_box_is_panel_and_fits_template(self):
         # 缺省搜索区固定在 coco 框上：既不跑到面板外乱匹配，也必须装得下模板（装不下 cv2 会抛异常）。
         self.set_image(EVENT_LIST)
-        panel = self.task.get_box_by_name(event_calendar.SEARCH_BOX)
+        panel = self.task.get_box_by_name(event_banner.SEARCH_BOX)
         self.assertEqual(PANEL_AT_1440, (panel.x, panel.y, panel.width, panel.height))
-        template = event_calendar.build_row_template(cv2.imread(BANNER), event_calendar.row_width(2560, 1440))
+        template = event_banner.build_row_template(cv2.imread(BANNER), event_banner.row_width(2560, 1440))
         self.assertLess(template.shape[1], panel.width)  # 宽方向裕度。
         self.assertLess(template.shape[0], panel.height)  # 高方向裕度。
 
@@ -1000,7 +1000,7 @@ class TestEventRowMatch(TaskTestCase):
             path = os.path.join(tmp, 'event_list_720p.png')
             cv2.imwrite(path, cv2.resize(original, (1280, 720), interpolation=cv2.INTER_AREA))
             self.set_image(path)
-            panel = self.task.get_box_by_name(event_calendar.SEARCH_BOX)
+            panel = self.task.get_box_by_name(event_banner.SEARCH_BOX)
         self.assertAlmostEqual(PANEL_AT_1440[0] / 2, panel.x, delta=2)
         self.assertAlmostEqual(PANEL_AT_1440[1] / 2, panel.y, delta=2)
         self.assertAlmostEqual(PANEL_AT_1440[3] / 2, panel.height, delta=2)

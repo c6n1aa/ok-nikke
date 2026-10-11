@@ -10,7 +10,7 @@ from ok.feature.Box import Box
 from ok.task.exceptions import WaitFailedException
 from ok.test.TaskTestCase import TaskTestCase
 
-from src import event_calendar, event_stage
+from src import event_banner, event_calendar, event_stage, ocr_scale
 from src.config import config
 from src.tasks.event._const import event_done_key, event_identity
 from src.tasks.EventTask import EventTask
@@ -1743,7 +1743,7 @@ class TestEventTask(_DebugOffTestCase):
         box = Box(950, 342, 729, 867, confidence=1, name='box_event_banner_area')
         with patch.object(self.task, 'get_box_by_name', return_value=box) as get_mock:
             self.assertEqual(box, self.task._list_area_box())
-        get_mock.assert_called_once_with(event_calendar.SEARCH_BOX)
+        get_mock.assert_called_once_with(event_banner.SEARCH_BOX)
         with patch.object(self.task, 'get_box_by_name', side_effect=ValueError('missing')):
             self.assertIsNone(self.task._list_area_box())
 
@@ -1792,7 +1792,7 @@ class TestEventTask(_DebugOffTestCase):
         self.assertEqual((960, 960, 3), ocr_mock.call_args.kwargs['frame'].shape)  # 标定分辨率：原尺寸送引擎。
 
     def test_ocr_region_upscales_small_region_and_maps_back(self):
-        # 低于标定分辨率时先按 ocr_upscale 放大再送引擎，结果框再除以倍数映射回整图。
+        # 低于标定分辨率时先按 ocr_scale.upscale 放大再送引擎，结果框再除以倍数映射回整图。
         frame = np.zeros((400, 400, 3), dtype=np.uint8)
         local = Box(20, 40, 10, 20, confidence=0.9, name='1-06')  # 预放大后的裁剪图坐标。
         with patch.object(type(self.task), 'frame', new_callable=PropertyMock, return_value=frame), \
@@ -1800,7 +1800,7 @@ class TestEventTask(_DebugOffTestCase):
                 patch.object(type(self.task), 'height', new_callable=PropertyMock, return_value=900), \
                 patch.object(self.task, 'ocr', return_value=[local]) as ocr_mock:
             blocks = self.task._ocr_region(Box(100, 200, 200, 200, confidence=1, name='tile'))
-        self.assertEqual(event_stage.OCR_UPSCALE_MAX, event_stage.ocr_upscale(Box(100, 200, 200, 200), 0.625))
+        self.assertEqual(ocr_scale.UPSCALE_MAX, ocr_scale.upscale(Box(100, 200, 200, 200), 0.625))
         self.assertEqual((400, 400, 3), ocr_mock.call_args.kwargs['frame'].shape)  # 200x200 × 2 倍。
         self.assertEqual((110, 220, 115, 230), (blocks[0].x1, blocks[0].y1, blocks[0].x2, blocks[0].y2))
 
