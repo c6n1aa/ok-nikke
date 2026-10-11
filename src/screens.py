@@ -74,7 +74,9 @@ SCREENS = {
                           "keywords": [_keyword("拦截战")], "ocr_box": "box_sub_pages_title"},
     "anomaly_interception_page": {"features": ["anomaly_interception_page", "anomaly_interception_active"]},
     "common_interception_page": {"features": ["common_interception_page"]},
-    "anomaly_interception_team_select_page": {"features": ["anomaly_interception_team_select_page"]},
+    # 异常个体队伍选择页：同一页面的两个特征（按钮/标题两处标注），任一命中即判定，走 any_features「或」语义。
+    "anomaly_interception_team_select_page": {"any_features": ["anomaly_interception_team_select_page",
+                                                              "anomaly_interception_team_select_page2"]},
     # 前哨基地相关界面：前哨基地主页 → 指挥中心页 → 咨询列表页 → 咨询详情页 → 咨询对话页。
     "outpost": {"features": ["command_center"], "keywords": [_keyword("前哨基地")], "ocr_box": "box_sub_pages_title"},
     "command_center": {"keywords": [_keyword("指挥中心")], "ocr_box": "box_sub_pages_title"},
