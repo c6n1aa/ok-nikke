@@ -350,6 +350,36 @@ class TestScreenRecovery(TaskTestCase):
         self.assertEqual(1, len(calls))
         self.assertEqual(1, recover_mock.call_count)
 
+    def test_try_step_logs_current_screen_when_message_empty(self):
+        # 框架 wait_feature/wait_until 抛的 WaitFailedException 消息为空：日志必须补上当前界面，否则只剩「第 N 次失败: 」。
+        def step():
+            raise WaitFailedException()
+
+        with patch.object(self.task, "_recover_to_lobby", return_value=True), \
+                patch.object(self.task, "save_failure_screenshot"), \
+                patch.object(self.task, "current_screen", return_value="别的界面") as cur_mock, \
+                patch.object(self.task, "sleep"), \
+                patch.object(self.task, "log_warning") as warn_mock:
+            with self.assertRaises(WaitFailedException):
+                self.task.try_step(step, name="空消息步骤", retries=1)
+        self.assertIn("当前界面: 别的界面", warn_mock.call_args_list[0].args[0])  # 失败日志带上下文。
+        self.assertEqual(2, cur_mock.call_count)  # 两次尝试各补一次上下文。
+
+    def test_try_step_keeps_exception_message_when_present(self):
+        # 异常自带消息时不再补当前界面，保持原有日志可读性且不额外抓帧判定。
+        def step():
+            raise WaitFailedException("找不到特征")
+
+        with patch.object(self.task, "_recover_to_lobby", return_value=True), \
+                patch.object(self.task, "save_failure_screenshot"), \
+                patch.object(self.task, "current_screen") as cur_mock, \
+                patch.object(self.task, "sleep"), \
+                patch.object(self.task, "log_warning") as warn_mock:
+            with self.assertRaises(WaitFailedException):
+                self.task.try_step(step, name="有消息步骤", retries=1)
+        self.assertIn("找不到特征", warn_mock.call_args_list[0].args[0])
+        cur_mock.assert_not_called()  # 消息非空，不触发界面识别。
+
     def test_recover_to_lobby_clicks_home_feature(self):
         fake_home = Box(100, 100, 50, 50, confidence=1, name="common_home")
         with patch.object(self.task, "next_frame"), \

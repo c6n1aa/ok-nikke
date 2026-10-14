@@ -91,7 +91,7 @@ self.try_step(step_fn, name=None, retries=2, recover=True, raise_on_fail=True) -
 
 1. `save_failure_screenshot(tag)` 存现场到 `screenshots/failure/`（失败截图统一走它，`transition`/哨兵内部已调用，业务代码不另存）；
 2. 记录失败；
-3. `_recover_to_lobby()`：刷新帧 → `dismiss_all_popups(clear_condition=is_screen("lobby"))` → 按 `common_home` 回大厅 → `wait_for_lobby()` 确认。它是普通实例方法，子任务可覆盖追加恢复动作；禁止绕过它硬编码「按坐标回大厅」；
+3. `_recover_to_lobby()`：刷新帧 → `dismiss_all_popups(clear_condition=is_screen("lobby"))` → 按 `common_home` 回大厅 → `wait_for_lobby()` 确认。它是普通实例方法，子任务可覆盖追加恢复动作；禁止绕过它硬编码「按坐标回大厅」。任务自己的模态弹窗（不注册为界面、也没有 `common_home`）必须在覆盖里先关掉，关不掉时直接返回 `False`：`wait_for_lobby` 只认 `ark`，弹窗开着时（`ark` 落在面板之外仍能命中）会误报「已回大厅」，随后 `ensure_screen` 既判不出大厅、又拿不到应用内证据，会误进冷启动空等（2026-10-13 日常收尾实机事故）；
 4. 有限重试（默认共尝试 3 次）；恢复失败提前放弃；重试耗尽按 `raise_on_fail` 决定抛异常或返回 `False`。
 
 `dismiss_all_popups` 语义要点：**每轮先尝试关一个弹窗，仅当本轮一个都关不到时才检查 `clear_condition`**——遮罩压暗下目标界面特征可能仍命中，先查条件会谎报清理完成。
@@ -117,7 +117,7 @@ self.try_step(step_fn, name=None, retries=2, recover=True, raise_on_fail=True) -
 - **模态弹窗关闭统一走 `close_popup_by_blank(verify)`**：点面板外空白（缺省 `_MODAL_BLANK_CLOSE_X/_Y`）+ 按 `verify`（不随皮肤变的「弹窗已关闭」判据，如界面特征消失、判据文字消失）确认关闭，未确认自动补点（补点循环在 `_close_modal_by_click`，点空白与点返回键共用）。面板皮肤逐期变化、关闭按钮外观/位置随之漂移，模板识别需逐期追加维护；面板外区域恒被模态遮罩覆盖，点空白等价于点遮罩关闭、对皮肤免疫。`HarvestTask` 关 PASS 模态窗用它；登录奖励界面另有整页形态（同活动签到奖励页，面板外没有可点空白），`_close_daily_login_popup` 命中返回键（`_find_back_button`）时改点返回键，未命中才回落到点空白。
 - **皮肤会变的弹窗只挑不随皮肤变的判据**：登录奖励每期样式不同，存在判据只认「全部领取」文字（OCR）；判可领与否看按钮底色，OCR 只给白字框，按 `_DAILY_LOGIN_CLAIM_PAD` 外扩后再 `is_feature_enabled`。
 - **同一文案出现在多个面板时由任务侧声明归属**：「全部领取」不是登录奖励面板独有（活动任务弹窗底部同字、且落在屏幕同一带），任务侧若有此类面板必须覆盖 `_other_claim_all_panel_present()`（`PopupsMixin` 默认 False），否则 `_close_daily_login_popup` 会把它当登录奖励面板点击（实机事故：恢复流程点掉了活动任务弹窗的领取按钮）。
-- **领取节奏判据取「目标弹窗/页面重新出现」**（`dismiss_all_popups(clear_condition=...)`，同 `DailyTask._claim_current_tab`），不要用「必须出现领奖遮罩」：奖励遮罩非必现，多段式领取（活动与日常的每日任务都是先领积分、再领奖励）第一段本来就不弹遮罩，用遮罩做必现判据会把正常领取判成整条子流程失败。
+- **领取节奏判据取「目标弹窗/页面重新出现」且必须过稳定窗口**：`dismiss_all_popups(clear_condition=...)` 的 `clear_condition` 是单帧判定——遮罩淡入帧上目标弹窗特征仍能命中（CCOEFF 对均匀压暗不敏感）、按钮却已被压暗，单帧判态会把淡入帧读成「已领完」并带着未关的遮罩提前退出（2026-10-13 日常收尾实机事故：随后关闭弹窗前的可见性确认超时、整步失败重试）。正确做法是「每轮先清一次遮罩（`pre_action`）+ 要求可领状态连续成立 `settle_time` 秒」，见 `DailyTask._claim_ready` / `EventTask._claim_mission_rewards`。同时不要用「必须出现领奖遮罩」：奖励遮罩非必现，多段式领取（活动与日常的每日任务都是先领积分、再领奖励）第一段本来就不弹遮罩，用遮罩做必现判据会把正常领取判成整条子流程失败。
 - **不把塔卡/关卡选择、队伍编成等流程内顺序子页面注册为界面**——它们顶替父页面、父特征消失，流程内靠特征/坐标推进；注意这些页面不一定有 `common_home`。
 - 进入流程前先 `dismiss_all_popups` 再判定界面；`_nav_*` 型入口沿用「刷新帧 → 判定 → 清弹窗 → 再刷新 → 再判定」两段式。
 - `close_overlay` 默认 `require_click=True`：必须成功点击关闭至少一次遮罩，超时未点到抛 `WaitFailedException`；恢复流程等容错场景必须传 `require_click=False`。

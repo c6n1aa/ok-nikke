@@ -287,7 +287,9 @@ class NavigationMixin:
                 return True  # 成功直接返回。
             except WaitFailedException as e:  # 仅捕获等待失败类异常。
                 self.save_failure_screenshot(tag)  # 保存失败现场截图。
-                self.log_warning(f"步骤 {tag} 第 {attempt}/{retries + 1} 次失败: {e}")  # 记录本次失败。
+                # 框架 wait_feature/wait_until 抛的 WaitFailedException 消息为空，补上当前界面才有排查线索。
+                detail = str(e) or f"当前界面: {self.current_screen()}"
+                self.log_warning(f"步骤 {tag} 第 {attempt}/{retries + 1} 次失败: {detail}")  # 记录本次失败。
                 if attempt > retries:  # 已用完全部尝试次数。
                     break  # 结束重试循环。
                 if recover:  # 需要恢复后再重试。
