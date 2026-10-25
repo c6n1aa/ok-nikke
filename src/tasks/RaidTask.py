@@ -113,6 +113,36 @@ class RaidTask(NikkeBaseTask):  # 定义讨伐任务类，包含协同作战与�
                 return True  # 已完成。
         return False  # 未识别到 0/3，视为未完成。
 
+    def _wait_coop_select_page(self, time_out=120):  # I2 接受后等待 NIKKE 选择界面：队友未确认会退回排队并再次弹出接受，期间补点接受。
+        """接受不代表必然进入选择界面：同队其他玩家可能未确认，游戏会退回匹配排队再重新匹配。
+
+        轮询期间接受按钮再次出现就补点一次接受。进入本方法前刚点过一次接受，
+        故需先看到接受按钮消失（本轮匹配已作废）才允许补点，避免对同一个接受
+        弹窗连点。超时抛 WaitFailedException，由 try_step 恢复。
+        """
+        rearmed = [False]  # 补点开关（闭包写入）：False 表示当前这轮匹配的接受弹窗已经点过。
+        polls = [0]  # 轮询计数：点击会清空当前帧，首轮不判定，避免把已点过的弹窗当成新弹窗。
+
+        def accept_again():  # 轮询前动作：接受按钮再次出现则补点接受。
+            polls[0] += 1  # 轮询次数加一。
+            if polls[0] == 1:  # 进入本方法前刚点过接受，当前帧被清空，本轮不做判定。
+                return
+            accept = self.find_one("coop_accpet")  # 匹配成功后弹出的接受按钮。
+            if accept is None:  # 接受按钮已消失：本轮匹配结束。
+                rearmed[0] = True  # 下一次匹配弹出接受按钮时允许补点。
+                return
+            if not rearmed[0]:  # 同一轮匹配的接受弹窗，已点过。
+                return
+            rearmed[0] = False  # 同一轮匹配只补点一次。
+            self.log_info("队友未确认导致重新排队，再次匹配成功，点击接受。")  # 记录补点原因。
+            self.click_box(accept, after_sleep=1)  # 点击接受并等待界面响应。
+
+        if not self.wait_until(lambda: self.is_screen("coop_nikke_select_page"), time_out=time_out,
+                               pre_action=accept_again, settle_time=0):  # 选择界面首帧命中即返回。
+            current = self.current_screen()  # 识别当前界面用于日志与异常上下文。
+            self.log_warning(f"等待协同作战选择界面超时（{time_out} 秒），当前界面: {current}")  # 记录超时原因。
+            raise WaitFailedException(f"not on screen: coop_nikke_select_page (current: {current})")  # 抛异常由 try_step 恢复。
+
     def _do_coop_flow(self):  # 协同作战主流程：从大厅出发，循环匹配普通难度直到次数用尽（re-entrant，由 try_step 包裹）。
         def find_coop_entry():  # B 在 box_lobby_left_side_panel 识别 coop 入口（ensure_screen 进入大厅之后才解析）。
             panel = self._get_panel_box()  # 获取左侧面板区域。
@@ -140,7 +170,7 @@ class RaidTask(NikkeBaseTask):  # 定义讨伐任务类，包含协同作战与�
             self.click_box("box_coop_normal", after_sleep=1)  # G 点击 box_coop_normal（文档写 box_normal，实际为 box_coop_normal）选择普通难度。
             self.click_box("box_coop_confirm", after_sleep=1)  # H 点击 box_coop_confirm 确认匹配。
             self.wait_click_feature("coop_accpet", time_out=60, raise_if_not_found=True, after_sleep=1)  # I 等待接受匹配弹窗出现（队友接受时间不定，最长 60 秒）并点击接受。
-            self.assert_screen("coop_nikke_select_page", time_out=20)  # I2 确认已进入 NIKKE 选择界面：等队友接受+加载实测最长约 8 秒，给足余量；不走 transition 以免总预算挤压确认窗口、且不会对一次性弹窗做无效补点。
+            self._wait_coop_select_page()  # I2 等待进入 NIKKE 选择界面：队友未确认会退回排队，接受按钮再现时补点；超时抛异常由 try_step 恢复。
             self.click_box("box_coop_ready", after_sleep=10)  # K 点击 box_coop_ready 准备就绪。
             result, confirm_box = self.wait_battle_finish(time_out=240)  # L 等待战斗结束 wait_battle_finish（节流轮询，只检测不点击）。
             if result is None:  # 超时未检测到结算界面。
