@@ -235,7 +235,7 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
             self._exit_simulation_to_ark()  # 确认在模拟室界面后点击返回按钮回方舟。
             return  # 结束本流程（由调用方统一标记完成）。
         self.click_box(quick_battle, after_sleep=1)  # 点击快速战斗立即完成本场模拟。
-        self.wait_click_feature("simulation_quick_battle_finishi", raise_if_not_found=True, after_sleep=1)  # 点击快速模拟结算的完成按钮。
+        self.wait_click_feature("simulation_quick_battle_finishi", box="box_sim_quick_battle_finishi", raise_if_not_found=True, after_sleep=1)  # 限定在完成按钮区域内匹配并点击快速模拟结算的完成按钮。
         self.dismiss_all_popups(wait_for_popup=False, time_out=10)  # 清理结算后可能弹出的奖励/公告弹窗。
         self._exit_simulation_to_ark()  # 快速战斗结束后确认回到模拟室界面，再返回方舟收尾。
 
