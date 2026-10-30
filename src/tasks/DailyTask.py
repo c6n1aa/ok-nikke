@@ -14,7 +14,7 @@ from src.tasks.NikkeBaseTask import NikkeBaseTask  # 导入项目基类，所有
 from src.tasks.OutpostDefenseTask import OutpostDefenseTask  # 导入歼灭子任务。
 from src.tasks.OutpostTask import OutpostTask  # 导入前哨基地子任务（派遣/咨询）。
 from src.tasks.RaidTask import RaidTask  # 导入讨伐子任务（协同作战/个人突袭）。
-from src.tasks.RecruitTask import RecruitTask  # 导入招募子任务（友情点/折扣普通招募）。
+from src.tasks.RecruitTask import RecruitTask  # 导入招募子任务（活动免费/友情点/折扣普通招募）。
 from src.tasks.ShopTask import ShopTask  # 导入商店子任务。
 
 
@@ -50,7 +50,7 @@ class DailyTask(NikkeBaseTask):  # 定义清日常总编排的父任务类。
             "歼灭": "是否执行前哨基地歼灭。",
             "付费商店": "是否执行付费商店免费礼包领取（STEP UP/每日/每周/每月）。",
             "商店": "是否执行商店购买（普通/竞技场/废铁）。",
-            "招募": "是否执行招募（友情点/折扣普通招募）。",
+            "招募": "是否执行招募（活动免费/友情点/折扣普通招募）。",
             "前哨基地": "是否执行前哨基地（派遣/咨询）。",
             "方舟": "是否执行方舟（企业塔/模拟室/拦截战/竞技场）。",
             "Raid": "是否执行限时挑战活动（协同作战/个人突袭）。",

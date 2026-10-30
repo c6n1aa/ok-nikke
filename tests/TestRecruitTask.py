@@ -46,6 +46,7 @@ class TestRecruitTask(_DebugOffTestCase):
         super().setUp()
         _isolate_task_config(self.task, 'RecruitTask')
         # 配置写穿透到共享临时文件：其他测试留下的开关/完成状态会泄漏进来，必须显式钉死。
+        self.task.config["活动免费招募"] = self.task.default_config["活动免费招募"]
         self.task.config["友情点招募"] = self.task.default_config["友情点招募"]
         self.task.config["折扣普通招募"] = self.task.default_config["折扣普通招募"]
         self.task.clear_done_all()
@@ -53,11 +54,11 @@ class TestRecruitTask(_DebugOffTestCase):
 
     def test_config_defaults(self):
         self.assertEqual("招募", self.task.name)
-        self.assertEqual("友情点招募/普通招募", self.task.description)
+        self.assertEqual("活动免费招募/友情点招募/普通招募", self.task.description)
         self.assertNotIn("招募", self.task.default_config)  # 总开关由日常编排的「招募」键承担，任务自身不重复。
+        self.assertTrue(self.task.default_config["活动免费招募"])
         self.assertTrue(self.task.default_config["友情点招募"])
         self.assertFalse(self.task.default_config["折扣普通招募"])
-        self.assertNotIn("免费活动单抽", self.task.default_config)  # 暂缺截图特征，配置已屏蔽（补充知识2）。
         self.assertNotIn("招募", self.task.config_type)  # 无主开关即无 sub_configs 联动。
         self.assertEqual({"recruit": "day"}, RecruitTask.done_keys)
 
@@ -83,6 +84,7 @@ class TestRecruitTask(_DebugOffTestCase):
 
     def test_full_success_flow(self):
         # 友情点招募成功路径：进界面→点单抽→跳过动画→点确定→返回大厅。
+        self.task.config["活动免费招募"] = False
         entry = Box(500, 500, 50, 30, confidence=1, name="recruit_social_point_single")
         confirm = Box(1000, 900, 60, 30, confidence=1, name="确定")
         result_box = Box(200, 700, 500, 200, confidence=1, name="box_recruit_result")
@@ -110,7 +112,8 @@ class TestRecruitTask(_DebugOffTestCase):
         self.assertIs(confirm, clicked_boxes[1])  # 点击结果确定按钮。
 
     def test_sub_configs_skipped_when_disabled(self):
-        # 两个子招募均关闭：只进出招募界面，不执行任何招募动作。
+        # 三个子招募均关闭：只进出招募界面，不执行任何招募动作。
+        self.task.config["活动免费招募"] = False
         self.task.config["友情点招募"] = False
         self.task.config["折扣普通招募"] = False
         with patch.object(self.task, "ensure_screen", return_value=True), \
@@ -130,6 +133,7 @@ class TestRecruitTask(_DebugOffTestCase):
 
     def test_ordinary_recruit_clicks_confirm(self):
         # 折扣普通招募：首屏未找到入口→翻页→点入口→点确认→跳过动画→点确定。
+        self.task.config["活动免费招募"] = False
         self.task.config["友情点招募"] = False
         self.task.config["折扣普通招募"] = True
         entry = Box(500, 500, 50, 30, confidence=1, name="recruit_ordinary_150")
@@ -154,6 +158,108 @@ class TestRecruitTask(_DebugOffTestCase):
         self.assertIn("lobby", clicked_features)
         self.assertIs(entry, click_box_mock.call_args_list[0].args[0])  # 入口框来自翻页后的匹配结果。
         self.assertTrue(self.task.is_done("recruit", "day"))
+
+    def test_free_recruit_clicks_free_area(self):
+        # 活动免费招募：识别到免费入口→点击该区域→跳过动画→点确定；没有下一个入口即结束。
+        self.task.config["友情点招募"] = False
+        self.task.config["折扣普通招募"] = False
+        free_box = Box(896, 1173, 243, 63, confidence=1, name="box_free_recruit_text")
+        confirm = Box(1000, 900, 60, 30, confidence=1, name="确定")
+        result_box = Box(200, 700, 500, 200, confidence=1, name="box_recruit_result")
+        with patch.object(self.task, "ensure_screen", return_value=True), \
+                patch.object(self.task, "try_step", side_effect=_execute_step), \
+                patch.object(self.task, "wait_click_feature") as click_mock, \
+                patch.object(self.task, "wait_screen", return_value=True), \
+                patch.object(self.task, "wait_for_lobby", return_value=True), \
+                patch.object(self.task, "_find_free_recruit_entry", side_effect=[free_box, None]), \
+                patch.object(self.task, "get_box_by_name", return_value=result_box), \
+                patch.object(self.task, "click_box") as click_box_mock, \
+                patch.object(self.task, "ocr", return_value=[confirm]), \
+                patch.object(self.task, "next_frame"), \
+                patch.object(self.task, "sleep"):
+            self.task.run()
+        clicked_features = [c.args[0] for c in click_mock.call_args_list]
+        self.assertEqual(["gacha", "recruit_skip", "lobby"], clicked_features)  # 进入→跳过动画→返回大厅。
+        clicked_boxes = [c.args[0] for c in click_box_mock.call_args_list]
+        self.assertEqual(2, len(clicked_boxes))
+        self.assertIs(free_box, clicked_boxes[0])  # 点击免费文字区域进入招募。
+        self.assertIs(confirm, clicked_boxes[1])  # 点击结果确定按钮。
+        self.assertTrue(self.task.is_done("recruit", "day"))
+
+    def test_find_free_recruit_entry_uses_region_ocr(self):
+        # 免费入口判定：只在免费文字区域内 OCR「免费」，当前页未命中才翻页。
+        free_box = Box(896, 1173, 243, 63, confidence=1, name="box_free_recruit_text")
+        free_text = Box(1000, 1190, 60, 30, confidence=1, name="免费")
+        with patch.object(self.task, "get_box_by_name", return_value=free_box), \
+                patch.object(self.task, "wait_ocr", side_effect=[[], [free_text]]) as wait_ocr_mock, \
+                patch.object(self.task, "wait_click_feature") as click_mock:
+            self.assertIs(free_box, self.task._find_free_recruit_entry())
+        self.assertIs(free_box, wait_ocr_mock.call_args.kwargs["box"])  # 识别限定在免费文字区域。
+        self.assertEqual(["recruit_next_page"], [c.args[0] for c in click_mock.call_args_list])  # 首屏未命中翻页一次。
+
+    def test_free_recruit_loops_until_no_entry(self):
+        # 存在多个免费入口：逐个领取，遇到没有免费入口的页签即结束。
+        free_boxes = [Box(896, 1173, 243, 63, confidence=1), Box(896, 900, 243, 63, confidence=1)]
+        confirm = Box(1000, 900, 60, 30, confidence=1, name="确定")
+        result_box = Box(200, 700, 500, 200, confidence=1, name="box_recruit_result")
+        with patch.object(self.task, "_find_free_recruit_entry", side_effect=[*free_boxes, None]), \
+                patch.object(self.task, "wait_click_feature") as click_mock, \
+                patch.object(self.task, "click_box") as click_box_mock, \
+                patch.object(self.task, "get_box_by_name", return_value=result_box), \
+                patch.object(self.task, "ocr", return_value=[confirm]), \
+                patch.object(self.task, "next_frame"), \
+                patch.object(self.task, "sleep"):
+            self.task._do_free_recruit()
+        self.assertEqual(["recruit_skip", "recruit_skip"], [c.args[0] for c in click_mock.call_args_list])
+        clicked = [c.args[0] for c in click_box_mock.call_args_list]
+        self.assertEqual(4, len(clicked))
+        self.assertIs(free_boxes[0], clicked[0])  # 第一个免费入口。
+        self.assertIs(confirm, clicked[1])
+        self.assertIs(free_boxes[1], clicked[2])  # 第二个免费入口。
+        self.assertIs(confirm, clicked[3])
+
+    def test_free_recruit_stops_at_max_times(self):
+        # 免费入口一直存在（如识别到已用完的入口）：最多领取 5 次即停止。
+        free_box = Box(896, 1173, 243, 63, confidence=1)
+        confirm = Box(1000, 900, 60, 30, confidence=1, name="确定")
+        result_box = Box(200, 700, 500, 200, confidence=1, name="box_recruit_result")
+        with patch.object(self.task, "_find_free_recruit_entry", return_value=free_box) as find_mock, \
+                patch.object(self.task, "wait_click_feature") as click_mock, \
+                patch.object(self.task, "click_box"), \
+                patch.object(self.task, "get_box_by_name", return_value=result_box), \
+                patch.object(self.task, "ocr", return_value=[confirm]), \
+                patch.object(self.task, "next_frame"), \
+                patch.object(self.task, "sleep"):
+            self.task._do_free_recruit()
+        self.assertEqual(5, find_mock.call_count)  # 达上限后不再查找下一个入口。
+        self.assertEqual(["recruit_skip"] * 5, [c.args[0] for c in click_mock.call_args_list])
+
+    def test_free_recruit_skips_when_free_text_absent(self):
+        # 各页签免费文字区域都识别不到「免费」：翻页找完后跳过该子招募，流程仍标记完成。
+        self.task.config["友情点招募"] = False
+        self.task.config["折扣普通招募"] = False
+        free_box = Box(896, 1173, 243, 63, confidence=1, name="box_free_recruit_text")
+        with patch.object(self.task, "ensure_screen", return_value=True), \
+                patch.object(self.task, "try_step", side_effect=_execute_step), \
+                patch.object(self.task, "wait_click_feature") as click_mock, \
+                patch.object(self.task, "wait_screen", return_value=True), \
+                patch.object(self.task, "wait_for_lobby", return_value=True), \
+                patch.object(self.task, "find_one", return_value=None), \
+                patch.object(self.task, "get_box_by_name", return_value=free_box), \
+                patch.object(self.task, "wait_ocr", return_value=[]), \
+                patch.object(self.task, "click_box") as click_box_mock, \
+                patch.object(self.task, "sleep"):
+            self.task.run()
+        clicked_features = [c.args[0] for c in click_mock.call_args_list]
+        self.assertEqual("recruit_next_page", clicked_features[1])  # 首屏未识别到免费即翻页。
+        self.assertNotIn("recruit_skip", clicked_features)  # 未找到入口不进入招募动画。
+        self.assertFalse(click_box_mock.called)  # 未识别到免费不点击任何区域。
+        self.assertTrue(self.task.is_done("recruit", "day"))
+
+    def test_find_free_recruit_entry_raises_when_box_missing(self):
+        with patch.object(self.task, "get_box_by_name", side_effect=ValueError("missing")):
+            with self.assertRaises(WaitFailedException):
+                self.task._find_free_recruit_entry()
 
     def test_find_entry_exhausts_pages_returns_none(self):
         with patch.object(self.task, "find_one", return_value=None), \

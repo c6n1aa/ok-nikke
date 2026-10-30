@@ -9,23 +9,30 @@ from src.tasks.NikkeBaseTask import NikkeBaseTask  # 项目基类，所有任务
 _CONFIRM_PATTERN = re.compile(r"确认", re.IGNORECASE)
 
 # 招募页签翻页上限：目标入口翻遍所有页签仍未找到时结束查找，防止特征缺失导致死循环。
-_MAX_RECRUIT_PAGES = 8
+_MAX_RECRUIT_PAGES = 6
+
+# 活动免费招募入口的 OCR 匹配模式：实机区域显示「每日免费1次」，只取「免费」两字降低误判。
+_FREE_RECRUIT_PATTERN = re.compile("免费", re.IGNORECASE)
+
+# 活动免费招募单次执行的最多领取次数：活动可能同时开放多个免费入口。
+_MAX_FREE_RECRUIT_TIMES = 5
 
 
-class RecruitTask(NikkeBaseTask):  # 招募任务：友情点招募/折扣普通招募。
+class RecruitTask(NikkeBaseTask):  # 招募任务：活动免费招募/友情点招募/折扣普通招募。
 
     done_keys = {"recruit": "day"}  # 完成状态：日常刷新。
 
     def __init__(self, *args, **kwargs):  # 初始化任务元数据与配置。
         super().__init__(*args, **kwargs)  # 必须先调用父类初始化。
         self.name = "招募"  # 任务显示名称。
-        self.description = "友情点招募/普通招募"  # 任务说明。
+        self.description = "活动免费招募/友情点招募/普通招募"  # 任务说明。
         self.default_config.update({  # 子任务专属设置，独立持久化到 configs/（总开关由日常编排的「招募」键承担，不在此重复）。
-            # "免费活动单抽": True,  # 每日活动免费招募（暂缺截图特征未实现）。
+            "活动免费招募": True,  # 是否使用每日1次的活动免费招募。
             "友情点招募": True,  # 是否使用10友情点进行招募。
             "折扣普通招募": False,  # 是否使用150钻进行每日折扣招募。
         })
         self.config_description.update({  # 每个配置项的帮助文本。
+            "活动免费招募": "使用每日1次的活动免费招募",
             "友情点招募": "使用10友情点进行招募",
             "折扣普通招募": "使用150钻进行每日折扣招募",
         })
@@ -50,9 +57,38 @@ class RecruitTask(NikkeBaseTask):  # 招募任务：友情点招募/折扣普通
             self._do_social_point_recruit()  # 友情点招募：翻页找入口→单抽→跳过动画→点确认。
         if self.config.get("折扣普通招募"):  # 启用折扣普通招募才执行。
             self._do_ordinary_recruit()  # 折扣普通招募：翻页找入口→确认→跳过动画→点确认。
+        if self.config.get("活动免费招募"):  # 启用活动免费招募才执行。
+            self._do_free_recruit()  # 活动免费招募：翻页找「免费」入口→跳过动画→点确认（放在最后：翻页会改变页签位置）。
         self.wait_click_feature("lobby", time_out=10, raise_if_not_found=True, after_sleep=1)  # 点底部导航大厅按钮返回大厅。
         if not self.wait_for_lobby(time_out=10, raise_if_not_found=False):  # 等待确认回到大厅。
             raise WaitFailedException("招募后未能返回大厅")  # 抛异常由 try_step 恢复重试。
+
+    def _do_free_recruit(self):  # 活动免费招募：循环翻页找入口→跳过动画→等待结果确认（与友情点招募一致），直到没有更多免费入口。
+        for index in range(1, _MAX_FREE_RECRUIT_TIMES + 1):  # 活动可能有多个免费入口，逐个领取并限制次数。
+            target = self._find_free_recruit_entry()  # 翻页查找带「免费」字样的活动入口。
+            if target is None:  # 没有更多免费入口（未开放或今日次数已用完）。
+                self.log_info("未找到活动免费招募入口，结束活动免费招募。")  # 记录结束原因。
+                return  # 结束本子招募。
+            self.log_info(f"活动免费招募第 {index}/{_MAX_FREE_RECRUIT_TIMES} 次。")  # 记录本次是第几个免费入口。
+            self.click_box(target, after_sleep=3)  # 点击免费入口开始招募。
+            self.wait_click_feature("recruit_skip", time_out=15, raise_if_not_found=True, after_sleep=1)  # 等待并点击跳过按钮跳过招募动画。
+            self._click_recruit_result()  # 等待结果面板「确认」按钮并点击关闭。
+        self.log_info(f"活动免费招募已达上限 {_MAX_FREE_RECRUIT_TIMES} 次，结束。")  # 记录达到次数上限。
+
+    def _find_free_recruit_entry(self):  # 在当前招募页签的免费文字区域 OCR 查找「免费」，找不到则点击下一页直到翻遍所有页签。
+        try:  # 区域特征可能尚未标注进 coco（含无帧瞬态，get_box_by_name 统一抛 ValueError）。
+            text_box = self.get_box_by_name("box_free_recruit_text")  # 获取免费文字区域框（已按当前分辨率缩放）。
+        except ValueError:  # 特征缺失。
+            raise WaitFailedException("box_free_recruit_text 特征缺失") from None  # 抛异常由 try_step 恢复；原 ValueError 只是取框细节，不保留上下文。
+        if text_box is None:  # 区域无效（如无可用帧）。
+            raise WaitFailedException("box_free_recruit_text 区域无效")  # 抛异常由 try_step 恢复。
+        for _ in range(_MAX_RECRUIT_PAGES):  # 有限翻页，避免特征缺失时死循环。
+            if self.wait_ocr(box=text_box, match=_FREE_RECRUIT_PATTERN, time_out=3, raise_if_not_found=False):  # 在免费文字区域内识别「免费」。
+                return text_box  # 返回该区域作为点击目标。
+            if not self.wait_click_feature("recruit_next_page", time_out=3, raise_if_not_found=False, after_sleep=3):  # 点击下一页，等待3秒确保界面稳定。
+                break  # 无下一页按钮（已到最后一页）结束查找。
+        self.log_warning("翻遍招募页签未找到活动免费招募入口")  # 记录查找失败。
+        return None  # 返回未找到。
 
     def _find_recruit_entry(self, feature_name):  # 在当前招募页签查找目标入口，找不到则点击下一页直到翻遍所有页签。
         for _ in range(_MAX_RECRUIT_PAGES):  # 有限翻页，避免特征缺失时死循环。
