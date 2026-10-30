@@ -71,7 +71,6 @@ Notes:
 ## 📝 TODO
 
 - [ ] i18n
-- [ ] Event free recruit
 - [ ] TBD
 
 ## ✨ Features
@@ -83,11 +82,11 @@ Notes:
 | Outpost Defense | Farm the outpost defense, optionally spending gems for extra runs |
 | Cash Shop | Claim free STEP UP / daily / weekly / monthly packages |
 | Shop | Buy items from the ordinary / arena / scrapyard shops |
-| Recruit | Friendship-point recruit / ordinary recruit |
+| Recruit | Event free recruit / friendship-point recruit / ordinary recruit |
 | Outpost | Dispatch / advise / brief encounters |
 | Ark | Manufacturer towers / simulation room / interception / arena |
 | Raid | Limited-time challenges (co-op / solo raid) |
-| Event | Generic handling of limited-time events (check-in stamp / story push (BETA) + sweep / challenge / mission rewards) |
+| Event | Generic handling of limited-time events (check-in stamp / story push (BETA) + sweep / challenge / mission rewards / minigame) |
 
 Except for "Daily", every task above can be run individually from the "Tasks" view. You can also enable them in the "Daily settings" and let "Daily" orchestrate them into a single queue that runs in order.
 
