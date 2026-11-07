@@ -2,14 +2,32 @@
 #    uv export --format requirements-txt --no-hashes --no-dev -o requirements.txt
 adbutils==2.12.0 ; sys_platform == 'win32'
     # via ok-script
+annotated-types==0.8.0 ; sys_platform == 'win32'
+    # via pydantic
+anyio==4.16.0 ; sys_platform == 'win32'
+    # via
+    #   httpx2
+    #   mcp
+    #   sse-starlette
+    #   starlette
+attrs==26.1.0 ; sys_platform == 'win32'
+    # via
+    #   jsonschema
+    #   referencing
 certifi==2026.7.22 ; sys_platform == 'win32'
     # via requests
+cffi==2.1.1 ; platform_python_implementation != 'PyPy' and sys_platform == 'win32'
+    # via cryptography
 charset-normalizer==3.5.1 ; sys_platform == 'win32'
     # via requests
+click==8.5.1 ; sys_platform == 'win32'
+    # via uvicorn
 comtypes==1.4.16 ; sys_platform == 'win32'
     # via
     #   ok-d3dshot
     #   pycaw
+cryptography==50.0.2 ; sys_platform == 'win32'
+    # via pyjwt
 darkdetect==0.8.0 ; sys_platform == 'win32'
     # via
     #   ok-script
@@ -22,8 +40,27 @@ evdev==2.0.0 ; sys_platform == 'win32' and 'linux' in sys_platform
     # via pynput
 flatbuffers==25.12.19 ; sys_platform == 'win32'
     # via onnxruntime
+h11==0.16.0 ; sys_platform == 'win32'
+    # via
+    #   httpcore2
+    #   uvicorn
+httpcore2==2.16.0 ; sys_platform == 'win32'
+    # via httpx2
+httpx2==2.16.0 ; sys_platform == 'win32'
+    # via mcp
 idna==3.19 ; sys_platform == 'win32'
-    # via requests
+    # via
+    #   anyio
+    #   httpx2
+    #   requests
+jsonschema==4.26.0 ; sys_platform == 'win32'
+    # via mcp
+jsonschema-specifications==2025.9.1 ; sys_platform == 'win32'
+    # via jsonschema
+mcp==2.3.0 ; sys_platform == 'win32'
+    # via ok-script
+mcp-types==2.3.0 ; sys_platform == 'win32'
+    # via mcp
 mouse==0.7.1 ; sys_platform == 'win32'
     # via ok-script
 numpy==2.5.3 ; sys_platform == 'win32'
@@ -34,7 +71,7 @@ numpy==2.5.3 ; sys_platform == 'win32'
     #   shapely
 ok-d3dshot==0.1.5 ; sys_platform == 'win32'
     # via ok-script
-ok-script==2.0.6 ; sys_platform == 'win32'
+ok-script==2.0.22 ; sys_platform == 'win32'
     # via ok-nikke
 onnxocr-ppocrv5==0.0.22 ; sys_platform == 'win32'
     # via ok-script
@@ -44,6 +81,8 @@ opencc==1.2.0 ; sys_platform == 'win32'
     # via ok-script
 opencv-python==5.0.0.93 ; sys_platform == 'win32'
     # via ok-nikke
+opentelemetry-api==1.45.2 ; sys_platform == 'win32'
+    # via mcp
 packaging==26.3 ; sys_platform == 'win32'
     # via
     #   deprecation
@@ -66,8 +105,18 @@ pycaw==20240210 ; sys_platform == 'win32'
     # via ok-script
 pyclipper==1.4.0 ; sys_platform == 'win32'
     # via onnxocr-ppocrv5
+pycparser==3.12 ; implementation_name != 'PyPy' and platform_python_implementation != 'PyPy' and sys_platform == 'win32'
+    # via cffi
+pydantic==2.14.3 ; sys_platform == 'win32'
+    # via
+    #   mcp
+    #   mcp-types
+pydantic-core==2.50.4 ; sys_platform == 'win32'
+    # via pydantic
 pydirectinput==1.0.4 ; sys_platform == 'win32'
     # via ok-script
+pyjwt==2.15.1 ; sys_platform == 'win32'
+    # via mcp
 pynput==1.8.2 ; sys_platform == 'win32'
     # via ok-script
 pyside6-essentials==6.11.2 ; sys_platform == 'win32'
@@ -82,19 +131,30 @@ pysidesix-frameless-window==0.8.2 ; sys_platform == 'win32'
     # via
     #   ok-script
     #   pyside6-fluent-widgets
+python-multipart==0.0.33 ; sys_platform == 'win32'
+    # via mcp
 python-xlib==0.33 ; sys_platform == 'win32' and 'linux' in sys_platform
     # via pynput
 pywin32==311 ; sys_platform == 'win32'
     # via
+    #   mcp
     #   ok-nikke
     #   ok-script
     #   pysidesix-frameless-window
+referencing==0.37.0 ; sys_platform == 'win32'
+    # via
+    #   jsonschema
+    #   jsonschema-specifications
 requests==2.34.2 ; sys_platform == 'win32'
     # via
     #   adbutils
     #   ok-script
 retry2==0.9.5 ; sys_platform == 'win32'
     # via adbutils
+rpds-py==2026.9.1 ; sys_platform == 'win32'
+    # via
+    #   jsonschema
+    #   referencing
 shapely==2.1.2 ; sys_platform == 'win32'
     # via onnxocr-ppocrv5
 shiboken6==6.11.2 ; sys_platform == 'win32'
@@ -103,7 +163,34 @@ six==1.17.0 ; sys_platform == 'win32'
     # via
     #   pynput
     #   python-xlib
+sse-starlette==3.6.0 ; sys_platform == 'win32'
+    # via mcp
+starlette==1.10.0 ; sys_platform == 'win32'
+    # via
+    #   mcp
+    #   sse-starlette
+truststore==0.10.5 ; sys_platform == 'win32'
+    # via
+    #   httpcore2
+    #   httpx2
 typing-extensions==4.16.0 ; sys_platform == 'win32'
-    # via ok-script
+    # via
+    #   anyio
+    #   httpx2
+    #   mcp
+    #   mcp-types
+    #   ok-script
+    #   opentelemetry-api
+    #   pydantic
+    #   pydantic-core
+    #   referencing
+    #   starlette
+    #   typing-inspection
+typing-inspection==0.4.5 ; sys_platform == 'win32'
+    # via
+    #   mcp
+    #   pydantic
 urllib3==2.7.0 ; sys_platform == 'win32'
     # via requests
+uvicorn==0.54.0 ; sys_platform == 'win32'
+    # via mcp
