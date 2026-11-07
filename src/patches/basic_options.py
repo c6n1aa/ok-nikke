@@ -12,6 +12,9 @@ LAUNCHER_PATH_KEY = '启动器路径'
 TRIGGER_INTERVAL_KEY = 'Trigger Interval'
 TRIGGER_INTERVAL_MS = 100
 
+# 正式版隐藏 MCP 开关；开发时用 `python -m ok mcp` / `--mcp` 入口。
+MCP_SERVER_KEY = getattr(_global_config_module, 'ENABLE_MCP_SERVER', 'Enable MCP Server')
+
 # 与本项目无关、需要在基础设置中隐藏入口的选项（保留配置键与默认值）
 _BASIC_OPTIONS_HIDDEN_KEYS = [
     'Mute Game while in Background',
@@ -79,6 +82,12 @@ def _patch_file_selector_initial_directory():
     LabelAndFileSelector._initial_directory = _initial_directory
 
 
+def _is_debug_build():
+    from ok import og
+
+    return bool((getattr(og, 'config', None) or {}).get('debug', False))
+
+
 def _patch_create_basic_options():
     # 把启动器相关选项注入 create_basic_options 返回的默认配置中。
     # 这样 Config 从磁盘加载时会把这些键当作已知默认项，已保存的启动器路径
@@ -94,6 +103,8 @@ def _patch_create_basic_options():
             options.config_type = {}
         for key in _BASIC_OPTIONS_HIDDEN_KEYS:
             options.config_type.setdefault(key, {})['hidden'] = True
+        if not _is_debug_build():
+            options.config_type.setdefault(MCP_SERVER_KEY, {})['hidden'] = True
         for key, value in _basic_options_extra_default.items():
             options.default_config.setdefault(key, value)
         options.config_description.update(_basic_options_extra_description)

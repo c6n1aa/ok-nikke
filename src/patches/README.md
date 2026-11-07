@@ -11,7 +11,7 @@
 
 ### basic_options.py
 
-包装 `ok.util.GlobalConfig.create_basic_options`：把与本项目无关的选项（`Mute Game while in Background`/`Auto Resize Game Window`/`Kill Launcher After Start`/`Launch with DX11`）在 `config_type` 上标记 `hidden` 隐藏（保留配置键与默认值，框架 `ConfigContentMixin` 跳过渲染）；调高 `Trigger Interval` 默认值，并把启动器路径配置行（「启动器路径」）注入「基础设置」顶部；文件选择框默认打开桌面目录由 `_patch_file_selector_initial_directory` 支持（`initial_directory: 'desktop'`）。不要直接改 `ok.util.GlobalConfig`。
+包装 `ok.util.GlobalConfig.create_basic_options`：把与本项目无关的选项（`Mute Game while in Background`/`Auto Resize Game Window`/`Kill Launcher After Start`/`Launch with DX11`）在 `config_type` 上标记 `hidden` 隐藏（保留配置键与默认值，框架 `ConfigContentMixin` 跳过渲染）；调高 `Trigger Interval` 默认值，并把启动器路径配置行（「启动器路径」）注入「基础设置」顶部；文件选择框默认打开桌面目录由 `_patch_file_selector_initial_directory` 支持（`initial_directory: 'desktop'`）。正式版（`config['debug']` 为 `False`）额外隐藏 `Enable MCP Server`，MCP 开发入口仍可用 `python -m ok mcp` 或 `--mcp`。不要直接改 `ok.util.GlobalConfig`。
 
 ### notification_tab.py
 
