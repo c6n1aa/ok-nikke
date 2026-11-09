@@ -1823,7 +1823,7 @@ class TestArkTaskInterception(_DebugOffTestCase):
 
 
 class TestArkTaskChampionArena(_DebugOffTestCase):
-    """冠军竞技场应援子流程测试：覆盖跳过/已完成/成功/失败/应援期闸门/占比选择/弹窗缺失等分支。"""
+    """冠军竞技场应援子流程测试：覆盖跳过/已完成/成功/失败/应援期闸门/占比选择/结果遮罩/弹窗缺失等分支。"""
 
     task_class = ArkTask
     task: ArkTask
@@ -1919,6 +1919,7 @@ class TestArkTaskChampionArena(_DebugOffTestCase):
         stack = ExitStack()
         mocks = {
             'transition': stack.enter_context(patch.object(self.task, "transition")),
+            'open_page': stack.enter_context(patch.object(self.task, "_open_carena_cheer_page")),
             'click_box': stack.enter_context(patch.object(self.task, "click_box")),
             'wait_until': stack.enter_context(patch.object(self.task, "wait_until", return_value=True)),
             'wait_click_feature': stack.enter_context(patch.object(self.task, "wait_click_feature")),
@@ -1942,7 +1943,7 @@ class TestArkTaskChampionArena(_DebugOffTestCase):
         with stack:
             self.task._do_champion_arena_cheer_flow()
         assert_any_call_semantic(mocks['transition'], "carena_home", click_feature="champion_arena")  # 竞技场→冠军竞技场主界面。
-        assert_any_call_semantic(mocks['transition'], "carena_promotion", box="box_carena_promotion_enter")  # 主界面→晋级赛界面。
+        assert_any_call_semantic(mocks['open_page'], "carena_promotion", "box_carena_promotion_enter")  # 主界面→晋级赛界面（含结果遮罩清理）。
         self.assertEqual(["box_carena_cheer_button", "box_carena_cheer_detail_confirm"],
                          [c.args[0] for c in mocks['click_box'].call_args_list])  # 开弹窗→提交应援。
         assert_called_once_semantic(mocks['dismiss'], wait_for_popup=False)  # 进晋级赛界面后先清上一轮应援的奖励遮罩（无遮罩立即返回）。
@@ -1993,8 +1994,8 @@ class TestArkTaskChampionArena(_DebugOffTestCase):
         with stack:
             stack.enter_context(patch.object(self.task, "_carena_cheer_round", return_value="2"))
             self.task._do_champion_arena_cheer_flow()
-        assert_any_call_semantic(mocks['transition'], "carena_champion", box="box_carena_champion_enter")  # 走冠军争霸赛卡片。
-        self.assertNotIn("carena_promotion", [c.args[0] for c in mocks['transition'].call_args_list])  # 不试晋级赛卡片。
+        assert_any_call_semantic(mocks['open_page'], "carena_champion", "box_carena_champion_enter")  # 走冠军争霸赛卡片。
+        self.assertNotIn("carena_promotion", [c.args[0] for c in mocks['open_page'].call_args_list])  # 不试晋级赛卡片。
         self.assertEqual(["box_carena_cheer_button", "box_carena_cheer_detail_confirm"],
                          [c.args[0] for c in mocks['click_box'].call_args_list])  # 应援按钮与确认按钮位置一致。
         self.assertEqual(["carena_home", "arena", "ark"],
@@ -2007,7 +2008,7 @@ class TestArkTaskChampionArena(_DebugOffTestCase):
             stack.enter_context(patch.object(self.task, "_cheer_button_present", side_effect=[False, True]))
             self.task._do_champion_arena_cheer_flow()
         self.assertEqual(["carena_promotion", "carena_champion"],
-                         [c.args[0] for c in mocks['transition'].call_args_list if c.args[0] != "carena_home"])  # 先晋级赛后冠军争霸赛。
+                         [c.args[0] for c in mocks['open_page'].call_args_list])  # 先晋级赛后冠军争霸赛。
         self.assertEqual("carena_home", mocks['assert_screen'].call_args_list[0].args[0])  # 无按钮时先退回主界面。
         self.assertEqual(["box_carena_cheer_button", "box_carena_cheer_detail_confirm"],
                          [c.args[0] for c in mocks['click_box'].call_args_list])  # 换到有按钮的界面后照常应援。
@@ -2037,6 +2038,57 @@ class TestArkTaskChampionArena(_DebugOffTestCase):
                 patch.object(self.task, "wait_until", side_effect=lambda condition, **kwargs: condition()), \
                 patch.object(self.task, "ocr", return_value=[]):
             self.assertFalse(self.task._cheer_button_present())  # 没有该文字即视为没有按钮。
+
+    def test_carena_result_overlay_control_uses_prompt(self):
+        """结果遮罩判据：在下半屏中央 OCR 翻页提示，命中即有遮罩，否则无遮罩。"""
+        prompt_box = Box(900, 900, 200, 30, confidence=1, name="点击进行下一步")
+        with patch.object(self.task, "box_of_screen", return_value=Box(0, 0, 100, 100, name="region")) as box_mock, \
+                patch.object(self.task, "ocr", side_effect=[[prompt_box], []]) as ocr_mock:
+            self.assertIs(prompt_box, self.task._carena_result_overlay_control())  # 命中翻页提示。
+            self.assertIsNone(self.task._carena_result_overlay_control())  # 无提示即无遮罩。
+        self.assertEqual([((1 / 3, 0.6, 2 / 3, 0.84),), ((1 / 3, 0.6, 2 / 3, 0.84),)],
+                         box_mock.call_args_list)  # 区域固定在屏幕中下部，且避开底部应援按钮区。
+        prompt_patterns = ocr_mock.call_args_list[0].kwargs["match"]  # 翻页提示的匹配模式列表。
+        self.assertIn(self.task._CLICK_TO_PROCEED_PATTERN, prompt_patterns)  # 覆盖「点击进行下一步」。
+
+    def test_dismiss_carena_result_overlay_clicks_control_once(self):
+        """遮罩清理：当前页有推进控件时只点一次；无遮罩时不点击。"""
+        control = Box(900, 900, 200, 30, confidence=1, name="点击进行下一步")
+        with patch.object(self.task, "_carena_result_overlay_control", side_effect=[control, None]), \
+                patch.object(self.task, "click_box") as click_mock:
+            self.assertTrue(self.task._dismiss_carena_result_overlay_once())  # 有遮罩：点一页。
+            self.assertFalse(self.task._dismiss_carena_result_overlay_once())  # 无遮罩：不点。
+        click_mock.assert_called_once_with(control, after_sleep=1)  # 每次只推进一页。
+
+    def test_open_carena_page_waits_for_overlay_free_screen(self):
+        """入场等待：先点卡片，再在轮询里清结果遮罩，标题可见且遮罩消失才算进入。"""
+        entry = "box_carena_promotion_enter"
+        waits = []  # 记录两轮 wait_until 的判定条件与清遮罩钩子。
+
+        def fake_wait_until(condition, time_out=0, pre_action=None, **kwargs):
+            waits.append((condition, pre_action))
+            return True
+
+        with patch.object(self.task, "click_box") as click_mock, \
+                patch.object(self.task, "wait_until", side_effect=fake_wait_until), \
+                patch.object(self.task, "is_screen", return_value=True), \
+                patch.object(self.task, "_carena_result_overlay_control", return_value=None):
+            self.task._open_carena_cheer_page("carena_promotion", entry)
+            self.assertTrue(waits[1][0]())  # 标题可见且无遮罩：判为已进入。
+            self.assertEqual("_dismiss_carena_result_overlay_once", waits[1][1].__name__)  # 轮询期间清遮罩。
+        self.assertEqual(2, len(waits))  # 首信号等待 + 就绪等待。
+        click_mock.assert_called_once_with(entry, after_sleep=1)  # 只点一次入口卡片。
+
+    def test_open_carena_page_raises_when_overlay_never_clears(self):
+        """入场超时：结果遮罩一直清不掉时抛 WaitFailedException 交 try_step 恢复。"""
+        overlay = Box(900, 900, 200, 30, confidence=1, name="点击进行下一步")
+        with patch.object(self.task, "click_box"), \
+                patch.object(self.task, "wait_until", side_effect=[True, False]), \
+                patch.object(self.task, "is_screen", return_value=True), \
+                patch.object(self.task, "current_screen", return_value=None), \
+                patch.object(self.task, "_carena_result_overlay_control", return_value=overlay):
+            with self.assertRaises(WaitFailedException):
+                self.task._open_carena_cheer_page("carena_promotion", "box_carena_promotion_enter")  # 就绪等待超时。
 
     def test_flow_raises_when_dialog_missing(self):
         """异常分支：点击应援按钮后弹窗未出现 → 抛 WaitFailedException 交由 try_step 恢复，不提交应援。"""

@@ -3,7 +3,10 @@ import time  # 时间模块，用于竞技场入口赛跑的补点计时。
 
 import cv2  # OpenCV，战力数字区域 OCR 前的放大预处理。
 from ok import og  # 全局单例，读取当前执行任务以判断是否由日常编排。
-from ok.task.exceptions import WaitFailedException  # 界面断言/战斗超时抛出的框架等待失败异常。
+from ok.task.exceptions import (  # 任务停止中断与界面断言/战斗超时的等待失败异常。
+    TaskDisabledException,
+    WaitFailedException,
+)
 
 from src import event_calendar  # 只读本地活动日历缓存，用于冠军竞技场应援期的前置判断。
 from src.tasks.NikkeBaseTask import NikkeBaseTask  # 项目基类，所有任务统一继承它。
@@ -43,6 +46,11 @@ _CARENA_CHEER_CHAMPION_ROUNDS = ("8", "4", "2")
 
 # 应援按钮文字搜索区域（相对坐标，页面底部中央）：只框住按钮与上方倒计时，只有当前应援段的界面才有它。
 _CARENA_CHEER_BUTTON_TEXT_BOX = (0.42, 0.84, 0.58, 0.94)
+
+# 上一轮应援结果遮罩（CHEER RESULT）的翻页提示区域（相对坐标，屏幕中下部）：
+# 遮罩为多页奖励展示，每页底部中央都有「点击进行下一步」，点完才会露出下面的应援界面。
+# 下界取 0.84，避开底部应援按钮区域（0.84~0.94），避免按钮周边文案被误判成遮罩提示。
+_CARENA_RESULT_PROMPT_BOX = (1 / 3, 0.6, 2 / 3, 0.84)
 
 # 异常个体拦截战可选 BOSS 列表：即「BOSS选择」下拉选项，也是队伍配置的子配置键。
 _ANOMALY_BOSSES = ["克拉肯", "镜像容器", "茵迪维利亚", "过激派", "死神"]
@@ -735,8 +743,8 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
             return  # 跳过（由调用方统一标记完成）。
         self._nav_to_arena()  # 确保处于竞技场界面（正常已就位；失败恢复回大厅后由此重新进入）。
         self.transition("carena_home", click_feature="champion_arena", wait_confirm=10, after_sleep=1)  # 点冠军竞技场入口并确认进入主界面。
-        self._enter_carena_cheer_page()  # 按当前应援段进入对应应援界面（晋级赛 / 冠军争霸赛）。
-        self.dismiss_all_popups(wait_for_popup=False, time_out=10)  # 上一轮应援的奖励遮罩会盖在应援界面上，先清掉再点应援按钮。
+        self._enter_carena_cheer_page()  # 按当前应援段进入对应应援界面（含上一轮应援结果遮罩清理）。
+        self.dismiss_all_popups(wait_for_popup=False, time_out=10)  # 兜底清理进入后才弹出的奖励/公告遮罩，避免吞掉应援按钮点击。
         self.click_box("box_carena_cheer_button", raise_if_not_found=True, after_sleep=1)  # 点底部应援按钮打开弹窗（box_ 前缀为纯坐标区域，按坐标点击）。
         if not self.wait_until(self._cheer_dialog_open, time_out=10):  # 弹窗不注册界面，用弹窗内选择按钮确认已弹出。
             raise WaitFailedException("点击应援按钮后未出现应援弹窗")  # 抛异常由 try_step 恢复重试。
@@ -751,12 +759,34 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
 
     def _enter_carena_cheer_page(self):  # 进入应援界面：按当前应援段选入口卡片，界面没有应援按钮则退回主界面换另一个入口。
         for screen, box in self._carena_cheer_entry_order():  # 依次尝试两个入口卡片。
-            self.transition(screen, box=box, wait_confirm=10, after_sleep=1)  # 点卡片入口并确认进入对应界面。
+            self._open_carena_cheer_page(screen, box)  # 点卡片进入，途中清掉上一轮应援结果遮罩。
             if self._cheer_button_present():  # 界面底部有应援按钮，说明这就是当前应援段所在的界面。
                 return  # 入口正确。
             self.log_info(f"{screen} 界面没有应援按钮，返回冠军竞技场主界面换下一个入口")  # 记录入口与当前段不符。
             self._back_through_screens("carena_home")  # 退回主界面，下一轮从主界面重新点另一个卡片。
         raise WaitFailedException("冠军竞技场两个入口界面都没有应援按钮")  # 抛异常由 try_step 恢复重试。
+
+    def _open_carena_cheer_page(self, screen, box):  # 点入口卡片进入应援界面，并清掉盖住标题与应援按钮的上一轮应援结果遮罩。
+        """点击入口卡片并确认进入应援界面。
+
+        上一轮应援结果遮罩（CHEER RESULT）是整屏多页展示，页面加载后会盖住标题
+        「晋级赛/冠军争霸赛」与底部应援按钮；必须在确认界面之前逐页点掉，否则
+        界面标题确认与应援按钮判据都会超时。
+        """
+        self.click_box(box, after_sleep=1)  # 点卡片入口并等待页面加载。
+        # 先等首个信号（界面标题或结果遮罩）：点击被过场动画吞掉时补点一次，避免盲等满超时。
+        if not self.wait_until(lambda: self.is_screen(screen) or self._carena_result_overlay_control() is not None,
+                               time_out=10):
+            self.click_box(box, after_sleep=1)  # 补点入口卡片。
+        # 结果遮罩可能有多页：每轮先点掉当前页，标题必须在遮罩不再出现时连续可见 1 秒才算进入界面。
+        ready = self.wait_until(
+            lambda: self.is_screen(screen) and self._carena_result_overlay_control() is None,
+            time_out=20,
+            pre_action=self._dismiss_carena_result_overlay_once,
+            settle_time=1,
+        )
+        if not ready:  # 超时仍未进入目标界面。
+            raise WaitFailedException(f"进入 {screen} 界面超时 (current: {self.current_screen()})")  # 抛异常由 try_step 恢复重试。
 
     def _carena_cheer_entry_order(self):  # 入口尝试顺序：当前应援段所在的卡片优先；段号未知时晋级赛优先。
         entries = list(_CARENA_CHEER_ENTRIES)  # 默认晋级赛→冠军争霸赛。
@@ -796,6 +826,27 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
     def _cheer_button_present(self, time_out=5):  # 当前应援界面上是否有应援按钮：等页面底部按钮上的「应援」文字出现（容忍过场动画）。
         return bool(self.wait_until(lambda: self.ocr(box=self.box_of_screen(*_CARENA_CHEER_BUTTON_TEXT_BOX), match="应援"),
                                     time_out=time_out))  # 命中即视为按钮在，只有当前应援段的界面才有。
+
+    def _carena_result_overlay_control(self):  # 上一轮应援结果遮罩当前页的翻页控件，无遮罩返回 None。
+        """返回应援结果遮罩当前页的翻页提示：底部中央的「点击进行下一步」等奖励遮罩文字。"""
+        try:  # 无帧/OCR 异常按当前帧无遮罩处理，交下一轮轮询重试。
+            prompts = self.ocr(box=self.box_of_screen(*_CARENA_RESULT_PROMPT_BOX),
+                               match=[self._MASK_CLAIM_PATTERN, self._MASK_ANYWHERE_PATTERN,
+                                      self._CLICK_TO_PROCEED_PATTERN])  # 底部「点击进行下一步」等翻页提示。
+        except TaskDisabledException:  # 任务被用户停止，必须让中断异常继续向上传播。
+            raise
+        except Exception as e:  # 无可用帧等读取异常。
+            self.log_warning(f"应援结果遮罩识别失败: {e}")  # 记录失败原因。
+            return None  # 本帧视为无遮罩。
+        return prompts[0] if prompts else None  # 有翻页提示返回首个命中框。
+
+    def _dismiss_carena_result_overlay_once(self):  # 点掉一页上一轮应援结果遮罩，返回是否点击过。
+        control = self._carena_result_overlay_control()  # 当前页可点的推进控件。
+        if control is None:  # 当前帧没有应援结果遮罩。
+            return False  # 未点击。
+        self.click_box(control, after_sleep=1)  # 点翻页，等待下一页/应援界面加载。
+        self.log_info("点击上一轮应援结果遮罩继续")  # 记录关闭动作。
+        return True  # 已点击一页。
 
     def _cheer_target_feature(self):  # 按「应援现状」占比条决定应援哪一方：返回占比更大一方的选择按钮特征名。
         try:  # 区域特征可能缺失。
