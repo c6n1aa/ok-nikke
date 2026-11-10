@@ -707,6 +707,20 @@ class TestSnapshotFreshness(unittest.TestCase):
     def test_is_fresh_false_without_online_data(self):
         self.assertFalse(self._snapshot(0).is_fresh(now=self._game(27, 12)))  # fetched_at=0：没拿到线上数据。
 
+    def test_is_current_game_day_accepts_stale_same_day_snapshot(self):
+        """固定日程可用性：30 分钟 TTL 过期但仍在同一游戏日的快照有效。"""
+        now = self._game(27, 12)
+        self.assertTrue(self._snapshot(self._game(27, 9)).is_current_game_day(now=now))  # 3 小时前拉的，同日。
+
+    def test_is_current_game_day_rejects_previous_game_day_snapshot(self):
+        """跨过官方时区 05:00 刷新的隔日快照失效。"""
+        now = self._game(27, 5, 10)
+        self.assertFalse(self._snapshot(self._game(27, 4, 50)).is_current_game_day(now=now))  # 20 分钟前但属上一游戏日。
+        self.assertTrue(self._snapshot(self._game(27, 5, 5)).is_current_game_day(now=now))  # 刷新之后的快照。
+
+    def test_is_current_game_day_false_without_online_data(self):
+        self.assertFalse(self._snapshot(0).is_current_game_day(now=self._game(27, 12)))  # fetched_at=0：没拿到线上数据。
+
 
 class TestGlobalsStartupRefresh(unittest.TestCase):
     """应用启动钩子：测试运行器下不启动；正常启动（含 debug）时起后台线程调 refresh（被 mock，不触网）。"""

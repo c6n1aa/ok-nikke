@@ -722,13 +722,13 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
         self.log_info("冠军竞技场应援任务完成")  # 记录子流程完成。
 
     def _arena_cheer_closed_by_calendar(self):  # 按本地活动日历缓存判断当前是否不在应援期（只读缓存，不联网）。
-        """缓存新鲜且当前不在任一应援窗口（含新鲜缓存无应援条目）时返回 True；缓存不可用时返回 False，交回实机判定。"""
+        """当日快照且当前不在任一应援窗口（含当日快照无应援条目）时返回 True；无当日快照时返回 False，交回实机判定。"""
         snapshot = event_calendar.load_snapshot()  # 只读 cache/event_banner/calendar.json。
-        if snapshot is None or not snapshot.is_fresh():  # 无缓存，或已过新鲜期（30 分钟 / 官方时区 05:00 刷新）。
-            self.log_info("冠军竞技场应援：本地活动日历缓存不可用，按实机状态判断。")  # 记录交回实机。
-            return False  # 不在应援期时实机也进不去冠军竞技场/晋级赛界面，交回实机不会误应援。
+        if snapshot is None or not snapshot.is_current_game_day():  # 无缓存，或快照跨过了官方时区 05:00 刷新（不是当日快照）。
+            self.log_info("冠军竞技场应援：无当日本地活动日历快照，按实机状态判断。")  # 记录交回实机。
+            return False  # 交回实机：由页面上的应援按钮可用性兜底判断。
         windows = snapshot.status_windows(_CARENA_CHEER_TYPE_PREFIX)  # 按前缀一次取全部应援窗口。
-        if not windows:  # 新鲜缓存里没有应援条目：官方已下架/赛季结束。
+        if not windows:  # 当日快照里没有应援条目：官方已下架/赛季结束。
             self.log_info("冠军竞技场应援：活动日历无应援条目，视为已结束，跳过。")  # 记录跳过原因。
             return True  # 不在应援期。
         now = time.time()
@@ -794,9 +794,9 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
             entries.reverse()  # 冠军争霸赛优先。
         return entries  # 返回按优先级排列的入口。
 
-    def _carena_cheer_round(self):  # 活动日历里当前应援段的段号（ArenaChampionBetting32 → "32"）；缓存不可用或不在窗口内返回 None。
+    def _carena_cheer_round(self):  # 活动日历里当前应援段的段号（ArenaChampionBetting32 → "32"）；无当日快照或不在窗口内返回 None。
         snapshot = event_calendar.load_snapshot()  # 只读 cache/event_banner/calendar.json。
-        if snapshot is None or not snapshot.is_fresh():  # 无缓存，或已过新鲜期（30 分钟 / 官方时区 05:00 刷新）。
+        if snapshot is None or not snapshot.is_current_game_day():  # 无缓存，或快照跨过了官方时区 05:00 刷新（不是当日快照）。
             return None  # 段号未知，入口按默认顺序试。
         event_type = snapshot.status_window_type(_CARENA_CHEER_TYPE_PREFIX)  # 当前时刻所在应援段的 type。
         if not event_type:  # 不在任何应援窗口（正常到不了这里，闸门已拦）。
@@ -823,9 +823,20 @@ class ArkTask(NikkeBaseTask):  # 方舟任务：执行企业塔/模拟室/拦截
         return (self.find_one("carena_cheer_detail_p1") is not None
                 or self.find_one("carena_cheer_detail_p2") is not None)  # 任一命中即已弹出。
 
-    def _cheer_button_present(self, time_out=5):  # 当前应援界面上是否有应援按钮：等页面底部按钮上的「应援」文字出现（容忍过场动画）。
-        return bool(self.wait_until(lambda: self.ocr(box=self.box_of_screen(*_CARENA_CHEER_BUTTON_TEXT_BOX), match="应援"),
-                                    time_out=time_out))  # 命中即视为按钮在，只有当前应援段的界面才有。
+    def _cheer_button_present(self, time_out=5):  # 当前应援界面上是否有可点的应援按钮：底部按钮文字命中且按钮为高亮可用态。
+        """判断当前页面是否有可点的应援按钮：灰白禁用态的「应援」按钮不算（非应援期页面仍会显示该按钮文字）。"""
+
+        def _present():  # 单帧判定：文字在 + 按钮区域高亮。
+            if not self.ocr(box=self.box_of_screen(*_CARENA_CHEER_BUTTON_TEXT_BOX), match="应援"):
+                return False  # 没有按钮文字。
+            try:  # 按钮区域特征可能缺失。
+                button = self.get_box_by_name("box_carena_cheer_button")
+            except ValueError:  # 特征缺失。
+                return False  # 无法判断可用态，按无按钮处理。
+            # 实机帧标定：按钮图标区启用态色彩丰富度约 0.33、灰白禁用态约 0.03，默认阈值 0.1 可稳定区分。
+            return button is not None and self.is_feature_enabled(button)  # 灰白禁用态不算可点。
+
+        return bool(self.wait_until(_present, time_out=time_out))  # 命中即视为按钮在，只有当前应援段的界面才有。
 
     def _carena_result_overlay_control(self):  # 上一轮应援结果遮罩当前页的翻页控件，无遮罩返回 None。
         """返回应援结果遮罩当前页的翻页提示：底部中央的「点击进行下一步」等奖励遮罩文字。"""

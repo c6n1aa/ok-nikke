@@ -80,6 +80,17 @@ class CalendarSnapshot:
         now = time.time() if now is None else now
         return self.fetched_at >= day_reset_time(now) and (now - self.fetched_at) < ttl_seconds
 
+    def is_current_game_day(self, now=None):
+        """快照是否拉取自最近一次每日刷新之后（当日快照，跨过官方时区 05:00 即失效）。
+
+        固定日程（如冠军竞技场应援段）在当日刷新后不再变化，30 分钟 TTL 过期后仍可用
+        它判断当前是否处于窗口；now 供测试注入（unix 秒），缺省取真实时间。
+        """
+        if not self.fetched_at:  # fetched_at=0：没拿到线上数据。
+            return False
+        now = time.time() if now is None else now
+        return self.fetched_at >= day_reset_time(now)
+
     def status_of(self, category):
         """某分类的状态条目（不存在时为空列表）。"""
         return list(self.status.get(category) or [])

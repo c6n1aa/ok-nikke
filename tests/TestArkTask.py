@@ -1907,6 +1907,29 @@ class TestArkTaskChampionArena(_DebugOffTestCase):
         with patch.object(event_calendar, "load_snapshot", return_value=outside):
             self.assertTrue(self.task._arena_cheer_closed_by_calendar())  # 两段之间的对战间隙。
 
+    def test_closed_by_calendar_uses_stale_same_day_snapshot(self):
+        """30 分钟 TTL 已过但仍是当日快照：固定应援日程依然有效，不在窗口内必须跳过。"""
+        now = int(time.time())
+        outside = event_calendar.CalendarSnapshot(fetched_at=now - 3600, events=(), status={'arena': [
+            {'type': 'ArenaChampionBetting16', 'start_time': str(now - 7200), 'end_time': str(now - 3600)}]})
+        with patch.object(event_calendar, 'day_reset_time', return_value=now - 86400), \
+                patch.object(event_calendar, "load_snapshot", return_value=outside):
+            self.assertTrue(self.task._arena_cheer_closed_by_calendar())  # 当日过期快照 + 窗口已结束 → 跳过。
+        inside = event_calendar.CalendarSnapshot(fetched_at=now - 3600, events=(), status={'arena': [
+            {'type': 'ArenaChampionBetting8', 'start_time': str(now - 10), 'end_time': str(now + 100)}]})
+        with patch.object(event_calendar, 'day_reset_time', return_value=now - 86400), \
+                patch.object(event_calendar, "load_snapshot", return_value=inside):
+            self.assertFalse(self.task._arena_cheer_closed_by_calendar())  # 当日过期快照 + 在窗口内 → 执行。
+
+    def test_closed_by_calendar_falls_back_on_previous_day_snapshot(self):
+        """跨过每日刷新的隔日快照不再可信，交回实机判定。"""
+        now = int(time.time())
+        snapshot = event_calendar.CalendarSnapshot(fetched_at=now - 86400, events=(), status={'arena': [
+            {'type': 'ArenaChampionBetting8', 'start_time': str(now - 10), 'end_time': str(now + 100)}]})
+        with patch.object(event_calendar, 'day_reset_time', return_value=now - 3600), \
+                patch.object(event_calendar, "load_snapshot", return_value=snapshot):
+            self.assertFalse(self.task._arena_cheer_closed_by_calendar())  # 无当日快照：按实机状态判断。
+
     def test_flow_skips_navigation_when_closed(self):
         """非应援期分支：不进入任何界面，直接收尾（由调用方统一标记完成）。"""
         with patch.object(self.task, "_arena_cheer_closed_by_calendar", return_value=True), \
@@ -1967,6 +1990,10 @@ class TestArkTaskChampionArena(_DebugOffTestCase):
             {'type': 'ArenaChampionBetting8', 'start_time': str(now - 10), 'end_time': str(now + 100)}]})
         with patch.object(event_calendar, "load_snapshot", return_value=active):
             self.assertEqual("8", self.task._carena_cheer_round())  # 当前落在 8 强应援段。
+        stale_same_day = event_calendar.CalendarSnapshot(fetched_at=now - 3600, events=(), status=active.status)  # TTL 已过但仍是当日快照。
+        with patch.object(event_calendar, 'day_reset_time', return_value=now - 86400), \
+                patch.object(event_calendar, "load_snapshot", return_value=stale_same_day):
+            self.assertEqual("8", self.task._carena_cheer_round())  # 当日过期快照仍可确定段号。
         stale = event_calendar.CalendarSnapshot(fetched_at=0, events=(), status=active.status)  # 已过新鲜期。
         with patch.object(event_calendar, "load_snapshot", return_value=stale):
             self.assertIsNone(self.task._carena_cheer_round())  # 缓存不可用：段号未知。
@@ -2025,19 +2052,37 @@ class TestArkTaskChampionArena(_DebugOffTestCase):
                          [c.args[0] for c in mocks['assert_screen'].call_args_list])  # 两次尝试后各退回主界面。
 
     def test_cheer_button_present_uses_ocr_in_button_area(self):
-        """应援按钮判据：在页面底部区域 OCR「应援」文字，命中即有按钮。"""
-        box = Box(1200, 1250, 200, 80, confidence=1, name="cheer_text")
-        with patch.object(self.task, "box_of_screen", return_value=box) as box_mock, \
+        """应援按钮判据：底部区域 OCR「应援」文字且按钮区域高亮可用才视为有按钮。"""
+        text_box = Box(1200, 1250, 200, 80, confidence=1, name="cheer_text")
+        button_box = Box(1158, 1269, 49, 45, confidence=1, name="box_carena_cheer_button")
+        with patch.object(self.task, "box_of_screen", return_value=text_box) as box_mock, \
                 patch.object(self.task, "wait_until", side_effect=lambda condition, **kwargs: condition()) as wait_mock, \
-                patch.object(self.task, "ocr", return_value=[box]) as ocr_mock:
-            self.assertTrue(self.task._cheer_button_present())  # 命中「应援」文字。
+                patch.object(self.task, "ocr", return_value=[text_box]) as ocr_mock, \
+                patch.object(self.task, "get_box_by_name", return_value=button_box) as button_mock, \
+                patch.object(self.task, "is_feature_enabled", return_value=True) as enabled_mock:
+            self.assertTrue(self.task._cheer_button_present())  # 命中「应援」文字且按钮可用。
         self.assertEqual([((0.42, 0.84, 0.58, 0.94),)], box_mock.call_args_list)  # 区域固定在页面底部中央。
-        ocr_mock.assert_called_once_with(box=box, match="应援")  # 只搜按钮文字。
+        ocr_mock.assert_called_once_with(box=text_box, match="应援")  # 只搜按钮文字。
+        button_mock.assert_called_once_with("box_carena_cheer_button")  # 用按钮区域判可用态。
+        enabled_mock.assert_called_once_with(button_box)  # 高亮彩色才算可点。
         self.assertEqual(5, wait_mock.call_args.kwargs['time_out'])  # 等过场动画的容忍时间。
-        with patch.object(self.task, "box_of_screen", return_value=box), \
+        with patch.object(self.task, "box_of_screen", return_value=text_box), \
                 patch.object(self.task, "wait_until", side_effect=lambda condition, **kwargs: condition()), \
-                patch.object(self.task, "ocr", return_value=[]):
+                patch.object(self.task, "ocr", return_value=[]), \
+                patch.object(self.task, "get_box_by_name") as missing_mock:
             self.assertFalse(self.task._cheer_button_present())  # 没有该文字即视为没有按钮。
+            missing_mock.assert_not_called()  # 无文字时不再判按钮可用态。
+
+    def test_cheer_button_present_rejects_disabled_button(self):
+        """非应援期页面仍有灰色「应援」文字：按钮区域为灰白禁用态时不算可点。"""
+        text_box = Box(1200, 1250, 200, 80, confidence=1, name="cheer_text")
+        button_box = Box(1158, 1269, 49, 45, confidence=1, name="box_carena_cheer_button")
+        with patch.object(self.task, "box_of_screen", return_value=text_box), \
+                patch.object(self.task, "wait_until", side_effect=lambda condition, **kwargs: condition()), \
+                patch.object(self.task, "ocr", return_value=[text_box]), \
+                patch.object(self.task, "get_box_by_name", return_value=button_box), \
+                patch.object(self.task, "is_feature_enabled", return_value=False):
+            self.assertFalse(self.task._cheer_button_present())  # 灰白禁用态不点击。
 
     def test_carena_result_overlay_control_uses_prompt(self):
         """结果遮罩判据：在下半屏中央 OCR 翻页提示，命中即有遮罩，否则无遮罩。"""
