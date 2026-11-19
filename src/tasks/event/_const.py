@@ -97,7 +97,7 @@ _MISSION_TABS = (  # 大活动弹窗栏目（点开默认停在「每日任务�
 _MISSION_DAILY_SUBTITLE_BOX = "box_event_daily_subtitle"  # 大活动弹窗副标题区（页面状态判据：文字随栏目变）。
 _MISSION_READY_TIMEOUT = 10  # 点入口后等弹窗就位（大活动认栏目图标，小活动认副标题）的窗口（秒）。
 _MISSION_TAB_SWITCH_TIMEOUT = 5  # 点栏目标签后等副标题变化的窗口（秒）。
-_MISSION_CLAIM_MAX_CLICKS = 20  # 单次领取循环的点击上限（点击未生效时防死循环）。
+_MISSION_CLAIM_MAX_CLICKS = 5  # 单次领取循环的点击上限（两段式领取 + 少量重试余量，点击未生效时防死循环）。
 _MISSION_CLAIM_SETTLE_TIMEOUT = 5  # 点击「全部领取」后等第二段重新可领的观察窗（秒）。
 _MISSION_CLAIM_SETTLE = 1.5  # 第二段重新可领后的稳定确认时间（秒），吸收按钮入场/位移动画。
 
